@@ -6,9 +6,9 @@ import { save as saveResult } from '../core/gameResult.js'
 import { GAME_REGISTRY } from '../games/registry.js'
 
 export async function gamePage(app, query) {
-  const gameId = query.id ?? 'poop-dodge'
-  // session 파라미터 없으면 solo 세션 ID 자동 생성 (저장은 항상 함)
-  const sessionId = query.session || `solo-${Date.now()}`
+  const gameId      = query.id ?? 'poop-dodge'
+  const isSession   = !!query.session                          // URL에 session 파라미터 있으면 세션 모드
+  const sessionId   = query.session || `solo-${Date.now()}`   // solo는 자동 생성
 
   // ── 매니페스트 로드 ──────────────────────────────────────
   const entry = GAME_REGISTRY[gameId]
@@ -59,6 +59,25 @@ export async function gamePage(app, query) {
         transform:scaleX(-1);display:none;
       "></video>
 
+      <!-- 세션 모드 대기 화면 -->
+      <div id="waiting-overlay" style="
+        position:absolute;inset:0;display:${isSession ? 'flex' : 'none'};
+        flex-direction:column;align-items:center;justify-content:center;gap:16px;
+        background:rgba(13,27,42,0.96);font-family:var(--font-main);
+      ">
+        <div style="font-size:3.5rem;">🎮</div>
+        <div style="font-size:1.4rem;font-weight:700;color:var(--color-text);">
+          선생님이 게임을 시작하면 시작됩니다
+        </div>
+        <div style="
+          font-size:1.8rem;font-weight:800;letter-spacing:0.08em;
+          color:var(--color-accent);
+        ">${query.session}</div>
+        <div style="color:var(--color-sub);font-size:0.9rem;margin-top:8px;">
+          안녕하세요, <strong style="color:var(--color-text);">${playerName}</strong>님!
+        </div>
+      </div>
+
       <!-- 게임 오버 오버레이 -->
       <div id="gameover-overlay" style="
         position:absolute;inset:0;display:none;flex-direction:column;
@@ -77,11 +96,12 @@ export async function gamePage(app, query) {
   `
 
   const canvas = app.querySelector('#game-canvas')
-  canvas.width = canvas.offsetWidth
+  canvas.width  = canvas.offsetWidth
   canvas.height = canvas.offsetHeight
 
-  // HUD 업데이트 함수
+  // ── HUD ──────────────────────────────────────────────────
   const rounds = manifest.rounds ?? 5
+
   function updateRoundPips(round) {
     app.querySelector('#hud-rounds').innerHTML =
       Array.from({ length: rounds }, (_, i) =>
@@ -94,25 +114,28 @@ export async function gamePage(app, query) {
         `<span style="opacity:${i < n ? 1 : 0.2};">❤️</span>`
       ).join('')
   }
-  function updateScore(s) {
-    app.querySelector('#score-val').textContent = s
-  }
-  function updateTimer(ms) {
-    app.querySelector('#hud-timer').textContent = Math.ceil(ms / 1000)
-  }
+  function updateScore(s) { app.querySelector('#score-val').textContent = s }
+  function updateTimer(ms) { app.querySelector('#hud-timer').textContent = Math.ceil(ms / 1000) }
 
-  updateRoundPips(0)
-  updateLives(3)
+  function resetHUD() {
+    updateLives(3)
+    updateScore(0)
+    updateRoundPips(0)
+    app.querySelector('#hud-timer').textContent = ''
+  }
+  resetHUD()
 
-  // ── 게임 임포트 ──────────────────────────────────────────
+  // ── 게임 임포트 & 빌드 ────────────────────────────────────
   const { default: GameClass } = await entry.load()
-
   let game = null
-  let gameStats = null
 
   function buildGame() {
+    game?.destroy()
     game = new GameClass(canvas, {
-      onRoundEnd: (round) => updateRoundPips(round),
+      onRoundEnd: (round) => {
+        updateRoundPips(round)
+        if (isSession) channel.send(MSG.ROUND_CHANGE, { round })
+      },
       onGameEnd: async (stats) => {
         showGameOver(stats)
         try {
@@ -120,22 +143,23 @@ export async function gamePage(app, query) {
             sessionId,
             gameId,
             playerName,
-            score: stats.score,
+            score:         stats.score,
             roundsCleared: stats.roundsCleared,
-            dodgeCount: stats.dodgeCount,
-            hitCount: stats.hitCount,
+            dodgeCount:    stats.dodgeCount,
+            hitCount:      stats.hitCount,
             reactionAvgMs: null,
           })
         } catch (e) {
           console.error('[game] 결과 저장 실패:', e)
         }
+        // 세션 모드에서는 게임 오버 후 대기 화면으로 복귀 가능
       },
       onScoreUpdate: updateScore,
-      onLifeUpdate: updateLives,
+      onLifeUpdate:  updateLives,
     })
     game.init()
 
-    // 타이머를 게임 내부에서 꺼내기 위해 패치
+    // 타이머 HUD 패치
     const origUpdate = game.update.bind(game)
     game.update = (dt) => {
       origUpdate(dt)
@@ -143,8 +167,15 @@ export async function gamePage(app, query) {
     }
   }
 
+  function startGame() {
+    app.querySelector('#waiting-overlay').style.display = 'none'
+    app.querySelector('#gameover-overlay').style.display = 'none'
+    resetHUD()
+    buildGame()
+    game.startRound(1)
+  }
+
   function showGameOver(stats) {
-    const go = app.querySelector('#gameover-overlay')
     const cleared = stats.roundsCleared === rounds
     app.querySelector('#go-title').textContent = cleared ? '🎉 게임 클리어!' : '게임 오버'
     app.querySelector('#go-title').style.color = cleared ? '#00CF00' : '#ff4757'
@@ -152,19 +183,16 @@ export async function gamePage(app, query) {
       `최종 점수: <strong style="color:#fff;">${stats.score}점</strong><br>` +
       `클리어 라운드: ${stats.roundsCleared} / ${rounds}<br>` +
       `회피 성공: ${stats.dodgeCount}회 · 피격: ${stats.hitCount}회`
-    go.style.display = 'flex'
+    app.querySelector('#gameover-overlay').style.display = 'flex'
   }
 
-  // ── 포즈 엔진 or 키보드 폴백 ────────────────────────────
+  // ── 포즈 엔진 ────────────────────────────────────────────
   const pipVideo = app.querySelector('#pip-video')
-
   async function initPose() {
     await poseEngine.init(pipVideo, {
       onZoneChange: (zone) => game?.setPlayerZone(zone),
     })
-    if (poseEngine.isRunning) {
-      pipVideo.style.display = 'block'
-    }
+    if (poseEngine.isRunning) pipVideo.style.display = 'block'
   }
   initPose()
 
@@ -177,18 +205,25 @@ export async function gamePage(app, query) {
   }
   window.addEventListener('keydown', onKey)
 
-  // ── 채널 연결 (sessionId 있을 때) ────────────────────────
-  if (sessionId) {
+  // ── 채널 (세션 모드) ──────────────────────────────────────
+  if (isSession) {
     channel.join(sessionId)
-    channel.on(MSG.GAME_START,   () => game?.startRound(1))
-    channel.on(MSG.GAME_PAUSE,   () => game?.pause())
-    channel.on(MSG.GAME_STOP,    () => game?.destroy())
-    channel.on(MSG.POSE_UPDATE,  ({ zone }) => game?.setPlayerZone(zone))
+    channel.on(MSG.GAME_START,  () => startGame())
+    channel.on(MSG.GAME_PAUSE,  () => game?.pause())
+    channel.on(MSG.GAME_STOP,   () => {
+      game?.destroy()
+      app.querySelector('#waiting-overlay').style.display = 'flex'
+      app.querySelector('#gameover-overlay').style.display = 'none'
+    })
+    channel.on(MSG.POSE_UPDATE, ({ zone }) => game?.setPlayerZone(zone))
   }
 
-  // ── 게임 시작 ─────────────────────────────────────────────
-  buildGame()
-  game.startRound(1)
+  // ── 초기 시작 ─────────────────────────────────────────────
+  if (!isSession) {
+    startGame()  // solo 모드: 즉시 시작
+  } else {
+    buildGame()  // 세션 모드: 게임 객체만 준비, 대기 화면 표시
+  }
 
   // ── UI 버튼 ───────────────────────────────────────────────
   app.querySelector('#btn-fs').addEventListener('click', () => {
@@ -199,18 +234,10 @@ export async function gamePage(app, query) {
     }
   })
 
-  app.querySelector('#btn-retry').addEventListener('click', () => {
-    app.querySelector('#gameover-overlay').style.display = 'none'
-    buildGame()
-    game.startRound(1)
-    updateLives(3)
-    updateScore(0)
-    updateRoundPips(0)
-  })
+  app.querySelector('#btn-retry').addEventListener('click', () => startGame())
 
   app.querySelector('#btn-home-go').addEventListener('click', () => {
-    cleanup()
-    navigate('/')
+    cleanup(); navigate('/')
   })
 
   function cleanup() {
@@ -220,7 +247,6 @@ export async function gamePage(app, query) {
     window.removeEventListener('keydown', onKey)
   }
 
-  // 해시 변경으로 다른 라우트로 가면 정리
   window.addEventListener('hashchange', cleanup, { once: true })
 }
 
@@ -249,7 +275,6 @@ function askPlayerName(app, manifest) {
     `
     const input = app.querySelector('#name-input')
     input.focus()
-
     app.querySelector('#btn-start').addEventListener('click', () => {
       const v = input.value.trim()
       if (!v) { input.style.borderColor = '#ff4757'; return }

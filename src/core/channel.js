@@ -11,6 +11,7 @@ export const MSG = {
 let _channel = null
 
 export function join(sessionId) {
+  if (_channel) supabase.removeChannel(_channel)
   _channel = supabase.channel(`session:${sessionId}`, {
     config: { broadcast: { self: false } },
   })
