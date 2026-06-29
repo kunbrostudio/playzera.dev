@@ -1280,33 +1280,113 @@ async function showWebcamView(app, sessionId, cleanup) {
 function _askPlayerName(app, manifest) {
   return new Promise(resolve => {
     app.innerHTML = `
-      <div style="
-        display:flex;flex-direction:column;align-items:center;justify-content:center;
-        height:100vh;gap:20px;font-family:var(--font-main);
-      ">
-        <div style="font-size:4rem;">${manifest.emoji}</div>
-        <h2 style="font-size:1.8rem;font-weight:800;color:var(--color-accent);margin:0;">${manifest.title}</h2>
-        <p style="color:var(--color-sub);margin:0;">${manifest.description ?? ''}</p>
-        <div class="card" style="display:flex;flex-direction:column;gap:16px;min-width:280px;">
-          <label style="color:var(--color-sub);font-size:0.82rem;">아이 이름 또는 번호</label>
-          <input id="name-input" type="text" maxlength="10" placeholder="예: 민준, 1번" style="
-            background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);
-            border-radius:10px;padding:12px 16px;color:var(--color-text);
-            font-size:1rem;font-family:var(--font-main);outline:none;
-          ">
-          <button id="btn-start" class="btn-primary">시작!</button>
-          <button id="btn-cancel" class="btn-ghost" style="font-size:0.85rem;">취소</button>
+      <style>
+        #name-root {
+          position: fixed; inset: 0;
+          background: url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+          display: flex; align-items: center; justify-content: center;
+          font-family: var(--font-main);
+        }
+        #name-outer {
+          position: relative;
+          display: flex; flex-direction: column; align-items: center;
+        }
+        #name-signboard {
+          position: relative; z-index: 10;
+          width: clamp(200px, 52vw, 320px);
+          object-fit: contain;
+          filter: drop-shadow(0 6px 16px rgba(0,0,0,0.32));
+          pointer-events: none;
+          margin-bottom: clamp(-44px, -6.5vw, -32px);
+        }
+        #name-card {
+          position: relative; z-index: 1;
+          background: #F7F0FF;
+          border: 10px solid #c4a8f5;
+          outline: 10px solid #fff;
+          border-radius: 90px;
+          padding: clamp(48px, 7vw, 68px) clamp(28px, 6vw, 56px) clamp(28px, 4vw, 40px);
+          width: clamp(300px, 88vw, 500px);
+          display: flex; flex-direction: column; align-items: center;
+          gap: clamp(10px, 2vh, 18px);
+          box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+        }
+        #name-title-img {
+          width: clamp(200px, 76%, 360px);
+          object-fit: contain;
+        }
+        #name-label {
+          color: #7c3aed; font-size: clamp(0.85rem, 2.2vw, 1rem);
+          font-weight: 700; margin: 0; align-self: flex-start;
+          width: 100%; max-width: 360px;
+        }
+        #name-input {
+          width: 100%; max-width: 360px;
+          padding: clamp(12px, 2vh, 16px) 18px;
+          background: #fff;
+          border: 3px solid #c4a8f5;
+          border-radius: 50px;
+          font-size: clamp(1rem, 2.6vw, 1.2rem);
+          font-family: var(--font-main);
+          color: #3b0764;
+          outline: none;
+          text-align: center;
+          transition: border-color 0.15s;
+          box-shadow: inset 0 2px 6px rgba(196,168,245,0.25);
+        }
+        #name-input:focus { border-color: #7c3aed; }
+        #name-input::placeholder { color: #c4a8f5; }
+        #name-btn-start {
+          width: 100%; max-width: 360px;
+          padding: clamp(13px, 2.2vh, 18px) 0;
+          background: linear-gradient(180deg, #6ee75a 0%, #3cb544 100%);
+          border: none; border-radius: 9999px;
+          box-shadow: 0 5px 0 #2a8a30, 0 8px 24px rgba(60,181,68,0.3);
+          color: #fff; font-family: var(--font-main);
+          font-size: clamp(1.1rem, 3vw, 1.4rem); font-weight: 800;
+          cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+          -webkit-tap-highlight-color: transparent;
+        }
+        #name-btn-start:hover  { transform: scale(1.04); }
+        #name-btn-start:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #2a8a30; }
+        #name-btn-cancel {
+          background: transparent; border: 3px solid #c4a8f5;
+          border-radius: 9999px; color: #9d6ed8;
+          font-family: var(--font-main);
+          font-size: clamp(0.9rem, 2.2vw, 1rem); font-weight: 700;
+          padding: clamp(10px, 1.6vh, 14px) 0;
+          width: 100%; max-width: 360px;
+          cursor: pointer; transition: border-color 0.15s, color 0.15s;
+        }
+        #name-btn-cancel:hover { border-color: #7c3aed; color: #7c3aed; }
+      </style>
+
+      <div id="name-root">
+        <div id="name-outer">
+          <img id="name-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA" />
+          <div id="name-card">
+            <img id="name-title-img" src="/assets/image/tit_signboard.png" alt="똥 피하기" />
+            <p id="name-label">아이 이름 또는 번호</p>
+            <input id="name-input" type="text" maxlength="10" placeholder="예: 민준, 1번" />
+            <button id="name-btn-start">시작!</button>
+            <button id="name-btn-cancel">취소</button>
+          </div>
         </div>
       </div>
     `
+    app.querySelectorAll('#name-root img').forEach(img => {
+      img.addEventListener('error', () => { img.style.display = 'none' })
+    })
+
     const input = app.querySelector('#name-input')
     input.focus()
-    app.querySelector('#btn-start').addEventListener('click', () => {
+
+    app.querySelector('#name-btn-start').addEventListener('click', () => {
       const v = input.value.trim()
       if (!v) { input.style.borderColor = '#ff4757'; return }
       resolve(v)
     })
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') app.querySelector('#btn-start').click() })
-    app.querySelector('#btn-cancel').addEventListener('click', () => resolve(null))
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') app.querySelector('#name-btn-start').click() })
+    app.querySelector('#name-btn-cancel').addEventListener('click', () => resolve(null))
   })
 }
