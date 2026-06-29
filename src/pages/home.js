@@ -22,19 +22,9 @@ export function homePage(app) {
 
   app.innerHTML = `
     <div style="
-      position:relative;
       display:flex;flex-direction:column;align-items:center;justify-content:center;
       height:100vh;gap:32px;padding:24px;font-family:var(--font-main);
     ">
-      <!-- 선생님 입장 버튼 (우상단) -->
-      <button id="btn-teacher" style="
-        position:absolute;top:20px;right:20px;
-        background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);
-        color:var(--color-sub);font-family:var(--font-main);font-size:0.85rem;
-        padding:8px 16px;border-radius:50px;cursor:pointer;
-        transition:background 0.15s,color 0.15s;
-      ">🎮 선생님 입장</button>
-
       <div style="text-align:center;">
         <h1 style="font-size:2.8rem;font-weight:800;color:var(--color-accent);margin-bottom:6px;">Playzera</h1>
         <p style="color:var(--color-sub);">유아체육 게임 플랫폼</p>
@@ -42,10 +32,6 @@ export function homePage(app) {
 
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;">
         ${gameCards}
-      </div>
-
-      <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
-        <button class="btn-ghost" id="btn-camera" style="font-size:0.9rem;">📷 카메라 모드</button>
       </div>
     </div>
   `
@@ -62,20 +48,4 @@ export function homePage(app) {
     })
     card.addEventListener('click', () => navigate(`/game?id=${card.dataset.id}`))
   })
-
-  // 선생님 입장 버튼 hover
-  const teacherBtn = app.querySelector('#btn-teacher')
-  teacherBtn.addEventListener('mouseenter', () => {
-    teacherBtn.style.background = 'rgba(255,230,0,0.1)'
-    teacherBtn.style.color      = 'var(--color-accent2)'
-    teacherBtn.style.borderColor = 'var(--color-accent2)'
-  })
-  teacherBtn.addEventListener('mouseleave', () => {
-    teacherBtn.style.background  = 'rgba(255,255,255,0.06)'
-    teacherBtn.style.color       = 'var(--color-sub)'
-    teacherBtn.style.borderColor = 'rgba(255,255,255,0.15)'
-  })
-  teacherBtn.addEventListener('click', () => navigate('/control'))
-
-  app.querySelector('#btn-camera').addEventListener('click', () => navigate('/camera'))
 }
