@@ -75,54 +75,131 @@ export async function gamePage(app, query) {
 function showModeSelection(app, manifest) {
   return new Promise(resolve => {
     app.innerHTML = `
-      <div style="
-        display:flex;flex-direction:column;align-items:center;justify-content:center;
-        height:100vh;gap:20px;padding:24px;font-family:var(--font-main);
-      ">
-        <div style="font-size:3.5rem;">${manifest.emoji}</div>
-        <h2 style="font-size:1.8rem;font-weight:800;color:var(--color-accent);margin:0;">${manifest.title}</h2>
-        <p style="color:var(--color-sub);font-size:0.95rem;margin:0;">어떻게 플레이할까요?</p>
+      <style>
+        #mode-root {
+          position: fixed;
+          inset: 0;
+          background: url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-family: var(--font-main);
+          overflow: hidden;
+        }
 
-        <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:380px;margin-top:8px;">
-          ${_modeCard('solo',  '📱', '1대로 하기',    '이 기기 하나로 카메라·게임·조작 모두 진행')}
-          ${_modeCard('multi', '📺', '여러 대로 하기', 'TV는 화면, 폰은 조작/카메라로 나눠서 진행')}
+        /* 중앙 카드 패널 */
+        #mode-card {
+          position: relative;
+          background: #FDF6E3;
+          border: 5px solid #7c3aed;
+          border-radius: 32px;
+          padding: clamp(20px, 4vw, 40px) clamp(20px, 5vw, 44px) clamp(24px, 4vw, 36px);
+          width: clamp(300px, 88vw, 460px);
+          max-height: 92vh;
+          overflow-y: auto;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: clamp(10px, 2vh, 18px);
+          box-shadow: 0 8px 0 #5b21b6, 0 16px 48px rgba(0,0,0,0.38);
+        }
+
+        /* PLAYZERA 간판 — 카드 상단 중앙에 걸침 */
+        #mode-signboard {
+          position: absolute;
+          top: clamp(-28px, -5vw, -22px);
+          left: 50%;
+          transform: translateX(-50%);
+          width: clamp(140px, 38%, 200px);
+          object-fit: contain;
+          filter: drop-shadow(0 4px 10px rgba(0,0,0,0.28));
+          pointer-events: none;
+        }
+
+        /* 똥 캐릭터 */
+        #mode-char {
+          width: clamp(64px, 14vw, 96px);
+          object-fit: contain;
+          margin-top: clamp(16px, 3vw, 28px);
+        }
+
+        /* 게임 타이틀 */
+        #mode-title {
+          font-size: clamp(2rem, 6.5vw, 3rem);
+          font-weight: 900;
+          line-height: 1;
+          text-align: center;
+          margin: 0;
+          color: #ff6eb4;
+          -webkit-text-stroke: 3px #7c3aed;
+          paint-order: stroke fill;
+          text-shadow: 3px 3px 0 #7c3aed;
+          letter-spacing: 0.04em;
+        }
+
+        /* 소제목 */
+        #mode-sub {
+          color: #6d28d9;
+          font-size: clamp(0.85rem, 2.4vw, 1.05rem);
+          font-weight: 700;
+          margin: 0;
+          text-align: center;
+        }
+
+        /* 플레이 버튼 이미지 */
+        .mode-play-btn {
+          width: clamp(200px, 70%, 300px);
+          cursor: pointer;
+          transition: transform 0.1s;
+          -webkit-tap-highlight-color: transparent;
+          user-select: none;
+          display: block;
+        }
+        .mode-play-btn:hover  { transform: scale(1.06); }
+        .mode-play-btn:active { transform: scale(0.94); }
+
+        /* 홈 버튼 */
+        #mode-home-btn {
+          width: clamp(90px, 26%, 140px);
+          cursor: pointer;
+          transition: transform 0.1s;
+          -webkit-tap-highlight-color: transparent;
+          user-select: none;
+          display: block;
+          margin-top: 4px;
+        }
+        #mode-home-btn:hover  { transform: scale(1.06); }
+        #mode-home-btn:active { transform: scale(0.94); }
+
+        @media (max-width: 400px) {
+          #mode-card { padding: 16px 16px 24px; }
+          .mode-play-btn { width: 84%; }
+          #mode-home-btn { width: 34%; }
+        }
+      </style>
+
+      <div id="mode-root">
+        <div id="mode-card">
+          <img id="mode-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAYZERA" />
+          <img id="mode-char"      src="/assets/image/poop02_smile.png"            alt="" />
+          <p  id="mode-title">똥 피하기</p>
+          <p  id="mode-sub">어떻게 플레이할까요?</p>
+          <img class="mode-play-btn" id="btn-solo"  src="/assets/image/btn_play_one.png"     alt="1대로 진행하기" />
+          <img class="mode-play-btn" id="btn-multi" src="/assets/image/btn_play_several.png" alt="여러 대로 진행하기" />
+          <img id="mode-home-btn"                   src="/assets/image/btn_home.png"          alt="홈으로" />
         </div>
-
-        <button id="btn-back" class="btn-ghost" style="font-size:0.85rem;margin-top:4px;">← 홈으로</button>
       </div>
     `
 
-    app.querySelectorAll('.mode-card').forEach(card => {
-      card.addEventListener('mouseenter', () => {
-        card.style.borderColor = 'var(--color-accent)'
-        card.style.background  = 'rgba(0,207,0,0.07)'
-      })
-      card.addEventListener('mouseleave', () => {
-        card.style.borderColor = 'transparent'
-        card.style.background  = 'var(--color-panel)'
-      })
-      card.addEventListener('click', () => { sound.activate(); resolve(card.dataset.mode) })
+    // 이미지 로드 실패 대비
+    app.querySelectorAll('#mode-root img').forEach(img => {
+      img.addEventListener('error', () => { img.style.display = 'none' })
     })
 
-    app.querySelector('#btn-back').addEventListener('click', () => resolve(null))
+    app.querySelector('#btn-solo').addEventListener('click',     () => { sound.activate(); resolve('solo') })
+    app.querySelector('#btn-multi').addEventListener('click',    () => { sound.activate(); resolve('multi') })
+    app.querySelector('#mode-home-btn').addEventListener('click', () => resolve(null))
   })
-}
-
-function _modeCard(mode, emoji, title, desc) {
-  return `
-    <div class="mode-card" data-mode="${mode}" style="
-      display:flex;align-items:center;gap:18px;
-      padding:20px 22px;background:var(--color-panel);
-      border-radius:var(--radius-card);cursor:pointer;
-      border:2px solid transparent;transition:border-color 0.15s,background 0.15s;
-    ">
-      <div style="font-size:2.6rem;min-width:48px;text-align:center;">${emoji}</div>
-      <div>
-        <div style="font-size:1.05rem;font-weight:700;color:var(--color-text);">${title}</div>
-        <div style="font-size:0.78rem;color:var(--color-sub);margin-top:4px;">${desc}</div>
-      </div>
-    </div>
-  `
 }
 
 // ═══════════════════════════════════════════════════════════════
