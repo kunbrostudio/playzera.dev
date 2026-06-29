@@ -1,0 +1,9 @@
+{
+  "id": "poop-dodge",
+  "title": "똥 피하기",
+  "emoji": "💩",
+  "description": "하늘에서 떨어지는 똥을 피하세요!",
+  "minAge": 4,
+  "maxAge": 8,
+  "rounds": 5
+}
