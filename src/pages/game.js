@@ -1,0 +1,15 @@
+import { navigate } from '../core/router.js'
+
+export function gamePage(app, query) {
+  const gameId = query.id ?? '(없음)'
+  const session = query.session ?? '(없음)'
+
+  app.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px;">
+      <h2 style="color:var(--color-accent)">게임 화면</h2>
+      <p style="color:var(--color-sub)">game: ${gameId} | session: ${session}</p>
+      <button class="btn-ghost" id="btn-home">홈으로</button>
+    </div>
+  `
+  app.querySelector('#btn-home').addEventListener('click', () => navigate('/'))
+}
