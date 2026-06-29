@@ -87,16 +87,38 @@ function showModeSelection(app, manifest) {
           overflow: hidden;
         }
 
+        /* 카드 + 간판을 감싸는 외부 래퍼 */
+        #mode-outer {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+
+        /* PLAYZERA 간판 — 카드 밖에서 아래로 겹침 */
+        #mode-signboard {
+          position: relative;
+          z-index: 10;
+          width: clamp(200px, 52vw, 340px);
+          object-fit: contain;
+          filter: drop-shadow(0 6px 16px rgba(0,0,0,0.32));
+          pointer-events: none;
+          /* 카드 위 경계선 위로 올라와 겹치게 */
+          margin-bottom: clamp(-44px, -6.5vw, -32px);
+        }
+
         /* 중앙 카드 패널 */
         #mode-card {
           position: relative;
+          z-index: 1;
           background: #F7F0FF;
           border: 10px solid #c4a8f5;
           outline: 10px solid #fff;
           border-radius: 90px;
-          padding: clamp(16px, 3vw, 32px) clamp(24px, 5vw, 52px) clamp(24px, 3.5vw, 36px);
+          /* 상단 패딩: 간판이 겹쳐들어오는 공간 확보 */
+          padding: clamp(44px, 7vw, 64px) clamp(24px, 5vw, 52px) clamp(24px, 3.5vw, 36px);
           width: clamp(320px, 90vw, 620px);
-          max-height: 94vh;
+          max-height: 90vh;
           overflow-y: auto;
           display: flex;
           flex-direction: column;
@@ -105,23 +127,10 @@ function showModeSelection(app, manifest) {
           box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
         }
 
-        /* PLAYZERA 간판 — 카드 상단에 걸쳐진 느낌 */
-        #mode-signboard {
-          position: absolute;
-          top: clamp(-54px, -8vw, -42px);
-          left: 50%;
-          transform: translateX(-50%);
-          width: clamp(180px, 48%, 290px);
-          object-fit: contain;
-          filter: drop-shadow(0 4px 12px rgba(0,0,0,0.30));
-          pointer-events: none;
-        }
-
         /* 게임 타이틀 간판 이미지 */
         #mode-title-img {
           width: clamp(220px, 80%, 420px);
           object-fit: contain;
-          margin-top: clamp(28px, 5vw, 48px);
         }
 
         /* 플레이 버튼 이미지 */
@@ -169,17 +178,19 @@ function showModeSelection(app, manifest) {
       </style>
 
       <div id="mode-root">
-        <div id="mode-card">
-          <!-- PLAYZERA 간판 — 카드 상단에 걸쳐짐 -->
-          <img id="mode-signboard"  src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA" />
+        <div id="mode-outer">
+          <!-- PLAYZERA 간판: 카드 밖에 위치, 카드 위로 겹쳐 튀어나옴 -->
+          <img id="mode-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA" />
 
-          <!-- 게임 타이틀 간판 이미지 -->
-          <img id="mode-title-img" src="/assets/image/tit_signboard.png" alt="똥 피하기" />
+          <div id="mode-card">
+            <!-- 게임 타이틀 간판 이미지 -->
+            <img id="mode-title-img" src="/assets/image/tit_signboard.png" alt="똥 피하기" />
 
-          <img class="mode-play-btn" id="btn-solo"  src="/assets/image/btn_play_one.png"     alt="1대로 진행하기" />
-          <img class="mode-play-btn" id="btn-multi" src="/assets/image/btn_play_several.png" alt="여러 대로 진행하기" />
+            <img class="mode-play-btn" id="btn-solo"  src="/assets/image/btn_play_one.png"     alt="1대로 진행하기" />
+            <img class="mode-play-btn" id="btn-multi" src="/assets/image/btn_play_several.png" alt="여러 대로 진행하기" />
 
-          <button id="mode-home-btn">← 홈으로</button>
+            <button id="mode-home-btn">← 홈으로</button>
+          </div>
         </div>
       </div>
     `
