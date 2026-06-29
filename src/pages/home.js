@@ -92,7 +92,7 @@ export function homePage(app) {
         animation: hBounce 2.8s ease-in-out infinite 0.3s;
         pointer-events: none;
         /* 로고와 살짝 겹치도록 아래쪽 마진 음수 */
-        margin-bottom: clamp(-48px, -6vh, -24px);
+        margin-bottom: clamp(-120px, -14vh, -60px);
         z-index: 3;
         position: relative;
       }
