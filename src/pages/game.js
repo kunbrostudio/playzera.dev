@@ -679,47 +679,135 @@ function showSessionEntry(app, manifest) {
 function showRoleSelection(app, sessionId) {
   return new Promise(resolve => {
     app.innerHTML = `
-      <div style="
-        display:flex;flex-direction:column;align-items:center;justify-content:center;
-        height:100vh;gap:18px;padding:20px;font-family:var(--font-main);
-      ">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <span style="font-size:1.4rem;font-weight:800;letter-spacing:0.1em;color:var(--color-accent);">${sessionId}</span>
-          <span id="count-badge" style="
-            background:rgba(255,255,255,0.08);padding:3px 10px;border-radius:20px;
-            font-size:0.75rem;color:var(--color-sub);
-          ">... / ${MAX_DEVICES}</span>
+      <style>
+        #role-root {
+          position: fixed; inset: 0;
+          background: url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+          display: flex; align-items: center; justify-content: center;
+          font-family: var(--font-main);
+        }
+        #role-outer {
+          position: relative;
+          display: flex; flex-direction: column; align-items: center;
+        }
+        #role-signboard {
+          position: relative; z-index: 10;
+          width: clamp(200px, 52vw, 320px);
+          object-fit: contain;
+          filter: drop-shadow(0 6px 16px rgba(0,0,0,0.32));
+          pointer-events: none;
+          margin-bottom: clamp(-44px, -6.5vw, -32px);
+        }
+        #role-card {
+          position: relative; z-index: 1;
+          background: #F7F0FF;
+          border: 10px solid #c4a8f5;
+          outline: 10px solid #fff;
+          border-radius: 90px;
+          padding: clamp(48px, 7vw, 64px) clamp(24px, 5vw, 48px) clamp(28px, 4vw, 40px);
+          width: clamp(300px, 90vw, 520px);
+          display: flex; flex-direction: column; align-items: center;
+          gap: clamp(8px, 1.5vh, 14px);
+          box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+        }
+        /* 세션 코드 + 인원 */
+        #role-session-row {
+          display: flex; align-items: center; gap: 10px;
+          margin-bottom: 2px;
+        }
+        #role-session-id {
+          font-size: clamp(1.4rem, 4vw, 1.9rem);
+          font-weight: 900; letter-spacing: 0.12em;
+          color: #7c3aed;
+          text-shadow: 2px 2px 0 rgba(124,58,237,0.2);
+        }
+        #count-badge {
+          background: #e8d9ff; color: #7c3aed;
+          padding: 4px 12px; border-radius: 50px;
+          font-size: 0.8rem; font-weight: 700;
+        }
+        #role-sub {
+          color: #9d6ed8; font-size: clamp(0.9rem, 2.2vw, 1rem);
+          font-weight: 700; margin: 0;
+        }
+        /* 역할 카드 아이템 */
+        .role-item {
+          width: 100%;
+          display: flex; align-items: center; gap: 14px;
+          padding: clamp(12px, 2vh, 16px) clamp(16px, 3vw, 22px);
+          background: #fff;
+          border: 3px solid #e0d0ff;
+          border-radius: 50px;
+          cursor: pointer;
+          transition: border-color 0.15s, background 0.15s, transform 0.1s;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .role-item:hover  { border-color: #7c3aed; background: #f3ebff; transform: scale(1.02); }
+        .role-item:active { transform: scale(0.97); }
+        .role-emoji { font-size: clamp(1.6rem, 4vw, 2rem); min-width: 36px; text-align: center; }
+        .role-info  { flex: 1; }
+        .role-title {
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+          font-size: clamp(0.95rem, 2.6vw, 1.15rem);
+          font-weight: 800; color: #3b0764;
+        }
+        .role-desc {
+          font-size: clamp(0.7rem, 1.8vw, 0.82rem);
+          color: #9d6ed8; margin-top: 3px; line-height: 1.35;
+        }
+        .role-badge {
+          background: #ffe600; color: #5b21b6;
+          padding: 2px 10px; border-radius: 50px;
+          font-size: 0.65rem; font-weight: 900; letter-spacing: 0.04em;
+        }
+        /* 세션 변경 버튼 */
+        #role-btn-back {
+          width: 100%;
+          padding: clamp(13px, 2.2vh, 18px) 0;
+          background: linear-gradient(180deg, #b0b8c1 0%, #8a9199 100%);
+          border: none; border-radius: 9999px;
+          box-shadow: 0 5px 0 #626a71, 0 8px 24px rgba(100,110,120,0.3);
+          color: #fff; font-family: var(--font-main);
+          font-size: clamp(1rem, 2.6vw, 1.2rem); font-weight: 800;
+          cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+          -webkit-tap-highlight-color: transparent;
+          margin-top: 4px;
+        }
+        #role-btn-back:hover  { transform: scale(1.04); }
+        #role-btn-back:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #626a71; }
+      </style>
+
+      <div id="role-root">
+        <div id="role-outer">
+          <img id="role-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA" />
+          <div id="role-card">
+            <div id="role-session-row">
+              <span id="role-session-id">${sessionId}</span>
+              <span id="count-badge">… / ${MAX_DEVICES}</span>
+            </div>
+            <p id="role-sub">역할을 선택하세요</p>
+
+            ${_roleCard('monitor',    '📺', '모니터',   'TV · 노트북에서 게임 화면 표시 (내장 카메라 있으면 웹캠 불필요)')}
+            ${_roleCard('controller', '🎮', '컨트롤러', '선생님 폰 — 게임을 시작하고 멈춥니다', '필수')}
+            ${_roleCard('webcam',     '📸', '웹캠',     '아이 동작 인식 후 모니터로 전송 (모니터에 카메라 없을 때)')}
+
+            <button id="role-btn-back">← 세션 변경</button>
+          </div>
         </div>
-
-        <p style="color:var(--color-sub);font-size:0.95rem;margin:0;">역할을 선택하세요</p>
-
-        <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:360px;">
-          ${_roleCard('monitor',    '📺', '모니터',   'TV · 노트북에서 게임 화면 표시 (내장 카메라 있으면 웹캠 불필요)')}
-          ${_roleCard('controller', '🎮', '컨트롤러', '선생님 폰 — 게임을 시작하고 멈춥니다', '필수')}
-          ${_roleCard('webcam',     '📸', '웹캠',     '아이 동작 인식 후 모니터로 전송 (모니터에 카메라 없을 때)')}
-        </div>
-
-        <button id="btn-back" class="btn-ghost" style="font-size:0.85rem;margin-top:4px;">← 세션 변경</button>
       </div>
     `
+
+    app.querySelector('#role-signboard').addEventListener('error', e => { e.target.style.display = 'none' })
 
     const badge = app.querySelector('#count-badge')
     const updateCount = n => {
       badge.textContent = `${n} / ${MAX_DEVICES} 접속중`
-      badge.style.color = n >= MAX_DEVICES ? '#ff4757' : 'var(--color-sub)'
+      badge.style.color = n >= MAX_DEVICES ? '#ff4757' : '#7c3aed'
     }
     updateCount(channel.getPresenceCount())
     channel.onPresenceSync(updateCount)
 
-    app.querySelectorAll('.role-card').forEach(card => {
-      card.addEventListener('mouseenter', () => {
-        card.style.borderColor = 'var(--color-accent)'
-        card.style.background  = 'rgba(0,207,0,0.07)'
-      })
-      card.addEventListener('mouseleave', () => {
-        card.style.borderColor = 'transparent'
-        card.style.background  = 'var(--color-panel)'
-      })
+    app.querySelectorAll('.role-item').forEach(card => {
       card.addEventListener('click', () => {
         if (channel.getPresenceCount() > MAX_DEVICES) {
           alert(`최대 ${MAX_DEVICES}명이 입장해 있습니다. 잠시 후 다시 시도해 주세요.`)
@@ -729,31 +817,20 @@ function showRoleSelection(app, sessionId) {
       })
     })
 
-    app.querySelector('#btn-back').addEventListener('click', () => resolve(null))
+    app.querySelector('#role-btn-back').addEventListener('click', () => resolve(null))
   })
 }
 
 function _roleCard(role, emoji, title, desc, badge = null) {
   const badgeHtml = badge
-    ? `<span style="
-        background:#ffe600;color:#000;padding:2px 8px;border-radius:50px;
-        font-size:0.65rem;font-weight:800;letter-spacing:0.04em;
-       ">${badge}</span>`
+    ? `<span class="role-badge">${badge}</span>`
     : ''
   return `
-    <div class="role-card" data-role="${role}" style="
-      display:flex;align-items:center;gap:16px;
-      padding:18px 20px;background:var(--color-panel);
-      border-radius:var(--radius-card);cursor:pointer;
-      border:2px solid transparent;transition:border-color 0.15s,background 0.15s;
-    ">
-      <div style="font-size:2.2rem;min-width:44px;text-align:center;">${emoji}</div>
-      <div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <div style="font-size:1rem;font-weight:700;color:var(--color-text);">${title}</div>
-          ${badgeHtml}
-        </div>
-        <div style="font-size:0.78rem;color:var(--color-sub);margin-top:3px;">${desc}</div>
+    <div class="role-item" data-role="${role}">
+      <div class="role-emoji">${emoji}</div>
+      <div class="role-info">
+        <div class="role-title">${title}${badgeHtml}</div>
+        <div class="role-desc">${desc}</div>
       </div>
     </div>
   `
