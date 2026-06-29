@@ -519,55 +519,157 @@ async function showSoloGame(app, gameId, entry) {
 function showSessionEntry(app, manifest) {
   return new Promise(resolve => {
     app.innerHTML = `
-      <div style="
-        display:flex;flex-direction:column;align-items:center;justify-content:center;
-        height:100vh;gap:18px;padding:24px;font-family:var(--font-main);
-      ">
-        <div style="font-size:4rem;">${manifest.emoji}</div>
-        <h2 style="font-size:1.8rem;font-weight:800;color:var(--color-accent);margin:0;">${manifest.title}</h2>
+      <style>
+        #sess-root {
+          position: fixed; inset: 0;
+          background: url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+          display: flex; align-items: center; justify-content: center;
+          font-family: var(--font-main);
+        }
+        #sess-outer {
+          position: relative;
+          display: flex; flex-direction: column; align-items: center;
+        }
+        #sess-signboard {
+          position: relative; z-index: 10;
+          width: clamp(200px, 52vw, 320px);
+          object-fit: contain;
+          filter: drop-shadow(0 6px 16px rgba(0,0,0,0.32));
+          pointer-events: none;
+          margin-bottom: clamp(-44px, -6.5vw, -32px);
+        }
+        #sess-card {
+          position: relative; z-index: 1;
+          background: #F7F0FF;
+          border: 10px solid #c4a8f5;
+          outline: 10px solid #fff;
+          border-radius: 90px;
+          padding: clamp(48px, 7vw, 68px) clamp(28px, 6vw, 56px) clamp(28px, 4vw, 40px);
+          width: clamp(300px, 88vw, 500px);
+          display: flex; flex-direction: column; align-items: center;
+          gap: clamp(10px, 1.8vh, 16px);
+          box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+        }
+        #sess-title-img {
+          width: clamp(200px, 76%, 360px);
+          object-fit: contain;
+          margin-bottom: 4px;
+        }
+        /* 방 만들기 이미지 버튼 */
+        #sess-btn-create {
+          width: clamp(220px, 88%, 400px);
+          cursor: pointer;
+          transition: transform 0.1s;
+          -webkit-tap-highlight-color: transparent;
+          user-select: none; display: block;
+        }
+        #sess-btn-create:hover  { transform: scale(1.05); }
+        #sess-btn-create:active { transform: scale(0.94); }
+        /* 또는 구분선 */
+        #sess-divider {
+          display: flex; align-items: center; gap: 10px;
+          width: 100%; max-width: 380px;
+        }
+        #sess-divider span { color: #9d6ed8; font-size: 0.9rem; font-weight: 700; white-space: nowrap; }
+        .sess-line { flex: 1; height: 2px; background: #ddd0f5; border-radius: 2px; }
+        /* 세션 코드 입력 */
+        #sess-code-label {
+          color: #7c3aed; font-size: clamp(0.95rem, 2.4vw, 1.1rem);
+          font-weight: 700; margin: 0;
+          align-self: flex-start; width: 100%; max-width: 380px;
+          margin-bottom: -6px;
+        }
+        #sess-code-row {
+          display: flex; gap: 10px;
+          width: 100%; max-width: 380px;
+        }
+        #code-input {
+          flex: 1;
+          padding: clamp(12px, 2vh, 16px) 16px;
+          background: #fff;
+          border: 3px solid #c4a8f5;
+          border-radius: 50px;
+          font-size: clamp(1rem, 2.6vw, 1.2rem);
+          font-family: var(--font-main);
+          color: #3b0764;
+          outline: none;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          text-align: center;
+          transition: border-color 0.15s;
+          box-shadow: inset 0 2px 6px rgba(196,168,245,0.25);
+        }
+        #code-input:focus { border-color: #7c3aed; }
+        #code-input::placeholder { color: #c4a8f5; letter-spacing: 0.08em; }
+        /* 입장 버튼 이미지 */
+        #sess-btn-join {
+          height: clamp(48px, 7vw, 62px);
+          width: auto;
+          cursor: pointer;
+          transition: transform 0.1s;
+          -webkit-tap-highlight-color: transparent;
+          user-select: none; display: block; flex-shrink: 0;
+        }
+        #sess-btn-join:hover  { transform: scale(1.06); }
+        #sess-btn-join:active { transform: scale(0.93); }
+        /* 취소 버튼 */
+        #sess-btn-cancel {
+          width: 100%; max-width: 380px;
+          padding: clamp(13px, 2.2vh, 18px) 0;
+          background: linear-gradient(180deg, #b0b8c1 0%, #8a9199 100%);
+          border: none; border-radius: 9999px;
+          box-shadow: 0 5px 0 #626a71, 0 8px 24px rgba(100,110,120,0.3);
+          color: #fff; font-family: var(--font-main);
+          font-size: clamp(1.1rem, 3vw, 1.4rem); font-weight: 800;
+          cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+          -webkit-tap-highlight-color: transparent;
+        }
+        #sess-btn-cancel:hover  { transform: scale(1.04); }
+        #sess-btn-cancel:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #626a71; }
+      </style>
 
-        <button id="btn-create" class="btn-primary" style="
-          width:100%;max-width:320px;font-size:1.1rem;padding:18px 24px;margin-top:8px;
-        ">🏠 방 만들기</button>
+      <div id="sess-root">
+        <div id="sess-outer">
+          <img id="sess-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA" />
+          <div id="sess-card">
+            <img id="sess-title-img" src="/assets/image/tit_signboard.png" alt="똥 피하기" />
 
-        <div style="display:flex;align-items:center;gap:12px;width:100%;max-width:320px;">
-          <div style="flex:1;height:1px;background:rgba(255,255,255,0.1);"></div>
-          <span style="color:var(--color-sub);font-size:0.82rem;">또는</span>
-          <div style="flex:1;height:1px;background:rgba(255,255,255,0.1);"></div>
-        </div>
+            <img id="sess-btn-create" src="/assets/image/btn_room_create.png" alt="방 만들기" />
 
-        <div style="width:100%;max-width:320px;">
-          <div style="color:var(--color-sub);font-size:0.78rem;margin-bottom:8px;">세션 코드 입력</div>
-          <div style="display:flex;gap:8px;">
-            <input id="code-input" type="text" maxlength="7" placeholder="ABC-123" style="
-              flex:1;background:rgba(255,255,255,0.07);
-              border:1px solid rgba(255,255,255,0.15);border-radius:12px;
-              padding:14px 16px;color:#fff;font-size:1.1rem;
-              font-family:var(--font-main);outline:none;
-              letter-spacing:0.12em;text-transform:uppercase;
-            ">
-            <button id="btn-join" class="btn-primary" style="padding:14px 20px;font-size:0.95rem;">
-              입장
-            </button>
+            <div id="sess-divider">
+              <div class="sess-line"></div>
+              <span>또는</span>
+              <div class="sess-line"></div>
+            </div>
+
+            <p id="sess-code-label">세션 코드 입력</p>
+            <div id="sess-code-row">
+              <input id="code-input" type="text" maxlength="7" placeholder="ABC-123" />
+              <img id="sess-btn-join" src="/assets/image/btn_enter.png" alt="입장" />
+            </div>
+
+            <button id="sess-btn-cancel">취소</button>
           </div>
         </div>
-
-        <button id="btn-cancel" class="btn-ghost" style="font-size:0.85rem;margin-top:4px;">취소</button>
       </div>
     `
 
+    app.querySelectorAll('#sess-root img').forEach(img => {
+      img.addEventListener('error', () => { img.style.display = 'none' })
+    })
+
     const input = app.querySelector('#code-input')
-    app.querySelector('#btn-create').addEventListener('click', () => resolve(genSession()))
+    app.querySelector('#sess-btn-create').addEventListener('click', () => resolve(genSession()))
 
     const doJoin = () => {
       const v = input.value.trim().toUpperCase()
       if (v.length < 3) { input.style.borderColor = '#ff4757'; return }
       resolve(v)
     }
-    app.querySelector('#btn-join').addEventListener('click', doJoin)
+    app.querySelector('#sess-btn-join').addEventListener('click', doJoin)
     input.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin() })
-    input.addEventListener('input',   () => { input.style.borderColor = 'rgba(255,255,255,0.15)' })
-    app.querySelector('#btn-cancel').addEventListener('click', () => resolve(null))
+    input.addEventListener('input',   () => { input.style.borderColor = 'rgba(196,168,245,1)' })
+    app.querySelector('#sess-btn-cancel').addEventListener('click', () => resolve(null))
   })
 }
 
