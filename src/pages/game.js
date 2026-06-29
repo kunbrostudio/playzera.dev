@@ -4,6 +4,7 @@ import * as channel from '../core/channel.js'
 import { MSG, MAX_DEVICES } from '../core/channel.js'
 import { save as saveResult, getTodayResults } from '../core/gameResult.js'
 import { GAME_REGISTRY } from '../games/registry.js'
+import * as sound from '../core/sound.js'
 
 function genSession() {
   const L = () => String.fromCharCode(65 + Math.floor(Math.random() * 26))
@@ -100,7 +101,7 @@ function showModeSelection(app, manifest) {
         card.style.borderColor = 'transparent'
         card.style.background  = 'var(--color-panel)'
       })
-      card.addEventListener('click', () => resolve(card.dataset.mode))
+      card.addEventListener('click', () => { sound.activate(); resolve(card.dataset.mode) })
     })
 
     app.querySelector('#btn-back').addEventListener('click', () => resolve(null))
@@ -207,9 +208,15 @@ async function showSoloGame(app, gameId, entry) {
             점수 <span id="score-val" style="color:var(--color-text);font-weight:700;">0</span>
           </div>
         </div>
-        <!-- 우측: 하트 + 햄버거 버튼을 같은 flex 행에 배치 (겹침 방지) -->
-        <div style="display:flex;align-items:center;gap:16px;">
+        <!-- 우측: 하트 + 음소거 + 햄버거 -->
+        <div style="display:flex;align-items:center;gap:10px;">
           <div id="hud-lives" style="display:flex;gap:4px;font-size:1.4rem;"></div>
+          <button id="btn-mute" style="
+            background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
+            color:rgba(255,255,255,0.7);font-size:1rem;
+            cursor:pointer;padding:4px 8px;border-radius:8px;
+            line-height:1;flex-shrink:0;
+          ">🔊</button>
           <button id="btn-menu" style="
             background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
             color:rgba(255,255,255,0.7);font-size:1.2rem;
@@ -249,6 +256,7 @@ async function showSoloGame(app, gameId, entry) {
           <div style="font-size:1.3rem;font-weight:800;color:var(--color-text);margin-bottom:6px;">⏸ 일시정지</div>
           <button id="btn-resume" class="btn-primary" style="font-size:1.1rem;padding:18px;">▶ 계속하기</button>
           <button id="btn-restart" class="btn-ghost" style="padding:14px;">⏹ 다시 시작</button>
+          <button id="menu-btn-mute" class="btn-ghost" style="padding:14px;">🔊 소리 켜짐</button>
           <button id="btn-menu-exit" style="
             padding:14px;font-size:0.9rem;font-weight:700;
             background:transparent;border:1px solid rgba(255,71,87,0.3);
@@ -358,6 +366,16 @@ async function showSoloGame(app, gameId, entry) {
     menuPanel.style.display = 'none'
     game?.resume()
   }
+
+  // ── 음소거 동기화 ─────────────────────────────────────────
+  function syncMute() {
+    const muted = sound.isMuted()
+    app.querySelector('#btn-mute').textContent       = muted ? '🔇' : '🔊'
+    app.querySelector('#menu-btn-mute').textContent  = muted ? '🔇 소리 꺼짐' : '🔊 소리 켜짐'
+  }
+  app.querySelector('#btn-mute').addEventListener('click', () => { sound.toggle(); syncMute() })
+  app.querySelector('#menu-btn-mute').addEventListener('click', () => { sound.toggle(); syncMute() })
+  syncMute()  // 초기 상태 반영
 
   app.querySelector('#btn-menu').addEventListener('click', openMenu)
   app.querySelector('#btn-resume').addEventListener('click', closeMenu)
