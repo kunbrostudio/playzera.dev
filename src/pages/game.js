@@ -355,6 +355,7 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
     app.querySelector('#gameover-overlay').style.display = 'none'
   })
   channel.on(MSG.POSE_UPDATE, ({ zone }) => game?.setPlayerZone(zone))
+  channel.on(MSG.GAME_EXIT,   () => exitView())
 
   // ── 로컬 포즈 (PIP) ───────────────────────────────────────
   const pipVideo = app.querySelector('#pip-video')
@@ -374,16 +375,20 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   // 초기: 게임 객체만 준비 (대기 화면 표시)
   buildGame()
 
+  // ── 종료 헬퍼 (모니터) ────────────────────────────────────
+  const exitView = () => {
+    window.removeEventListener('keydown', onKey)
+    cleanup()
+    navigate('/')
+  }
+
   // ── 버튼 ──────────────────────────────────────────────────
   app.querySelector('#btn-fs').addEventListener('click', () => {
     if (!document.fullscreenElement) app.querySelector('#game-wrap').requestFullscreen?.()
     else document.exitFullscreen?.()
   })
   app.querySelector('#btn-retry').addEventListener('click', () => startGame())
-  app.querySelector('#btn-home-go').addEventListener('click', () => {
-    window.removeEventListener('keydown', onKey)
-    cleanup(); navigate('/')
-  })
+  app.querySelector('#btn-home-go').addEventListener('click', exitView)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -454,6 +459,14 @@ function showControllerView(app, sessionId, cleanup) {
             opacity:0.35;transition:opacity 0.15s;font-family:var(--font-main);
           ">⏹ 정지</button>
         </div>
+
+        <!-- 게임 종료 버튼 -->
+        <button id="btn-exit" style="
+          padding:16px;font-size:0.95rem;font-weight:700;
+          background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);
+          border:1px solid rgba(255,255,255,0.12);border-radius:var(--radius-btn);
+          cursor:pointer;transition:all 0.15s;font-family:var(--font-main);
+        ">🚪 게임 종료 (전체)</button>
 
         <!-- 기록 버튼 -->
         <button id="btn-records" class="btn-ghost" style="margin-top:4px;">📊 오늘 기록 보기</button>
@@ -551,6 +564,28 @@ function showControllerView(app, sessionId, cleanup) {
   app.querySelector('#btn-records-back').addEventListener('click', () => {
     app.querySelector('#records-view').style.display = 'none'
   })
+
+  // 게임 종료 버튼
+  const exitBtn = app.querySelector('#btn-exit')
+  exitBtn.addEventListener('mouseenter', () => {
+    exitBtn.style.background   = 'rgba(255,71,87,0.12)'
+    exitBtn.style.color        = '#ff4757'
+    exitBtn.style.borderColor  = 'rgba(255,71,87,0.35)'
+  })
+  exitBtn.addEventListener('mouseleave', () => {
+    exitBtn.style.background   = 'rgba(255,255,255,0.04)'
+    exitBtn.style.color        = 'rgba(255,255,255,0.45)'
+    exitBtn.style.borderColor  = 'rgba(255,255,255,0.12)'
+  })
+  exitBtn.addEventListener('click', () => {
+    if (!confirm('정말 게임을 종료하시겠어요?\n모든 화면이 메인으로 돌아갑니다.')) return
+    channel.send(MSG.GAME_EXIT, {})
+    cleanup()
+    navigate('/')
+  })
+
+  // 다른 디바이스가 보낸 GAME_EXIT 수신 (드물지만 방어)
+  channel.on(MSG.GAME_EXIT, () => { cleanup(); navigate('/') })
 
   app.querySelector('#btn-home').addEventListener('click', () => { cleanup(); navigate('/') })
 }
@@ -684,12 +719,17 @@ async function showWebcamView(app, sessionId, cleanup) {
   }
   window.addEventListener('keydown', onKey)
 
-  app.querySelector('#btn-home').addEventListener('click', () => {
+  // ── 종료 헬퍼 (웹캠) ─────────────────────────────────────
+  const exitView = () => {
     cancelAnimationFrame(rafId)
     window.removeEventListener('keydown', onKey)
     window.removeEventListener('resize', resizeCanvas)
-    cleanup(); navigate('/')
-  })
+    cleanup()
+    navigate('/')
+  }
+
+  channel.on(MSG.GAME_EXIT, exitView)
+  app.querySelector('#btn-home').addEventListener('click', exitView)
 }
 
 // ═══════════════════════════════════════════════════════════════
