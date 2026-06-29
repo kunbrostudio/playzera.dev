@@ -46,7 +46,7 @@ export function homePage(app) {
       /* ── START 이미지 버튼 ── */
       #home-start-img {
         display: block;
-        width: clamp(140px, 20vw, 280px);
+        width: clamp(180px, 26vw, 340px);
         cursor: pointer;
         transition: transform 0.08s, filter 0.08s;
         -webkit-tap-highlight-color: transparent;
@@ -63,7 +63,7 @@ export function homePage(app) {
         display: none;
         align-items: center;
         justify-content: center;
-        width: clamp(140px, 20vw, 280px);
+        width: clamp(180px, 26vw, 340px);
         padding: clamp(12px, 2vh, 18px) 0;
         background: linear-gradient(180deg, #ffe94d 0%, #ffcc00 100%);
         border: none;
@@ -92,7 +92,7 @@ export function homePage(app) {
         animation: hBounce 2.8s ease-in-out infinite 0.3s;
         pointer-events: none;
         /* 로고와 살짝 겹치도록 아래쪽 마진 음수 */
-        margin-bottom: clamp(-20px, -2.5vh, -8px);
+        margin-bottom: clamp(-48px, -6vh, -24px);
         z-index: 3;
         position: relative;
       }
@@ -119,7 +119,7 @@ export function homePage(app) {
         #home-logo      { width: clamp(200px, 78vw, 320px); }
         #home-character { width: clamp(120px, 40vw, 200px); }
         #home-start-img,
-        #home-start-css { width: clamp(120px, 52vw, 200px); }
+        #home-start-css { width: clamp(150px, 58vw, 240px); }
       }
     </style>
 
