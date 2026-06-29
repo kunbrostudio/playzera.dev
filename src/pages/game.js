@@ -7,7 +7,8 @@ import { GAME_REGISTRY } from '../games/registry.js'
 
 export async function gamePage(app, query) {
   const gameId = query.id ?? 'poop-dodge'
-  const sessionId = query.session ?? ''
+  // session 파라미터 없으면 solo 세션 ID 자동 생성 (저장은 항상 함)
+  const sessionId = query.session || `solo-${Date.now()}`
 
   // ── 매니페스트 로드 ──────────────────────────────────────
   const entry = GAME_REGISTRY[gameId]
@@ -113,23 +114,20 @@ export async function gamePage(app, query) {
     game = new GameClass(canvas, {
       onRoundEnd: (round) => updateRoundPips(round),
       onGameEnd: async (stats) => {
-        gameStats = stats
         showGameOver(stats)
-        if (sessionId) {
-          try {
-            await saveResult({
-              sessionId,
-              gameId,
-              playerName,
-              score: stats.score,
-              roundsCleared: stats.roundsCleared,
-              dodgeCount: stats.dodgeCount,
-              hitCount: stats.hitCount,
-              reactionAvgMs: null,
-            })
-          } catch (e) {
-            console.warn('[game] 결과 저장 실패:', e)
-          }
+        try {
+          await saveResult({
+            sessionId,
+            gameId,
+            playerName,
+            score: stats.score,
+            roundsCleared: stats.roundsCleared,
+            dodgeCount: stats.dodgeCount,
+            hitCount: stats.hitCount,
+            reactionAvgMs: null,
+          })
+        } catch (e) {
+          console.error('[game] 결과 저장 실패:', e)
         }
       },
       onScoreUpdate: updateScore,

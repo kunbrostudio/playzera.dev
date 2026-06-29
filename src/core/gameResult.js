@@ -1,7 +1,9 @@
 import supabase from './supabase.js'
 
 export async function save(result) {
-  const { data, error } = await supabase.from('game_results').insert({
+  console.log('[gameResult] save() 호출됨:', result)
+
+  const payload = {
     session_id: result.sessionId,
     game_id: result.gameId,
     player_name: result.playerName,
@@ -9,10 +11,18 @@ export async function save(result) {
     rounds_cleared: result.roundsCleared,
     dodge_count: result.dodgeCount,
     hit_count: result.hitCount,
-    reaction_avg_ms: result.reactionAvgMs,
+    reaction_avg_ms: result.reactionAvgMs ?? null,
     played_at: result.playedAt ?? new Date().toISOString(),
-  })
-  if (error) throw error
+  }
+  console.log('[gameResult] Supabase insert payload:', payload)
+
+  const { data, error } = await supabase.from('game_results').insert(payload).select()
+
+  if (error) {
+    console.error('[gameResult] 저장 실패 ❌', error)
+    throw error
+  }
+  console.log('[gameResult] 저장 성공 ✅', data)
   return data
 }
 
