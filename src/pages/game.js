@@ -896,15 +896,70 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
 
       <!-- 대기 화면 -->
       <div id="waiting-overlay" style="
-        position:absolute;inset:0;display:flex;flex-direction:column;
-        align-items:center;justify-content:center;gap:14px;
-        background:rgba(13,27,42,0.96);font-family:var(--font-main);
+        position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+        background:url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+        font-family:var(--font-main);
       ">
-        <div style="font-size:3.5rem;">🎮</div>
-        <div id="wait-status" style="font-size:1.1rem;font-weight:700;color:var(--color-accent2);">⚠️ 컨트롤러를 연결해주세요</div>
-        <div style="font-size:1.8rem;font-weight:800;letter-spacing:0.1em;color:var(--color-accent);">${sessionId}</div>
-        <div style="color:var(--color-sub);font-size:0.9rem;">
-          안녕하세요, <strong style="color:var(--color-text);">${playerName}</strong>님!
+        <style>
+          #wait-outer { position:relative; display:flex; flex-direction:column; align-items:center; }
+          #wait-signboard {
+            position:relative; z-index:10;
+            width:clamp(200px,52vw,320px); object-fit:contain;
+            filter:drop-shadow(0 6px 16px rgba(0,0,0,0.32)); pointer-events:none;
+            margin-bottom:clamp(-44px,-6.5vw,-32px);
+          }
+          #wait-card {
+            position:relative; z-index:1;
+            background:#F7F0FF;
+            border:10px solid #c4a8f5; outline:10px solid #fff;
+            border-radius:90px;
+            padding:clamp(48px,7vw,64px) clamp(28px,6vw,56px) clamp(28px,4vw,40px);
+            width:clamp(300px,88vw,480px);
+            display:flex; flex-direction:column; align-items:center;
+            gap:clamp(8px,1.8vh,16px);
+            box-shadow:0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+          }
+          #wait-title-img { width:clamp(200px,76%,340px); object-fit:contain; }
+          #wait-session {
+            font-size:clamp(1.6rem,4.5vw,2.2rem); font-weight:900;
+            letter-spacing:0.12em; color:#7c3aed;
+            text-shadow:2px 2px 0 rgba(124,58,237,0.2);
+          }
+          #wait-status {
+            font-size:clamp(0.9rem,2.4vw,1.1rem); font-weight:800;
+            color:#f59e0b; text-align:center;
+            background:#fff8e1; border-radius:50px;
+            padding:8px 20px; border:2px solid #fcd34d;
+          }
+          #wait-name {
+            font-size:clamp(0.85rem,2.2vw,1rem); color:#9d6ed8; font-weight:700;
+          }
+          #wait-name strong { color:#3b0764; }
+          #wait-btn-back {
+            width:100%;
+            padding:clamp(13px,2.2vh,18px) 0;
+            background:linear-gradient(180deg,#b0b8c1 0%,#8a9199 100%);
+            border:none; border-radius:9999px;
+            box-shadow:0 5px 0 #626a71, 0 8px 24px rgba(100,110,120,0.3);
+            color:#fff; font-family:var(--font-main);
+            font-size:clamp(1rem,2.6vw,1.2rem); font-weight:800;
+            cursor:pointer; transition:transform 0.1s, box-shadow 0.1s;
+            -webkit-tap-highlight-color:transparent; margin-top:4px;
+          }
+          #wait-btn-back:hover  { transform:scale(1.04); }
+          #wait-btn-back:active { transform:scale(0.95) translateY(3px); box-shadow:0 2px 0 #626a71; }
+        </style>
+        <div id="wait-outer">
+          <img id="wait-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA"
+               onerror="this.style.display='none'" />
+          <div id="wait-card">
+            <img id="wait-title-img" src="/assets/image/tit_signboard.png" alt="똥 피하기"
+                 onerror="this.style.display='none'" />
+            <div id="wait-session">${sessionId}</div>
+            <div id="wait-status">⚠️ 컨트롤러를 연결해주세요</div>
+            <div id="wait-name">안녕하세요, <strong>${playerName}</strong>님!</div>
+            <button id="wait-btn-back">← 나가기</button>
+          </div>
         </div>
       </div>
 
@@ -1079,6 +1134,9 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
     cleanup()
     navigate('/')
   }
+
+  // 대기 화면 나가기 버튼
+  app.querySelector('#wait-btn-back').addEventListener('click', exitView)
 
   // ── 버튼 ──────────────────────────────────────────────────
   app.querySelector('#btn-fs').addEventListener('click', () => {
