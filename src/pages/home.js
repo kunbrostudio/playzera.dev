@@ -86,7 +86,7 @@ export function homePage(app) {
 
       /* ── 캐릭터: 그룹 맨 위 중앙 ── */
       #home-character {
-        width: clamp(100px, 15vw, 200px);
+        width: clamp(160px, 24vw, 340px);
         object-fit: contain;
         filter: drop-shadow(0 8px 18px rgba(0,0,0,0.22));
         animation: hBounce 2.8s ease-in-out infinite 0.3s;
@@ -117,7 +117,7 @@ export function homePage(app) {
       @media (max-width: 520px) {
         #home-group     { gap: 8px; }
         #home-logo      { width: clamp(200px, 78vw, 320px); }
-        #home-character { width: clamp(80px, 24vw, 120px); }
+        #home-character { width: clamp(120px, 40vw, 200px); }
         #home-start-img,
         #home-start-css { width: clamp(120px, 52vw, 200px); }
       }
