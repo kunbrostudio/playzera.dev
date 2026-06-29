@@ -24,15 +24,12 @@ export function homePage(app) {
         justify-content: center;
       }
 
-      /* ── 중앙 그룹 (로고 + 버튼 + 캐릭터를 한 덩어리로) ── */
+      /* ── 중앙 그룹 (캐릭터 + 로고 + 버튼을 한 덩어리로) ── */
       #home-group {
-        position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: clamp(12px, 2.5vh, 32px);
-        /* 캐릭터가 왼쪽으로 삐져나오므로 오른쪽으로 약간 보정 */
-        margin-left: clamp(40px, 8vw, 120px);
+        gap: clamp(8px, 1.8vh, 24px);
       }
 
       /* ── 로고 ── */
@@ -87,19 +84,17 @@ export function homePage(app) {
       #home-start-css:hover  { transform: scale(1.06); box-shadow: 0 8px 0 #c89800, 0 14px 36px rgba(0,0,0,0.26); }
       #home-start-css.pressed { transform: scale(0.92) translateY(4px); box-shadow: 0 2px 0 #c89800; animation: none; }
 
-      /* ── 캐릭터: 그룹 왼쪽에 겹치게 ── */
+      /* ── 캐릭터: 그룹 맨 위 중앙 ── */
       #home-character {
-        position: absolute;
-        /* 그룹 왼쪽 끝에서 캐릭터 너비의 절반만큼 삐져나오게 */
-        left: 0;
-        top: 50%;
-        transform: translate(-72%, -46%);
-        width: clamp(120px, 18vw, 250px);
+        width: clamp(100px, 15vw, 200px);
         object-fit: contain;
         filter: drop-shadow(0 8px 18px rgba(0,0,0,0.22));
         animation: hBounce 2.8s ease-in-out infinite 0.3s;
         pointer-events: none;
+        /* 로고와 살짝 겹치도록 아래쪽 마진 음수 */
+        margin-bottom: clamp(-20px, -2.5vh, -8px);
         z-index: 3;
+        position: relative;
       }
 
       /* ── 애니메이션 ── */
@@ -108,10 +103,10 @@ export function homePage(app) {
         50%       { transform: translateY(-10px); }
       }
       @keyframes hBounce {
-        0%, 100% { transform: translate(-72%, -46%); }
-        45%      { transform: translate(-72%, calc(-46% - 9px)); }
-        65%      { transform: translate(-72%, calc(-46% - 2px)); }
-        80%      { transform: translate(-72%, calc(-46% - 6px)); }
+        0%, 100% { transform: translateY(0); }
+        45%      { transform: translateY(-9px); }
+        65%      { transform: translateY(-2px); }
+        80%      { transform: translateY(-6px); }
       }
       @keyframes hPulse {
         0%, 100% { transform: scale(1); }
@@ -120,26 +115,20 @@ export function homePage(app) {
 
       /* ── 모바일 세로 ── */
       @media (max-width: 520px) {
-        #home-group    { margin-left: clamp(20px, 5vw, 60px); gap: 12px; }
-        #home-logo     { width: clamp(200px, 78vw, 320px); }
+        #home-group     { gap: 8px; }
+        #home-logo      { width: clamp(200px, 78vw, 320px); }
+        #home-character { width: clamp(80px, 24vw, 120px); }
         #home-start-img,
         #home-start-css { width: clamp(120px, 52vw, 200px); }
-        #home-character { width: clamp(90px, 28vw, 140px); transform: translate(-68%, -44%); }
-        @keyframes hBounce {
-          0%, 100% { transform: translate(-68%, -44%); }
-          45%      { transform: translate(-68%, calc(-44% - 7px)); }
-          65%      { transform: translate(-68%, calc(-44% - 1px)); }
-          80%      { transform: translate(-68%, calc(-44% - 4px)); }
-        }
       }
     </style>
 
     <div id="home-root">
       <div id="home-group">
+        <img id="home-character" src="${IMG.character}" alt="" />
         <img id="home-logo"      src="${IMG.logo}"      alt="POOP DODGE" />
         <img id="home-start-img" src="${IMG.startDef}"  alt="START" />
         <button id="home-start-css">START</button>
-        <img id="home-character" src="${IMG.character}" alt="" />
       </div>
     </div>
   `
