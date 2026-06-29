@@ -24,8 +24,8 @@ export async function gamePage(app, query) {
   const entry  = GAME_REGISTRY[gameId]
   if (!entry) { navigate('/'); return }
 
-  // ── STEP 1: 플레이 방식 선택 ───────────────────────────────
-  const mode = await showModeSelection(app, entry.manifest)
+  // ── STEP 1: 플레이 방식 선택 (세션 URL 직접 진입 시 건너뜀) ──
+  const mode = query.session ? 'multi' : await showModeSelection(app, entry.manifest)
   if (!mode) { navigate('/'); return }
 
   if (mode === 'solo') {
@@ -958,7 +958,7 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
             <div id="wait-session">${sessionId}</div>
             <div id="wait-status">⚠️ 컨트롤러를 연결해주세요</div>
             <div id="wait-name">안녕하세요, <strong>${playerName}</strong>님!</div>
-            <button id="wait-btn-back">← 나가기</button>
+            <button id="wait-btn-back">← 역할 선택으로</button>
           </div>
         </div>
       </div>
@@ -1135,8 +1135,11 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
     navigate('/')
   }
 
-  // 대기 화면 나가기 버튼
-  app.querySelector('#wait-btn-back').addEventListener('click', exitView)
+  // 대기 화면 뒤로가기 → 같은 세션으로 역할 선택 화면 재진입
+  app.querySelector('#wait-btn-back').addEventListener('click', () => {
+    cleanup()
+    navigate(`/game?id=${gameId}&session=${sessionId}`)
+  })
 
   // ── 버튼 ──────────────────────────────────────────────────
   app.querySelector('#btn-fs').addEventListener('click', () => {
