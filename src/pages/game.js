@@ -1316,9 +1316,10 @@ function _askPlayerName(app, manifest) {
           object-fit: contain;
         }
         #name-label {
-          color: #7c3aed; font-size: clamp(0.85rem, 2.2vw, 1rem);
+          color: #7c3aed; font-size: clamp(1rem, 2.6vw, 1.2rem);
           font-weight: 700; margin: 0; align-self: flex-start;
           width: 100%; max-width: 360px;
+          margin-bottom: -8px;
         }
         #name-input {
           width: 100%; max-width: 360px;
@@ -1350,15 +1351,18 @@ function _askPlayerName(app, manifest) {
         #name-btn-start:hover  { transform: scale(1.04); }
         #name-btn-start:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #2a8a30; }
         #name-btn-cancel {
-          background: transparent; border: 3px solid #c4a8f5;
-          border-radius: 9999px; color: #9d6ed8;
-          font-family: var(--font-main);
-          font-size: clamp(0.9rem, 2.2vw, 1rem); font-weight: 700;
-          padding: clamp(10px, 1.6vh, 14px) 0;
           width: 100%; max-width: 360px;
-          cursor: pointer; transition: border-color 0.15s, color 0.15s;
+          padding: clamp(13px, 2.2vh, 18px) 0;
+          background: linear-gradient(180deg, #b0b8c1 0%, #8a9199 100%);
+          border: none; border-radius: 9999px;
+          box-shadow: 0 5px 0 #626a71, 0 8px 24px rgba(100,110,120,0.3);
+          color: #fff; font-family: var(--font-main);
+          font-size: clamp(1.1rem, 3vw, 1.4rem); font-weight: 800;
+          cursor: pointer; transition: transform 0.1s, box-shadow 0.1s;
+          -webkit-tap-highlight-color: transparent;
         }
-        #name-btn-cancel:hover { border-color: #7c3aed; color: #7c3aed; }
+        #name-btn-cancel:hover  { transform: scale(1.04); }
+        #name-btn-cancel:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #626a71; }
       </style>
 
       <div id="name-root">
