@@ -93,7 +93,7 @@ export function homePage(app) {
         pointer-events: none;
         /* 로고와 살짝 겹치도록 아래쪽 마진 음수 */
         margin-bottom: clamp(-120px, -14vh, -60px);
-        z-index: 3;
+        z-index: 1;
         position: relative;
       }
 
