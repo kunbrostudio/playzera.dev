@@ -87,12 +87,13 @@ function showModeSelection(app, manifest) {
           overflow: hidden;
         }
 
-        /* 중앙 카드 패널 — 더 넓고 연보라 테두리 */
+        /* 중앙 카드 패널 */
         #mode-card {
           position: relative;
           background: #F7F0FF;
-          border: 5px solid #c4a8f5;
-          border-radius: 36px;
+          border: 10px solid #c4a8f5;
+          outline: 10px solid #fff;
+          border-radius: 90px;
           padding: clamp(16px, 3vw, 32px) clamp(24px, 5vw, 52px) clamp(24px, 3.5vw, 36px);
           width: clamp(320px, 90vw, 620px);
           max-height: 94vh;
@@ -104,70 +105,28 @@ function showModeSelection(app, manifest) {
           box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
         }
 
-        /* PLAY ZERA 간판 (크라운 포함 버전) — 카드 상단에 크게 걸침 */
+        /* PLAYZERA 간판 — 카드 상단에 걸쳐진 느낌 */
         #mode-signboard {
           position: absolute;
-          top: clamp(-48px, -7vw, -36px);
+          top: clamp(-54px, -8vw, -42px);
           left: 50%;
           transform: translateX(-50%);
-          width: clamp(180px, 46%, 280px);
+          width: clamp(180px, 48%, 290px);
           object-fit: contain;
           filter: drop-shadow(0 4px 12px rgba(0,0,0,0.30));
           pointer-events: none;
         }
 
-        /* 별 + 캐릭터 행 */
-        #mode-char-row {
-          display: flex;
-          align-items: center;
-          gap: clamp(8px, 2vw, 18px);
+        /* 게임 타이틀 간판 이미지 */
+        #mode-title-img {
+          width: clamp(220px, 80%, 420px);
+          object-fit: contain;
           margin-top: clamp(28px, 5vw, 48px);
         }
-        .mode-star {
-          font-size: clamp(1.2rem, 3vw, 1.8rem);
-          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));
-        }
 
-        /* 똥 캐릭터 */
-        #mode-char {
-          width: clamp(72px, 16vw, 110px);
-          object-fit: contain;
-        }
-
-        /* 게임 타이틀 — "똥" 초록, "피하기" 노랑, 보라 외곽선 */
-        #mode-title {
-          font-size: clamp(2.4rem, 8vw, 3.8rem);
-          font-weight: 900;
-          line-height: 1;
-          text-align: center;
-          margin: 0;
-          letter-spacing: 0.02em;
-        }
-        .t-green {
-          color: #4ecb52;
-          -webkit-text-stroke: 3px #5b21b6;
-          paint-order: stroke fill;
-          text-shadow: 3px 3px 0 #5b21b6;
-        }
-        .t-yellow {
-          color: #FFD020;
-          -webkit-text-stroke: 3px #5b21b6;
-          paint-order: stroke fill;
-          text-shadow: 3px 3px 0 #5b21b6;
-        }
-
-        /* 소제목 */
-        #mode-sub {
-          color: #7c3aed;
-          font-size: clamp(0.9rem, 2.4vw, 1.1rem);
-          font-weight: 700;
-          margin: 0;
-          text-align: center;
-        }
-
-        /* 플레이 버튼 이미지 — 더 넓게 */
+        /* 플레이 버튼 이미지 */
         .mode-play-btn {
-          width: clamp(220px, 82%, 400px);
+          width: clamp(240px, 88%, 440px);
           cursor: pointer;
           transition: transform 0.1s;
           -webkit-tap-highlight-color: transparent;
@@ -211,22 +170,11 @@ function showModeSelection(app, manifest) {
 
       <div id="mode-root">
         <div id="mode-card">
-          <!-- PLAY ZERA 간판 (크라운 포함 이미지) -->
-          <img id="mode-signboard" src="/assets/image/tit_signboard_main.png" alt="PLAY ZERA" />
+          <!-- PLAYZERA 간판 — 카드 상단에 걸쳐짐 -->
+          <img id="mode-signboard"  src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA" />
 
-          <!-- 별 + 캐릭터 행 -->
-          <div id="mode-char-row">
-            <span class="mode-star">⭐</span>
-            <img id="mode-char" src="/assets/image/poop02_smile.png" alt="" />
-            <span class="mode-star">⭐</span>
-          </div>
-
-          <!-- 타이틀: 똥(초록) + 피하기(노랑) -->
-          <p id="mode-title">
-            <span class="t-green">똥 </span><span class="t-yellow">피하기</span>
-          </p>
-
-          <p id="mode-sub">어떻게 플레이할까요?</p>
+          <!-- 게임 타이틀 간판 이미지 -->
+          <img id="mode-title-img" src="/assets/image/tit_signboard.png" alt="똥 피하기" />
 
           <img class="mode-play-btn" id="btn-solo"  src="/assets/image/btn_play_one.png"     alt="1대로 진행하기" />
           <img class="mode-play-btn" id="btn-multi" src="/assets/image/btn_play_several.png" alt="여러 대로 진행하기" />
