@@ -1,4 +1,4 @@
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+/* Pretendard 제거 → Jua(한글) + Fredoka(영문) 로 교체 */
 
 :root {
   --color-bg: #1a1a2e;
@@ -10,7 +10,7 @@
   --color-sub: #8892a4;
   --radius-card: 16px;
   --radius-btn: 50px;
-  --font-main: 'Pretendard Variable', 'Pretendard', 'Noto Sans KR', sans-serif;
+  --font-main: 'Jua', 'Fredoka', sans-serif;
 }
 
 *, *::before, *::after {

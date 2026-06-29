@@ -15,7 +15,7 @@ export function homePage(app) {
         position: fixed;
         inset: 0;
         overflow: hidden;
-        font-family: var(--font-main, 'Nunito', sans-serif);
+        font-family: var(--font-main, 'Jua', sans-serif);
         background: url('${IMG.bg}') center/cover no-repeat;
       }
 
