@@ -11,6 +11,10 @@ function genSession() {
   return `${L()}${L()}${L()}-${N()}${N()}${N()}`
 }
 
+function _isMobile() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth < 768
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ENTRY POINT
 // ═══════════════════════════════════════════════════════════════
@@ -19,24 +23,33 @@ export async function gamePage(app, query) {
   const entry  = GAME_REGISTRY[gameId]
   if (!entry) { navigate('/'); return }
 
-  // ── STEP 1: 세션 코드 ──────────────────────────────────────
+  // ── STEP 1: 플레이 방식 선택 ───────────────────────────────
+  const mode = await showModeSelection(app, entry.manifest)
+  if (!mode) { navigate('/'); return }
+
+  if (mode === 'solo') {
+    // ── 1대 모드 ─────────────────────────────────────────────
+    if (_isMobile()) {
+      const ok = await showOrientationCoach(app)
+      if (!ok) { navigate('/'); return }
+    }
+    await showSoloGame(app, gameId, entry)
+    return
+  }
+
+  // ── 여러 대 모드 ──────────────────────────────────────────
   const sessionId = query.session?.toUpperCase()
     || await showSessionEntry(app, entry.manifest)
   if (!sessionId) { navigate('/'); return }
 
-  // ── 채널 연결 ──────────────────────────────────────────────
   await channel.join(sessionId)
-  // 'connecting' 으로 먼저 presence 등록 → 인원수 카운팅 즉시 반영
   await channel.trackPresence({ role: 'connecting', ts: Date.now() })
 
-  // ── STEP 2: 역할 선택 ──────────────────────────────────────
   const role = await showRoleSelection(app, sessionId)
   if (!role) { channel.leave(); navigate('/'); return }
 
-  // presence 역할 업데이트
   channel.trackPresence({ role, ts: Date.now() })
 
-  // ── 공용 cleanup ───────────────────────────────────────────
   let _gameRef = null
   const cleanup = () => {
     _gameRef?.destroy()
@@ -44,10 +57,8 @@ export async function gamePage(app, query) {
     poseEngine.destroy()
     channel.leave()
   }
-  // 해시 변경으로 나갈 때도 정리
   window.addEventListener('hashchange', cleanup, { once: true })
 
-  // ── STEP 3: 역할별 화면 ────────────────────────────────────
   if (role === 'monitor') {
     showMonitorView(app, gameId, sessionId, entry, g => { _gameRef = g }, cleanup)
   } else if (role === 'controller') {
@@ -58,7 +69,353 @@ export async function gamePage(app, query) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STEP 1 — 세션 코드 입력
+// 플레이 방식 선택
+// ═══════════════════════════════════════════════════════════════
+function showModeSelection(app, manifest) {
+  return new Promise(resolve => {
+    app.innerHTML = `
+      <div style="
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        height:100vh;gap:20px;padding:24px;font-family:var(--font-main);
+      ">
+        <div style="font-size:3.5rem;">${manifest.emoji}</div>
+        <h2 style="font-size:1.8rem;font-weight:800;color:var(--color-accent);margin:0;">${manifest.title}</h2>
+        <p style="color:var(--color-sub);font-size:0.95rem;margin:0;">어떻게 플레이할까요?</p>
+
+        <div style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:380px;margin-top:8px;">
+          ${_modeCard('solo',  '📱', '1대로 하기',    '이 기기 하나로 카메라·게임·조작 모두 진행')}
+          ${_modeCard('multi', '📺', '여러 대로 하기', 'TV는 화면, 폰은 조작/카메라로 나눠서 진행')}
+        </div>
+
+        <button id="btn-back" class="btn-ghost" style="font-size:0.85rem;margin-top:4px;">← 홈으로</button>
+      </div>
+    `
+
+    app.querySelectorAll('.mode-card').forEach(card => {
+      card.addEventListener('mouseenter', () => {
+        card.style.borderColor = 'var(--color-accent)'
+        card.style.background  = 'rgba(0,207,0,0.07)'
+      })
+      card.addEventListener('mouseleave', () => {
+        card.style.borderColor = 'transparent'
+        card.style.background  = 'var(--color-panel)'
+      })
+      card.addEventListener('click', () => resolve(card.dataset.mode))
+    })
+
+    app.querySelector('#btn-back').addEventListener('click', () => resolve(null))
+  })
+}
+
+function _modeCard(mode, emoji, title, desc) {
+  return `
+    <div class="mode-card" data-mode="${mode}" style="
+      display:flex;align-items:center;gap:18px;
+      padding:20px 22px;background:var(--color-panel);
+      border-radius:var(--radius-card);cursor:pointer;
+      border:2px solid transparent;transition:border-color 0.15s,background 0.15s;
+    ">
+      <div style="font-size:2.6rem;min-width:48px;text-align:center;">${emoji}</div>
+      <div>
+        <div style="font-size:1.05rem;font-weight:700;color:var(--color-text);">${title}</div>
+        <div style="font-size:0.78rem;color:var(--color-sub);margin-top:4px;">${desc}</div>
+      </div>
+    </div>
+  `
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 모바일 가로 코치마크
+// ═══════════════════════════════════════════════════════════════
+function showOrientationCoach(app) {
+  return new Promise(resolve => {
+    if (window.innerWidth > window.innerHeight) { resolve(true); return }
+
+    const styleEl = document.createElement('style')
+    styleEl.textContent = `
+      @keyframes _phoneRotate {
+        0%,30%  { transform:rotate(0deg); }
+        60%,90% { transform:rotate(-90deg); }
+        100%    { transform:rotate(0deg); }
+      }
+      #_rotateIcon { animation:_phoneRotate 2s ease-in-out infinite; display:inline-block; }
+    `
+    document.head.appendChild(styleEl)
+
+    app.innerHTML = `
+      <div style="
+        display:flex;flex-direction:column;align-items:center;justify-content:center;
+        height:100vh;gap:20px;text-align:center;padding:24px;
+        font-family:var(--font-main);background:var(--color-bg);
+      ">
+        <div id="_rotateIcon" style="font-size:5rem;">📱</div>
+        <h2 style="font-size:1.6rem;font-weight:800;color:var(--color-text);margin:0;">기기를 가로로 돌려주세요</h2>
+        <p style="color:var(--color-sub);margin:0;">게임은 가로 화면에 최적화되어 있어요</p>
+        <button id="btn-skip" class="btn-ghost" style="margin-top:12px;">건너뛰기 (세로 유지)</button>
+        <button id="btn-home-coach" class="btn-ghost" style="font-size:0.82rem;margin-top:4px;">← 홈으로</button>
+      </div>
+    `
+
+    const done = result => {
+      styleEl.remove()
+      window.removeEventListener('resize', checkLandscape)
+      resolve(result)
+    }
+
+    const checkLandscape = () => {
+      if (window.innerWidth > window.innerHeight) done(true)
+    }
+    window.addEventListener('resize', checkLandscape)
+
+    app.querySelector('#btn-skip').addEventListener('click', () => done(true))
+    app.querySelector('#btn-home-coach').addEventListener('click', () => done(false))
+  })
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 1대 모드 (솔로)
+// ═══════════════════════════════════════════════════════════════
+async function showSoloGame(app, gameId, entry) {
+  const { manifest } = entry
+  const soloSessionId = `solo-${Date.now()}`
+
+  const playerName = await _askPlayerName(app, manifest)
+  if (!playerName) { navigate('/'); return }
+
+  const rounds = manifest.rounds ?? 5
+
+  app.innerHTML = `
+    <div id="game-wrap" style="position:relative;width:100%;height:100vh;overflow:hidden;background:#0d1b2a;">
+      <canvas id="game-canvas" style="display:block;width:100%;height:100%;"></canvas>
+
+      <div id="game-overlay" style="
+        position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+        pointer-events:none;font-family:var(--font-main);font-weight:800;
+        text-shadow:0 2px 16px rgba(0,0,0,0.7);transition:opacity 0.2s;opacity:0;
+      "></div>
+
+      <!-- HUD -->
+      <div style="
+        position:absolute;top:0;left:0;right:0;
+        display:flex;align-items:center;justify-content:space-between;
+        padding:12px 20px;background:rgba(13,27,42,0.85);font-family:var(--font-main);
+      ">
+        <div id="hud-rounds" style="display:flex;gap:6px;"></div>
+        <div style="display:flex;align-items:center;gap:20px;">
+          <div id="hud-timer" style="font-size:1.4rem;font-weight:800;color:var(--color-accent2);min-width:40px;text-align:center;"></div>
+          <div style="font-size:1rem;color:var(--color-sub);">
+            점수 <span id="score-val" style="color:var(--color-text);font-weight:700;">0</span>
+          </div>
+        </div>
+        <div id="hud-lives" style="display:flex;gap:4px;font-size:1.4rem;"></div>
+      </div>
+
+      <!-- 햄버거 버튼 -->
+      <button id="btn-menu" style="
+        position:absolute;top:10px;right:14px;
+        background:rgba(0,0,0,0.45);border:none;
+        color:rgba(255,255,255,0.65);font-size:1.4rem;
+        cursor:pointer;padding:5px 10px;border-radius:8px;
+        z-index:10;line-height:1;
+      ">☰</button>
+
+      <!-- PIP 카메라 -->
+      <video id="pip-video" playsinline style="
+        position:absolute;bottom:100px;right:12px;width:120px;height:90px;
+        border-radius:10px;border:2px solid rgba(0,207,0,0.4);
+        object-fit:cover;transform:scaleX(-1);display:none;
+      "></video>
+
+      <!-- 카메라 소스 표시 -->
+      <div id="source-badge" style="
+        position:absolute;top:58px;left:12px;
+        background:rgba(0,0,0,0.6);padding:4px 10px;border-radius:50px;
+        font-size:0.72rem;font-family:var(--font-main);pointer-events:none;
+        color:rgba(255,255,255,0.35);transition:color 0.3s;
+      ">⌨️ 키보드</div>
+
+      <!-- 햄버거 메뉴 패널 -->
+      <div id="menu-panel" style="
+        position:absolute;inset:0;z-index:20;
+        background:rgba(0,0,0,0.82);
+        display:none;align-items:center;justify-content:center;
+        font-family:var(--font-main);
+      ">
+        <div style="
+          background:var(--color-panel);border-radius:var(--radius-card);
+          padding:32px 28px;display:flex;flex-direction:column;
+          gap:12px;min-width:280px;text-align:center;
+        ">
+          <div style="font-size:1.3rem;font-weight:800;color:var(--color-text);margin-bottom:6px;">⏸ 일시정지</div>
+          <button id="btn-resume" class="btn-primary" style="font-size:1.1rem;padding:18px;">▶ 계속하기</button>
+          <button id="btn-restart" class="btn-ghost" style="padding:14px;">⏹ 다시 시작</button>
+          <button id="btn-menu-exit" style="
+            padding:14px;font-size:0.9rem;font-weight:700;
+            background:transparent;border:1px solid rgba(255,71,87,0.3);
+            color:rgba(255,71,87,0.7);border-radius:var(--radius-btn);
+            cursor:pointer;font-family:var(--font-main);transition:all 0.15s;
+          ">🚪 게임 종료</button>
+        </div>
+      </div>
+
+      <!-- 게임 오버 -->
+      <div id="gameover-overlay" style="
+        position:absolute;inset:0;display:none;flex-direction:column;
+        align-items:center;justify-content:center;gap:16px;
+        background:rgba(13,27,42,0.92);font-family:var(--font-main);
+      ">
+        <div style="font-size:4rem;">💩</div>
+        <div id="go-title" style="font-size:2rem;font-weight:800;"></div>
+        <div id="go-stats" style="color:var(--color-sub);font-size:1rem;text-align:center;line-height:2;"></div>
+        <div style="display:flex;gap:12px;margin-top:8px;">
+          <button id="btn-retry" class="btn-primary">다시 하기</button>
+          <button id="btn-home-go" class="btn-ghost">홈으로</button>
+        </div>
+      </div>
+    </div>
+  `
+
+  const canvas = app.querySelector('#game-canvas')
+  canvas.width  = canvas.offsetWidth
+  canvas.height = canvas.offsetHeight
+
+  // ── HUD ──────────────────────────────────────────────────
+  const updateRoundPips = round =>
+    (app.querySelector('#hud-rounds').innerHTML =
+      Array.from({ length: rounds }, (_, i) =>
+        `<span style="font-size:1.1rem;color:${i < round ? '#00CF00' : 'rgba(255,255,255,0.2)'};">●</span>`
+      ).join(''))
+  const updateLives  = n =>
+    (app.querySelector('#hud-lives').innerHTML =
+      Array.from({ length: 3 }, (_, i) =>
+        `<span style="opacity:${i < n ? 1 : 0.2};">❤️</span>`
+      ).join(''))
+  const updateScore  = s => { app.querySelector('#score-val').textContent = s }
+  const updateTimer  = ms => { app.querySelector('#hud-timer').textContent = Math.ceil(ms / 1000) }
+  const resetHUD     = () => { updateLives(3); updateScore(0); updateRoundPips(0); app.querySelector('#hud-timer').textContent = '' }
+  resetHUD()
+
+  // ── 소스 배지 ─────────────────────────────────────────────
+  const sourceBadge = app.querySelector('#source-badge')
+  function updateSourceBadge(src) {
+    const c = { local: ['📷 내장 카메라', '#ffe600'], keyboard: ['⌨️ 키보드', 'rgba(255,255,255,0.35)'] }
+    const [label, color] = c[src] ?? c.keyboard
+    sourceBadge.textContent = label
+    sourceBadge.style.color = color
+  }
+
+  // ── 게임 빌드 ─────────────────────────────────────────────
+  const { default: GameClass } = await entry.load()
+  let game = null
+
+  function buildGame() {
+    game?.destroy()
+    game = new GameClass(canvas, {
+      onRoundEnd:    round => updateRoundPips(round),
+      onGameEnd:     async stats => {
+        showGameOver(stats)
+        try {
+          await saveResult({ sessionId: soloSessionId, gameId, playerName,
+            score: stats.score, roundsCleared: stats.roundsCleared,
+            dodgeCount: stats.dodgeCount, hitCount: stats.hitCount, reactionAvgMs: null })
+        } catch (e) { console.error('[game] 결과 저장 실패:', e) }
+      },
+      onScoreUpdate: updateScore,
+      onLifeUpdate:  updateLives,
+    })
+    game.init()
+    const origUpdate = game.update.bind(game)
+    game.update = dt => { origUpdate(dt); if (game._roundTimer > 0) updateTimer(game._roundTimer) }
+  }
+
+  function startGame() {
+    app.querySelector('#gameover-overlay').style.display = 'none'
+    resetHUD()
+    buildGame()
+    game.startRound(1)
+  }
+
+  function showGameOver(stats) {
+    const cleared = stats.roundsCleared === rounds
+    app.querySelector('#go-title').textContent = cleared ? '🎉 게임 클리어!' : '게임 오버'
+    app.querySelector('#go-title').style.color = cleared ? '#00CF00' : '#ff4757'
+    app.querySelector('#go-stats').innerHTML =
+      `최종 점수: <strong style="color:#fff;">${stats.score}점</strong><br>` +
+      `클리어 라운드: ${stats.roundsCleared} / ${rounds}<br>` +
+      `회피: ${stats.dodgeCount}회 · 피격: ${stats.hitCount}회`
+    app.querySelector('#gameover-overlay').style.display = 'flex'
+  }
+
+  // ── 햄버거 메뉴 ───────────────────────────────────────────
+  const menuPanel = app.querySelector('#menu-panel')
+
+  function openMenu() {
+    if (!game || !game._running) return
+    game.pause()
+    menuPanel.style.display = 'flex'
+  }
+  function closeMenu() {
+    menuPanel.style.display = 'none'
+    game?.resume()
+  }
+
+  app.querySelector('#btn-menu').addEventListener('click', openMenu)
+  app.querySelector('#btn-resume').addEventListener('click', closeMenu)
+  app.querySelector('#btn-restart').addEventListener('click', () => {
+    menuPanel.style.display = 'none'
+    startGame()
+  })
+  app.querySelector('#btn-menu-exit').addEventListener('click', () => {
+    window.removeEventListener('keydown', onKey)
+    poseEngine.destroy()
+    game?.destroy()
+    navigate('/')
+  })
+
+  // ── 로컬 카메라 ───────────────────────────────────────────
+  const pipVideo = app.querySelector('#pip-video')
+  poseEngine.init(pipVideo, {
+    onZoneChange: zone => game?.setPlayerZone(zone),
+  }).then(() => {
+    if (poseEngine.isRunning) {
+      pipVideo.style.display = 'block'
+      updateSourceBadge('local')
+    }
+  })
+
+  // ── 키보드 폴백 ───────────────────────────────────────────
+  const onKey = e => {
+    if (!game) return
+    if (e.key === 'ArrowLeft')  game.setPlayerZone(0)
+    if (e.key === ' ')          game.setPlayerZone(1)
+    if (e.key === 'ArrowRight') game.setPlayerZone(2)
+    if (e.key === 'Escape') {
+      if (menuPanel.style.display === 'flex') closeMenu()
+      else openMenu()
+    }
+  }
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('hashchange', () => {
+    window.removeEventListener('keydown', onKey)
+    poseEngine.destroy()
+    game?.destroy()
+  }, { once: true })
+
+  // ── 버튼 ──────────────────────────────────────────────────
+  app.querySelector('#btn-retry').addEventListener('click', () => startGame())
+  app.querySelector('#btn-home-go').addEventListener('click', () => {
+    window.removeEventListener('keydown', onKey)
+    poseEngine.destroy()
+    game?.destroy()
+    navigate('/')
+  })
+
+  // 게임 즉시 시작
+  startGame()
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 세션 코드 입력
 // ═══════════════════════════════════════════════════════════════
 function showSessionEntry(app, manifest) {
   return new Promise(resolve => {
@@ -101,7 +458,6 @@ function showSessionEntry(app, manifest) {
     `
 
     const input = app.querySelector('#code-input')
-
     app.querySelector('#btn-create').addEventListener('click', () => resolve(genSession()))
 
     const doJoin = () => {
@@ -112,13 +468,12 @@ function showSessionEntry(app, manifest) {
     app.querySelector('#btn-join').addEventListener('click', doJoin)
     input.addEventListener('keydown', e => { if (e.key === 'Enter') doJoin() })
     input.addEventListener('input',   () => { input.style.borderColor = 'rgba(255,255,255,0.15)' })
-
     app.querySelector('#btn-cancel').addEventListener('click', () => resolve(null))
   })
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STEP 2 — 역할 선택
+// 역할 선택
 // ═══════════════════════════════════════════════════════════════
 function showRoleSelection(app, sessionId) {
   return new Promise(resolve => {
@@ -138,16 +493,15 @@ function showRoleSelection(app, sessionId) {
         <p style="color:var(--color-sub);font-size:0.95rem;margin:0;">역할을 선택하세요</p>
 
         <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:360px;">
-          ${_roleCard('monitor',    '📺', '모니터',    'TV · 노트북에서 게임 화면 표시 (내장 카메라 있으면 웹캠 불필요)')}
-          ${_roleCard('controller', '🎮', '컨트롤러',  '선생님 폰 — 게임을 시작하고 멈춥니다')}
-          ${_roleCard('webcam',     '📸', '웹캠',      '아이 동작 인식 후 모니터로 전송 (모니터에 카메라 없을 때)')}
+          ${_roleCard('monitor',    '📺', '모니터',   'TV · 노트북에서 게임 화면 표시 (내장 카메라 있으면 웹캠 불필요)')}
+          ${_roleCard('controller', '🎮', '컨트롤러', '선생님 폰 — 게임을 시작하고 멈춥니다', '필수')}
+          ${_roleCard('webcam',     '📸', '웹캠',     '아이 동작 인식 후 모니터로 전송 (모니터에 카메라 없을 때)')}
         </div>
 
         <button id="btn-back" class="btn-ghost" style="font-size:0.85rem;margin-top:4px;">← 세션 변경</button>
       </div>
     `
 
-    // 인원수 실시간 업데이트
     const badge = app.querySelector('#count-badge')
     const updateCount = n => {
       badge.textContent = `${n} / ${MAX_DEVICES} 접속중`
@@ -156,7 +510,6 @@ function showRoleSelection(app, sessionId) {
     updateCount(channel.getPresenceCount())
     channel.onPresenceSync(updateCount)
 
-    // 카드 hover
     app.querySelectorAll('.role-card').forEach(card => {
       card.addEventListener('mouseenter', () => {
         card.style.borderColor = 'var(--color-accent)'
@@ -179,7 +532,13 @@ function showRoleSelection(app, sessionId) {
   })
 }
 
-function _roleCard(role, emoji, title, desc) {
+function _roleCard(role, emoji, title, desc, badge = null) {
+  const badgeHtml = badge
+    ? `<span style="
+        background:#ffe600;color:#000;padding:2px 8px;border-radius:50px;
+        font-size:0.65rem;font-weight:800;letter-spacing:0.04em;
+       ">${badge}</span>`
+    : ''
   return `
     <div class="role-card" data-role="${role}" style="
       display:flex;align-items:center;gap:16px;
@@ -189,7 +548,10 @@ function _roleCard(role, emoji, title, desc) {
     ">
       <div style="font-size:2.2rem;min-width:44px;text-align:center;">${emoji}</div>
       <div>
-        <div style="font-size:1rem;font-weight:700;color:var(--color-text);">${title}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div style="font-size:1rem;font-weight:700;color:var(--color-text);">${title}</div>
+          ${badgeHtml}
+        </div>
         <div style="font-size:0.78rem;color:var(--color-sub);margin-top:3px;">${desc}</div>
       </div>
     </div>
@@ -197,12 +559,11 @@ function _roleCard(role, emoji, title, desc) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STEP 3a — 모니터 (게임 화면)
+// 모니터 (게임 화면)
 // ═══════════════════════════════════════════════════════════════
 async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup) {
   const { manifest } = entry
 
-  // 플레이어 이름 입력
   const playerName = await _askPlayerName(app, manifest)
   if (!playerName) { cleanup(); navigate('/'); return }
 
@@ -212,7 +573,6 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
     <div id="game-wrap" style="position:relative;width:100%;height:100vh;overflow:hidden;background:#0d1b2a;">
       <canvas id="game-canvas" style="display:block;width:100%;height:100%;"></canvas>
 
-      <!-- 판정/배너/카운트다운 오버레이 -->
       <div id="game-overlay" style="
         position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
         pointer-events:none;font-family:var(--font-main);font-weight:800;
@@ -263,7 +623,7 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
         background:rgba(13,27,42,0.96);font-family:var(--font-main);
       ">
         <div style="font-size:3.5rem;">🎮</div>
-        <div style="font-size:1.3rem;font-weight:700;color:var(--color-text);">컨트롤러에서 게임을 시작하면 시작됩니다</div>
+        <div id="wait-status" style="font-size:1.1rem;font-weight:700;color:var(--color-accent2);">⚠️ 컨트롤러를 연결해주세요</div>
         <div style="font-size:1.8rem;font-weight:800;letter-spacing:0.1em;color:var(--color-accent);">${sessionId}</div>
         <div style="color:var(--color-sub);font-size:0.9rem;">
           안녕하세요, <strong style="color:var(--color-text);">${playerName}</strong>님!
@@ -291,21 +651,20 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   canvas.width  = canvas.offsetWidth
   canvas.height = canvas.offsetHeight
 
-  // ── HUD 헬퍼 ──────────────────────────────────────────────
+  // ── HUD ──────────────────────────────────────────────────
   const updateRoundPips = round =>
     (app.querySelector('#hud-rounds').innerHTML =
       Array.from({ length: rounds }, (_, i) =>
         `<span style="font-size:1.1rem;color:${i < round ? '#00CF00' : 'rgba(255,255,255,0.2)'};">●</span>`
       ).join(''))
-  const updateLives = n =>
+  const updateLives  = n =>
     (app.querySelector('#hud-lives').innerHTML =
       Array.from({ length: 3 }, (_, i) =>
         `<span style="opacity:${i < n ? 1 : 0.2};">❤️</span>`
       ).join(''))
-  const updateScore = s => { app.querySelector('#score-val').textContent = s }
-  const updateTimer = ms => { app.querySelector('#hud-timer').textContent = Math.ceil(ms / 1000) }
-  const resetHUD    = () => { updateLives(3); updateScore(0); updateRoundPips(0); app.querySelector('#hud-timer').textContent = '' }
-
+  const updateScore  = s => { app.querySelector('#score-val').textContent = s }
+  const updateTimer  = ms => { app.querySelector('#hud-timer').textContent = Math.ceil(ms / 1000) }
+  const resetHUD     = () => { updateLives(3); updateScore(0); updateRoundPips(0); app.querySelector('#hud-timer').textContent = '' }
   resetHUD()
 
   // ── 카메라 소스 추적 ──────────────────────────────────────
@@ -313,9 +672,9 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   const sourceBadge = app.querySelector('#source-badge')
   function updateSourceBadge(src) {
     const configs = {
-      webcam:   ['📸 웹캠 연결됨',   '#00CF00'],
-      local:    ['📷 내장 카메라',   '#ffe600'],
-      keyboard: ['⌨️ 키보드',       'rgba(255,255,255,0.35)'],
+      webcam:   ['📸 웹캠 연결됨',  '#00CF00'],
+      local:    ['📷 내장 카메라', '#ffe600'],
+      keyboard: ['⌨️ 키보드',     'rgba(255,255,255,0.35)'],
     }
     const [label, color] = configs[src] ?? configs.keyboard
     sourceBadge.textContent = label
@@ -343,8 +702,6 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
     })
     game.init()
     onSetGame(game)
-
-    // 타이머 HUD 패치
     const origUpdate = game.update.bind(game)
     game.update = dt => { origUpdate(dt); if (game._roundTimer > 0) updateTimer(game._roundTimer) }
   }
@@ -385,8 +742,7 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   })
   channel.on(MSG.GAME_EXIT, () => exitView())
 
-  // ── 로컬 포즈 (PIP) ───────────────────────────────────────
-  // 웹캠 역할이 접속해 있으면 로컬 카메라 zone 은 게임에 적용하지 않음
+  // ── 로컬 카메라 (PIP) ─────────────────────────────────────
   const pipVideo = app.querySelector('#pip-video')
   poseEngine.init(pipVideo, {
     onZoneChange: zone => {
@@ -402,6 +758,20 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
 
   // 웹캠 디바이스 접속/퇴장 감지
   channel.onPresenceSync(() => {
+    // 컨트롤러 상태 업데이트
+    const ctrlCount = channel.getPresenceByRole('controller')
+    const waitStatus = app.querySelector('#wait-status')
+    if (waitStatus) {
+      if (ctrlCount > 0) {
+        waitStatus.textContent = '게임 시작을 기다리는 중...'
+        waitStatus.style.color = 'var(--color-accent)'
+      } else {
+        waitStatus.textContent = '⚠️ 컨트롤러를 연결해주세요'
+        waitStatus.style.color = 'var(--color-accent2)'
+      }
+    }
+
+    // 웹캠 퇴장 감지
     const webcamCount = channel.getPresenceByRole('webcam')
     if (webcamCount === 0 && _webcamActive) {
       _webcamActive = false
@@ -409,7 +779,6 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
       sourceBadge.style.color = '#ff4757'
       setTimeout(() => updateSourceBadge(poseEngine.isRunning ? 'local' : 'keyboard'), 3000)
     } else if (webcamCount > 0 && !_webcamActive) {
-      // 웹캠 접속 감지 (POSE_UPDATE 오기 전 미리 표시)
       sourceBadge.textContent = '📸 웹캠 연결 대기'
       sourceBadge.style.color = 'rgba(0,207,0,0.5)'
     }
@@ -424,10 +793,9 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   }
   window.addEventListener('keydown', onKey)
 
-  // 초기: 게임 객체만 준비 (대기 화면 표시)
   buildGame()
 
-  // ── 종료 헬퍼 (모니터) ────────────────────────────────────
+  // ── 종료 헬퍼 ─────────────────────────────────────────────
   const exitView = () => {
     window.removeEventListener('keydown', onKey)
     cleanup()
@@ -444,11 +812,10 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STEP 3b — 컨트롤러
+// 컨트롤러
 // ═══════════════════════════════════════════════════════════════
 function showControllerView(app, sessionId, cleanup) {
-  let gameState    = 'idle'
-  let recordsOpen  = false
+  let gameState = 'idle'
 
   app.innerHTML = `
     <div style="
@@ -535,19 +902,16 @@ function showControllerView(app, sessionId, cleanup) {
     </div>
   `
 
-  // 인원수 업데이트
   channel.onPresenceSync(n => {
     app.querySelector('#count-badge').textContent = `${n} / ${MAX_DEVICES} 접속중`
   })
 
-  // 게임에서 라운드 변경 수신
   channel.on(MSG.ROUND_CHANGE, ({ round }) => {
     app.querySelector('#round-label').textContent = round
   })
 
-  // 상태 업데이트
-  const dotEl   = app.querySelector('#state-dot')
-  const labelEl = app.querySelector('#state-label')
+  const dotEl    = app.querySelector('#state-dot')
+  const labelEl  = app.querySelector('#state-label')
   const pauseBtn = app.querySelector('#btn-pause')
   const stopBtn  = app.querySelector('#btn-stop')
 
@@ -581,6 +945,27 @@ function showControllerView(app, sessionId, cleanup) {
     setState('idle')
     app.querySelector('#round-label').textContent = '-'
   })
+
+  // 종료 버튼
+  const exitBtn = app.querySelector('#btn-exit')
+  exitBtn.addEventListener('mouseenter', () => {
+    exitBtn.style.background  = 'rgba(255,71,87,0.12)'
+    exitBtn.style.color       = '#ff4757'
+    exitBtn.style.borderColor = 'rgba(255,71,87,0.35)'
+  })
+  exitBtn.addEventListener('mouseleave', () => {
+    exitBtn.style.background  = 'rgba(255,255,255,0.04)'
+    exitBtn.style.color       = 'rgba(255,255,255,0.45)'
+    exitBtn.style.borderColor = 'rgba(255,255,255,0.12)'
+  })
+  exitBtn.addEventListener('click', () => {
+    if (!confirm('정말 게임을 종료하시겠어요?\n모든 화면이 메인으로 돌아갑니다.')) return
+    channel.send(MSG.GAME_EXIT, {})
+    cleanup()
+    navigate('/')
+  })
+
+  channel.on(MSG.GAME_EXIT, () => { cleanup(); navigate('/') })
 
   // 오늘 기록
   app.querySelector('#btn-records').addEventListener('click', async () => {
@@ -617,46 +1002,24 @@ function showControllerView(app, sessionId, cleanup) {
     app.querySelector('#records-view').style.display = 'none'
   })
 
-  // 게임 종료 버튼
-  const exitBtn = app.querySelector('#btn-exit')
-  exitBtn.addEventListener('mouseenter', () => {
-    exitBtn.style.background   = 'rgba(255,71,87,0.12)'
-    exitBtn.style.color        = '#ff4757'
-    exitBtn.style.borderColor  = 'rgba(255,71,87,0.35)'
-  })
-  exitBtn.addEventListener('mouseleave', () => {
-    exitBtn.style.background   = 'rgba(255,255,255,0.04)'
-    exitBtn.style.color        = 'rgba(255,255,255,0.45)'
-    exitBtn.style.borderColor  = 'rgba(255,255,255,0.12)'
-  })
-  exitBtn.addEventListener('click', () => {
-    if (!confirm('정말 게임을 종료하시겠어요?\n모든 화면이 메인으로 돌아갑니다.')) return
-    channel.send(MSG.GAME_EXIT, {})
-    cleanup()
-    navigate('/')
-  })
-
-  // 다른 디바이스가 보낸 GAME_EXIT 수신 (드물지만 방어)
-  channel.on(MSG.GAME_EXIT, () => { cleanup(); navigate('/') })
-
   app.querySelector('#btn-home').addEventListener('click', () => { cleanup(); navigate('/') })
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STEP 3c — 웹캠 (동작 인식 + POSE_UPDATE 송신)
+// 웹캠 (동작 인식 + POSE_UPDATE 송신)
 // ═══════════════════════════════════════════════════════════════
 async function showWebcamView(app, sessionId, cleanup) {
-  const THROTTLE    = 100   // ms (최대 10회/초)
-  const ZONE_LABEL  = ['← 왼쪽', '가운데', '오른쪽 →']
-  const ZONE_COLOR  = ['#00CF00', '#ffe600', '#00CF00']
-  const ZONE_FILL   = ['rgba(0,207,0,0.25)', 'rgba(255,230,0,0.15)', 'rgba(0,207,0,0.25)']
+  const THROTTLE   = 100
+  const ZONE_LABEL = ['← 왼쪽', '가운데', '오른쪽 →']
+  const ZONE_COLOR = ['#00CF00', '#ffe600', '#00CF00']
+  const ZONE_FILL  = ['rgba(0,207,0,0.25)', 'rgba(255,230,0,0.15)', 'rgba(0,207,0,0.25)']
+  const PERSON_TIMEOUT = 3000
 
   let lastPoseSendMs  = 0
   let latestLandmarks = null
   let latestHipX      = null
   let rafId           = null
   let _personTimer    = null
-  const PERSON_TIMEOUT = 3000  // 3초 미감지 시 안내 표시
 
   app.innerHTML = `
     <div style="position:relative;width:100%;height:100vh;background:#000;overflow:hidden;">
@@ -669,7 +1032,7 @@ async function showWebcamView(app, sessionId, cleanup) {
           background:rgba(0,0,0,0.72);padding:5px 12px;border-radius:50px;
           font-size:0.78rem;font-weight:700;color:var(--color-accent);letter-spacing:0.08em;
         ">${sessionId}</div>
-        <div id="send-badge" style="
+        <div style="
           background:rgba(0,207,0,0.2);border:1px solid rgba(0,207,0,0.4);
           padding:5px 12px;border-radius:50px;font-size:0.78rem;color:#00CF00;
         ">📡 송신중</div>
@@ -708,7 +1071,6 @@ async function showWebcamView(app, sessionId, cleanup) {
     const cw = canvas.width, ch = canvas.height
     ctx.clearRect(0, 0, cw, ch)
 
-    // 셀피 뷰 (좌우 반전)
     ctx.save(); ctx.translate(cw, 0); ctx.scale(-1, 1)
     if (video.readyState >= 2) ctx.drawImage(video, 0, 0, cw, ch)
     ctx.restore()
@@ -758,7 +1120,6 @@ async function showWebcamView(app, sessionId, cleanup) {
     onPoseUpdate: (landmarks, hipX) => {
       latestLandmarks = landmarks
       latestHipX      = hipX
-      // 사람 감지 타임아웃 리셋
       clearTimeout(_personTimer)
       _personTimer = setTimeout(() => {
         statusEl.textContent  = '사람이 인식되지 않습니다'
@@ -773,13 +1134,15 @@ async function showWebcamView(app, sessionId, cleanup) {
     statusEl.style.color  = 'rgba(255,255,255,0.5)'
     statusEl.style.fontSize = '0.85rem'
   } else {
-    // 카메라 시작 성공 — 3초 후 사람 없으면 안내
     _personTimer = setTimeout(() => {
       statusEl.textContent  = '사람이 인식되지 않습니다'
       statusEl.style.color  = 'rgba(255,255,255,0.5)'
       statusEl.style.fontSize = '0.9rem'
     }, PERSON_TIMEOUT)
   }
+
+  // GAME_EXIT 수신
+  channel.on(MSG.GAME_EXIT, exitView)
 
   // 키보드 폴백
   const onKey = e => {
@@ -800,8 +1163,7 @@ async function showWebcamView(app, sessionId, cleanup) {
   }
   window.addEventListener('keydown', onKey)
 
-  // ── 종료 헬퍼 (웹캠) ─────────────────────────────────────
-  const exitView = () => {
+  function exitView() {
     clearTimeout(_personTimer)
     cancelAnimationFrame(rafId)
     window.removeEventListener('keydown', onKey)
@@ -810,7 +1172,6 @@ async function showWebcamView(app, sessionId, cleanup) {
     navigate('/')
   }
 
-  channel.on(MSG.GAME_EXIT, exitView)
   app.querySelector('#btn-home').addEventListener('click', exitView)
 }
 
