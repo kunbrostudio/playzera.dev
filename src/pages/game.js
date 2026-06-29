@@ -207,17 +207,17 @@ async function showSoloGame(app, gameId, entry) {
             점수 <span id="score-val" style="color:var(--color-text);font-weight:700;">0</span>
           </div>
         </div>
-        <div id="hud-lives" style="display:flex;gap:4px;font-size:1.4rem;"></div>
+        <!-- 우측: 하트 + 햄버거 버튼을 같은 flex 행에 배치 (겹침 방지) -->
+        <div style="display:flex;align-items:center;gap:16px;">
+          <div id="hud-lives" style="display:flex;gap:4px;font-size:1.4rem;"></div>
+          <button id="btn-menu" style="
+            background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
+            color:rgba(255,255,255,0.7);font-size:1.2rem;
+            cursor:pointer;padding:4px 10px;border-radius:8px;
+            line-height:1;flex-shrink:0;
+          ">☰</button>
+        </div>
       </div>
-
-      <!-- 햄버거 버튼 -->
-      <button id="btn-menu" style="
-        position:absolute;top:10px;right:14px;
-        background:rgba(0,0,0,0.45);border:none;
-        color:rgba(255,255,255,0.65);font-size:1.4rem;
-        cursor:pointer;padding:5px 10px;border-radius:8px;
-        z-index:10;line-height:1;
-      ">☰</button>
 
       <!-- PIP 카메라 -->
       <video id="pip-video" playsinline style="
