@@ -71,6 +71,14 @@ export function getPresenceCount() {
   return Object.keys(_channel.presenceState()).length
 }
 
+// 특정 role 로 접속한 디바이스 수 반환
+export function getPresenceByRole(role) {
+  if (!_channel) return 0
+  return Object.values(_channel.presenceState())
+    .flat()
+    .filter(p => p.role === role).length
+}
+
 // join() 이후 언제든 호출 가능 — 실제 Supabase 핸들러는 join() 안에서 이미 등록됨
 export function onPresenceSync(callback) {
   _presenceSyncCbs.push(callback)

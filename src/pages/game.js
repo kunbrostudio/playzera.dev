@@ -138,9 +138,9 @@ function showRoleSelection(app, sessionId) {
         <p style="color:var(--color-sub);font-size:0.95rem;margin:0;">역할을 선택하세요</p>
 
         <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:360px;">
-          ${_roleCard('monitor',    '📺', '모니터',    'TV · 노트북에서 게임 화면을 표시합니다')}
+          ${_roleCard('monitor',    '📺', '모니터',    'TV · 노트북에서 게임 화면 표시 (내장 카메라 있으면 웹캠 불필요)')}
           ${_roleCard('controller', '🎮', '컨트롤러',  '선생님 폰 — 게임을 시작하고 멈춥니다')}
-          ${_roleCard('webcam',     '📸', '웹캠',      '아이 동작을 인식합니다 (카메라 폰)')}
+          ${_roleCard('webcam',     '📸', '웹캠',      '아이 동작 인식 후 모니터로 전송 (모니터에 카메라 없을 때)')}
         </div>
 
         <button id="btn-back" class="btn-ghost" style="font-size:0.85rem;margin-top:4px;">← 세션 변경</button>
@@ -248,6 +248,14 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
         object-fit:cover;transform:scaleX(-1);display:none;
       "></video>
 
+      <!-- 카메라 소스 표시 -->
+      <div id="source-badge" style="
+        position:absolute;top:58px;left:12px;
+        background:rgba(0,0,0,0.6);padding:4px 10px;border-radius:50px;
+        font-size:0.72rem;font-family:var(--font-main);pointer-events:none;
+        color:rgba(255,255,255,0.35);transition:color 0.3s;
+      ">⌨️ 키보드</div>
+
       <!-- 대기 화면 -->
       <div id="waiting-overlay" style="
         position:absolute;inset:0;display:flex;flex-direction:column;
@@ -299,6 +307,20 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   const resetHUD    = () => { updateLives(3); updateScore(0); updateRoundPips(0); app.querySelector('#hud-timer').textContent = '' }
 
   resetHUD()
+
+  // ── 카메라 소스 추적 ──────────────────────────────────────
+  let _webcamActive = false
+  const sourceBadge = app.querySelector('#source-badge')
+  function updateSourceBadge(src) {
+    const configs = {
+      webcam:   ['📸 웹캠 연결됨',   '#00CF00'],
+      local:    ['📷 내장 카메라',   '#ffe600'],
+      keyboard: ['⌨️ 키보드',       'rgba(255,255,255,0.35)'],
+    }
+    const [label, color] = configs[src] ?? configs.keyboard
+    sourceBadge.textContent = label
+    sourceBadge.style.color = color
+  }
 
   // ── 게임 빌드 ─────────────────────────────────────────────
   const { default: GameClass } = await entry.load()
@@ -354,14 +376,44 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
     app.querySelector('#waiting-overlay').style.display = 'flex'
     app.querySelector('#gameover-overlay').style.display = 'none'
   })
-  channel.on(MSG.POSE_UPDATE, ({ zone }) => game?.setPlayerZone(zone))
-  channel.on(MSG.GAME_EXIT,   () => exitView())
+  channel.on(MSG.POSE_UPDATE, ({ zone }) => {
+    if (!_webcamActive) {
+      _webcamActive = true
+      updateSourceBadge('webcam')
+    }
+    game?.setPlayerZone(zone)
+  })
+  channel.on(MSG.GAME_EXIT, () => exitView())
 
   // ── 로컬 포즈 (PIP) ───────────────────────────────────────
+  // 웹캠 역할이 접속해 있으면 로컬 카메라 zone 은 게임에 적용하지 않음
   const pipVideo = app.querySelector('#pip-video')
   poseEngine.init(pipVideo, {
-    onZoneChange: zone => game?.setPlayerZone(zone),
-  }).then(() => { if (poseEngine.isRunning) pipVideo.style.display = 'block' })
+    onZoneChange: zone => {
+      if (_webcamActive) return
+      game?.setPlayerZone(zone)
+    },
+  }).then(() => {
+    if (poseEngine.isRunning) {
+      pipVideo.style.display = 'block'
+      if (!_webcamActive) updateSourceBadge('local')
+    }
+  })
+
+  // 웹캠 디바이스 접속/퇴장 감지
+  channel.onPresenceSync(() => {
+    const webcamCount = channel.getPresenceByRole('webcam')
+    if (webcamCount === 0 && _webcamActive) {
+      _webcamActive = false
+      sourceBadge.textContent = '📸 웹캠 연결 끊김'
+      sourceBadge.style.color = '#ff4757'
+      setTimeout(() => updateSourceBadge(poseEngine.isRunning ? 'local' : 'keyboard'), 3000)
+    } else if (webcamCount > 0 && !_webcamActive) {
+      // 웹캠 접속 감지 (POSE_UPDATE 오기 전 미리 표시)
+      sourceBadge.textContent = '📸 웹캠 연결 대기'
+      sourceBadge.style.color = 'rgba(0,207,0,0.5)'
+    }
+  })
 
   // ── 키보드 폴백 ───────────────────────────────────────────
   const onKey = e => {
@@ -599,10 +651,12 @@ async function showWebcamView(app, sessionId, cleanup) {
   const ZONE_COLOR  = ['#00CF00', '#ffe600', '#00CF00']
   const ZONE_FILL   = ['rgba(0,207,0,0.25)', 'rgba(255,230,0,0.15)', 'rgba(0,207,0,0.25)']
 
-  let lastPoseSendMs = 0
+  let lastPoseSendMs  = 0
   let latestLandmarks = null
   let latestHipX      = null
   let rafId           = null
+  let _personTimer    = null
+  const PERSON_TIMEOUT = 3000  // 3초 미감지 시 안내 표시
 
   app.innerHTML = `
     <div style="position:relative;width:100%;height:100vh;background:#000;overflow:hidden;">
@@ -625,11 +679,19 @@ async function showWebcamView(app, sessionId, cleanup) {
       <div style="position:absolute;top:14px;left:0;width:100%;display:flex;justify-content:center;pointer-events:none;">
         <div id="zone-status" style="
           background:rgba(0,0,0,0.75);padding:8px 28px;border-radius:50px;
-          font-size:1.2rem;font-weight:700;color:#fff;
-        ">카메라 시작 중...</div>
+          font-size:1rem;font-weight:700;color:rgba(255,255,255,0.6);
+          text-align:center;max-width:80%;
+        ">아이가 화면에 보이도록 폰을 세워주세요</div>
       </div>
 
-      <button id="btn-home" class="btn-ghost" style="position:absolute;bottom:24px;left:50%;transform:translateX(-50%);">홈으로</button>
+      <!-- 하단 안내 -->
+      <div style="
+        position:absolute;bottom:72px;left:0;width:100%;
+        text-align:center;font-size:0.8rem;color:rgba(255,255,255,0.3);
+        font-family:var(--font-main);pointer-events:none;
+      ">아이 전신이 보이게 1~2m 거리에서 사용하세요</div>
+
+      <button id="btn-home" class="btn-ghost" style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);">홈으로</button>
     </div>
   `
 
@@ -684,21 +746,39 @@ async function showWebcamView(app, sessionId, cleanup) {
 
   await poseEngine.init(video, {
     onZoneChange: zone => {
-      statusEl.textContent = ZONE_LABEL[zone]
-      statusEl.style.color = ZONE_COLOR[zone]
+      statusEl.textContent  = ZONE_LABEL[zone]
+      statusEl.style.color  = ZONE_COLOR[zone]
+      statusEl.style.fontSize = '1.2rem'
       const now = Date.now()
       if (now - lastPoseSendMs >= THROTTLE) {
         lastPoseSendMs = now
         channel.send(MSG.POSE_UPDATE, { zone })
       }
     },
-    onPoseUpdate: (landmarks, hipX) => { latestLandmarks = landmarks; latestHipX = hipX },
+    onPoseUpdate: (landmarks, hipX) => {
+      latestLandmarks = landmarks
+      latestHipX      = hipX
+      // 사람 감지 타임아웃 리셋
+      clearTimeout(_personTimer)
+      _personTimer = setTimeout(() => {
+        statusEl.textContent  = '사람이 인식되지 않습니다'
+        statusEl.style.color  = 'rgba(255,255,255,0.5)'
+        statusEl.style.fontSize = '0.9rem'
+      }, PERSON_TIMEOUT)
+    },
   })
 
   if (!poseEngine.isRunning) {
-    statusEl.textContent = '카메라 없음 — 키보드 ← / Space / → 로 테스트'
-    statusEl.style.color = 'rgba(255,255,255,0.5)'
+    statusEl.textContent  = '카메라 없음 — 키보드 ← / Space / → 로 테스트'
+    statusEl.style.color  = 'rgba(255,255,255,0.5)'
     statusEl.style.fontSize = '0.85rem'
+  } else {
+    // 카메라 시작 성공 — 3초 후 사람 없으면 안내
+    _personTimer = setTimeout(() => {
+      statusEl.textContent  = '사람이 인식되지 않습니다'
+      statusEl.style.color  = 'rgba(255,255,255,0.5)'
+      statusEl.style.fontSize = '0.9rem'
+    }, PERSON_TIMEOUT)
   }
 
   // 키보드 폴백
@@ -709,8 +789,9 @@ async function showWebcamView(app, sessionId, cleanup) {
     if (e.key === 'ArrowRight') zone = 2
     if (zone < 0) return
     poseEngine.currentZone = zone
-    statusEl.textContent = ZONE_LABEL[zone]
-    statusEl.style.color = ZONE_COLOR[zone]
+    statusEl.textContent   = ZONE_LABEL[zone]
+    statusEl.style.color   = ZONE_COLOR[zone]
+    statusEl.style.fontSize = '1.2rem'
     const now = Date.now()
     if (now - lastPoseSendMs >= THROTTLE) {
       lastPoseSendMs = now
@@ -721,6 +802,7 @@ async function showWebcamView(app, sessionId, cleanup) {
 
   // ── 종료 헬퍼 (웹캠) ─────────────────────────────────────
   const exitView = () => {
+    clearTimeout(_personTimer)
     cancelAnimationFrame(rafId)
     window.removeEventListener('keydown', onKey)
     window.removeEventListener('resize', resizeCanvas)
