@@ -420,13 +420,14 @@ async function showSoloGame(app, gameId, entry) {
         display: flex; gap: clamp(2px,0.5vw,6px); font-size: clamp(1.1rem,2.6vw,1.5rem);
       }
       .hud-icon-btn {
-        background: rgba(10,6,22,0.65); backdrop-filter: blur(10px);
-        border: 1px solid rgba(196,168,245,0.25); color: rgba(255,255,255,0.75);
-        font-size: 1rem; cursor: pointer; padding: 7px 12px; border-radius: 12px;
-        line-height: 1; flex-shrink: 0; transition: background 0.15s;
-        font-family: var(--font-main);
+        background: none; border: none; padding: 0;
+        cursor: pointer; flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
+        transition: transform 0.12s; line-height: 1;
       }
-      .hud-icon-btn:hover { background: rgba(30,16,60,0.8); }
+      .hud-icon-btn img { display: block; width: clamp(36px, 4.5vw, 54px); height: auto; }
+      .hud-icon-btn:hover  { transform: scale(1.12); }
+      .hud-icon-btn:active { transform: scale(0.90); }
       /* ── 메뉴 카드 ── */
       #menu-card {
         background: #F7F0FF;
@@ -506,8 +507,12 @@ async function showSoloGame(app, gameId, entry) {
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <div id="hud-lives"></div>
-          <button id="btn-mute" class="hud-icon-btn">🔊</button>
-          <button id="btn-menu" class="hud-icon-btn">☰</button>
+          <button id="btn-mute" class="hud-icon-btn">
+            <img id="hud-mute-img" src="/assets/image/btn_main_audio.png" alt="소리" />
+          </button>
+          <button id="btn-menu" class="hud-icon-btn">
+            <img src="/assets/image/ico_menu.png" alt="메뉴" />
+          </button>
         </div>
       </div>
 
@@ -539,6 +544,7 @@ async function showSoloGame(app, gameId, entry) {
           <div id="menu-title">⏸ 일시정지</div>
           <button id="btn-resume"    class="menu-btn green">▶ 계속하기</button>
           <button id="btn-restart"   class="menu-btn gray">⏹ 다시 시작</button>
+          <button id="menu-btn-bgm"  class="menu-btn gray">🎵 음악 켜짐</button>
           <button id="menu-btn-mute" class="menu-btn gray">🔊 소리 켜짐</button>
           <button id="btn-menu-exit" class="menu-btn danger">🚪 게임 종료</button>
         </div>
@@ -668,12 +674,19 @@ async function showSoloGame(app, gameId, entry) {
   // ── 음소거 동기화 ─────────────────────────────────────────
   function syncMute() {
     const muted = sound.isMuted()
-    app.querySelector('#btn-mute').textContent       = muted ? '🔇' : '🔊'
-    app.querySelector('#menu-btn-mute').textContent  = muted ? '🔇 소리 꺼짐' : '🔊 소리 켜짐'
+    const hudImg = app.querySelector('#hud-mute-img')
+    if (hudImg) hudImg.src = muted ? '/assets/image/btn_main_audio_off.png' : '/assets/image/btn_main_audio.png'
+    app.querySelector('#menu-btn-mute').textContent = muted ? '🔇 소리 꺼짐' : '🔊 소리 켜짐'
+  }
+  function syncBgmBtn() {
+    const el = app.querySelector('#menu-btn-bgm')
+    if (el) el.textContent = bgm.isMuted() ? '🎵 음악 꺼짐' : '🎵 음악 켜짐'
   }
   app.querySelector('#btn-mute').addEventListener('click', () => { sound.toggle(); syncMute() })
   app.querySelector('#menu-btn-mute').addEventListener('click', () => { sound.toggle(); syncMute() })
-  syncMute()  // 초기 상태 반영
+  app.querySelector('#menu-btn-bgm').addEventListener('click', () => { bgm.toggleMute(); syncBgmBtn() })
+  syncMute()
+  syncBgmBtn()
 
   app.querySelector('#btn-menu').addEventListener('click', openMenu)
   app.querySelector('#btn-resume').addEventListener('click', closeMenu)

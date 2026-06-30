@@ -406,6 +406,62 @@ export default class PoopDodgeGame {
     ctx.moveTo(0, floor)
     ctx.lineTo(w, floor)
     ctx.stroke()
+
+    // 활성 존 에너지 라인 — 포인트 그린 + 흐르는 펄스
+    const GR = 90, GG = 255, GB = 145   // 포인트 그린 RGB
+    const baseAlpha = 0.72 + 0.18 * Math.sin(now * 0.003)
+    const FLOW_MS   = 1100
+    const flowT     = (now % FLOW_MS) / FLOW_MS   // 0→1 반복 (위→아래)
+    const pulseY    = flowT * floor
+    const trailLen  = floor * 0.22
+
+    const epx1  = this.playerZone * zw
+    const epx2  = (this.playerZone + 1) * zw
+    const glowW = Math.max(22, zw * 0.058)
+
+    const drawEnergyEdge = (edgeX, dir) => {
+      const rx = dir > 0 ? edgeX : edgeX - glowW
+
+      // 1) 베이스 수평 글로우
+      const hg = ctx.createLinearGradient(edgeX, 0, edgeX + dir * glowW, 0)
+      hg.addColorStop(0,    `rgba(${GR},${GG},${GB},${baseAlpha.toFixed(2)})`)
+      hg.addColorStop(0.45, `rgba(${GR},${GG},${GB},${(baseAlpha * 0.25).toFixed(2)})`)
+      hg.addColorStop(1,    `rgba(${GR},${GG},${GB},0)`)
+      ctx.fillStyle = hg
+      ctx.fillRect(rx, 0, glowW, floor)
+
+      // 2) 에너지 펄스 (위→아래로 이동하는 빛)
+      const y0 = Math.max(0, pulseY - trailLen)
+      const y1 = Math.min(floor, pulseY + trailLen * 0.14)
+      if (y1 > y0) {
+        const vg = ctx.createLinearGradient(0, y0, 0, y1)
+        vg.addColorStop(0,    `rgba(${GR},${GG},${GB},0)`)
+        vg.addColorStop(0.6,  `rgba(${GR},${GG},${GB},0.6)`)
+        vg.addColorStop(0.88, `rgba(255,255,255,1)`)
+        vg.addColorStop(1,    `rgba(${GR},${GG},${GB},0)`)
+        ctx.fillStyle = vg
+        ctx.fillRect(rx, y0, glowW, y1 - y0)
+      }
+
+      // 3) 네온 실선 (그린 글로우 + 화이트 코어)
+      ctx.save()
+      ctx.shadowColor = `rgb(${GR},${GG},${GB})`
+      ctx.shadowBlur  = 28
+      ctx.strokeStyle = `rgba(${GR},${GG},${GB},${Math.min(1, baseAlpha + 0.2).toFixed(2)})`
+      ctx.lineWidth   = 4
+      ctx.beginPath()
+      ctx.moveTo(edgeX, 0)
+      ctx.lineTo(edgeX, floor)
+      ctx.stroke()
+      ctx.shadowBlur  = 8
+      ctx.strokeStyle = `rgba(220,255,240,0.85)`
+      ctx.lineWidth   = 1.4
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    drawEnergyEdge(epx1,  1)
+    drawEnergyEdge(epx2, -1)
   }
 
   _drawPoops() {
