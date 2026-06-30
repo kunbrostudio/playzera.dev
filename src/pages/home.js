@@ -3,6 +3,7 @@
 //  현재 스플래시 내용은 games/poop-dodge/ 인트로로 이동 예정.
 
 import { navigate } from '../core/router.js'
+import * as bgm   from '../core/bgm.js'
 
 // 향후 games/poop-dodge/ 인트로로 이동할 때 한 곳만 수정하면 됨
 const GAME_ID = 'poop-dodge'
@@ -168,6 +169,7 @@ export function homePage(app) {
 
   // 버튼 pressed 상태
   function onPressStart() {
+    bgm.play()   // 첫 사용자 인터랙션 → 브라우저 자동재생 정책 통과
     startImg.src = IMG.startPrs
     startImg.classList.add('pressed')
     startCss.classList.add('pressed')

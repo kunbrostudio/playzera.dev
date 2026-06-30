@@ -70,7 +70,6 @@ export async function gamePage(app, query) {
 
   let _gameRef = null
   const cleanup = () => {
-    bgm.stop()
     _gameRef?.destroy()
     _gameRef = null
     poseEngine.destroy()
@@ -637,7 +636,6 @@ async function showSoloGame(app, gameId, entry) {
     app.querySelector('#gameover-overlay').style.display = 'none'
     resetHUD()
     buildGame()
-    bgm.play()
     game.startRound(1)
   }
 
@@ -685,7 +683,6 @@ async function showSoloGame(app, gameId, entry) {
   })
   app.querySelector('#btn-menu-exit').addEventListener('click', () => {
     window.removeEventListener('keydown', onKey)
-    bgm.stop()
     poseEngine.destroy()
     game?.destroy()
     navigate('/')
@@ -716,7 +713,6 @@ async function showSoloGame(app, gameId, entry) {
   window.addEventListener('keydown', onKey)
   window.addEventListener('hashchange', () => {
     window.removeEventListener('keydown', onKey)
-    bgm.stop()
     poseEngine.destroy()
     game?.destroy()
   }, { once: true })
@@ -725,7 +721,6 @@ async function showSoloGame(app, gameId, entry) {
   app.querySelector('#btn-retry').addEventListener('click', () => startGame())
   app.querySelector('#btn-home-go').addEventListener('click', () => {
     window.removeEventListener('keydown', onKey)
-    bgm.stop()
     poseEngine.destroy()
     game?.destroy()
     navigate('/')
@@ -1430,7 +1425,6 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
     app.querySelector('#gameover-overlay').style.display = 'none'
     resetHUD()
     buildGame()
-    bgm.play()
     game.startRound(1)
   }
 
@@ -1521,7 +1515,6 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   // ── 종료 헬퍼 ─────────────────────────────────────────────
   const exitView = () => {
     window.removeEventListener('keydown', onKey)
-    bgm.stop()
     cleanup()
     navigate('/')
   }
