@@ -4,26 +4,42 @@ const BGM_SRC = '/assets/audio/Kingdom.mp3'
 const BGM_VOLUME = 0.45
 
 let _audio = null
+let _muted = false
 
 function _getAudio() {
   if (!_audio) {
     _audio = new Audio(BGM_SRC)
     _audio.loop = true
-    _audio.volume = BGM_VOLUME
+    _audio.volume = _muted ? 0 : BGM_VOLUME
     _audio.addEventListener('error', () => {
-      // 파일 로드 실패 시 조용히 무시 — 게임에 영향 없음
+      // 파일 로드 실패 시 조용히 무시
     })
   }
   return _audio
 }
 
+// 첫 사용자 인터랙션에서 재생하도록 대기하는 fallback 등록
+function _registerAutoplayFallback(audio) {
+  const resume = () => {
+    if (audio.paused && !_muted) audio.play().catch(() => {})
+    document.removeEventListener('click',      resume)
+    document.removeEventListener('touchstart', resume)
+    document.removeEventListener('keydown',    resume)
+  }
+  document.addEventListener('click',      resume, { once: true })
+  document.addEventListener('touchstart', resume, { once: true })
+  document.addEventListener('keydown',    resume, { once: true })
+}
+
 export async function play() {
   const a = _getAudio()
-  if (!a.paused) return           // 이미 재생 중이면 중복 시작 안 함
+  if (!a.paused) return           // 이미 재생 중이면 스킵
+  if (_muted) return
   try {
     await a.play()
   } catch (_) {
-    // 브라우저 자동재생 차단 시 조용히 무시
+    // 브라우저 자동재생 차단 → 첫 인터랙션 때 재생
+    _registerAutoplayFallback(a)
   }
 }
 
@@ -33,6 +49,19 @@ export function stop() {
   _audio.currentTime = 0
 }
 
-// 향후 확장 예정 (지금은 미구현)
-// export function setVolume(v) { _getAudio().volume = Math.max(0, Math.min(1, v)) }
-// export function toggle() { _audio?.paused ? play() : stop() }
+export function isMuted() { return _muted }
+
+export function toggleMute() {
+  _muted = !_muted
+  if (!_audio) return _muted
+  if (_muted) {
+    _audio.volume = 0
+  } else {
+    _audio.volume = BGM_VOLUME
+    if (_audio.paused) _audio.play().catch(() => {})
+  }
+  return _muted
+}
+
+// 향후 확장 예정
+// export function setVolume(v) { BGM_VOLUME = Math.max(0, Math.min(1, v)); if (!_muted && _audio) _audio.volume = BGM_VOLUME }
