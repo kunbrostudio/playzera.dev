@@ -1,4 +1,11 @@
+// [임시] 현재 똥피하기 전용 스플래시 화면.
+//  추후 게임 허브 추가 시: 이 파일은 게임 목록 허브로 교체되고,
+//  현재 스플래시 내용은 games/poop-dodge/ 인트로로 이동 예정.
+
 import { navigate } from '../core/router.js'
+
+// 향후 games/poop-dodge/ 인트로로 이동할 때 한 곳만 수정하면 됨
+const GAME_ID = 'poop-dodge'
 
 const IMG = {
   bg:        '/assets/image/poop_game_bg.jpg',
@@ -91,9 +98,8 @@ export function homePage(app) {
         filter: drop-shadow(0 8px 18px rgba(0,0,0,0.22));
         animation: hBounce 2.8s ease-in-out infinite 0.3s;
         pointer-events: none;
-        /* 로고와 살짝 겹치도록 아래쪽 마진 음수 */
-        margin-bottom: clamp(-120px, -14vh, -60px);
-        z-index: 1;
+        margin-bottom: clamp(-80px, -9vh, -40px);
+        z-index: 3;
         position: relative;
       }
 
@@ -117,9 +123,17 @@ export function homePage(app) {
       @media (max-width: 520px) {
         #home-group     { gap: 8px; }
         #home-logo      { width: clamp(200px, 78vw, 320px); }
-        #home-character { width: clamp(120px, 40vw, 200px); }
+        #home-character { width: clamp(120px, 40vw, 200px); margin-bottom: -30px; }
         #home-start-img,
         #home-start-css { width: clamp(150px, 58vw, 240px); }
+      }
+      /* ── 모바일 가로 (세로 높이 560px 이하) ── */
+      @media (max-height: 560px) {
+        #home-group     { gap: 4px; }
+        #home-character { width: clamp(110px, 13vw, 150px); margin-bottom: -22px; }
+        #home-logo      { width: clamp(200px, 22vw, 270px); }
+        #home-start-img,
+        #home-start-css { width: clamp(155px, 17vw, 210px); }
       }
     </style>
 
@@ -162,7 +176,7 @@ export function homePage(app) {
     startImg.src = IMG.startDef
     startImg.classList.remove('pressed')
     startCss.classList.remove('pressed')
-    if (fire) navigate('/game?id=poop-dodge')
+    if (fire) navigate(`/game?id=${GAME_ID}`)
   }
 
   ;[startImg, startCss].forEach(el => {

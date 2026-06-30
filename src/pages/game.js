@@ -1,4 +1,4 @@
-import { navigate } from '../core/router.js'
+import { navigate, reload } from '../core/router.js'
 import { poseEngine } from '../core/pose.js'
 import * as channel from '../core/channel.js'
 import { MSG, MAX_DEVICES } from '../core/channel.js'
@@ -25,29 +25,45 @@ export async function gamePage(app, query) {
   if (!entry) { navigate('/'); return }
 
   // ── STEP 1: 플레이 방식 선택 (세션 URL 직접 진입 시 건너뜀) ──
-  const mode = query.session ? 'multi' : await showModeSelection(app, entry.manifest)
-  if (!mode) { navigate('/'); return }
+  if (!query.session) {
+    while (true) {
+      const mode = await showModeSelection(app, entry.manifest)
+      if (!mode) { navigate('/'); return }
 
-  if (mode === 'solo') {
-    // ── 1대 모드 ─────────────────────────────────────────────
-    if (_isMobile()) {
-      const ok = await showOrientationCoach(app)
-      if (!ok) { navigate('/'); return }
+      if (mode === 'solo') {
+        if (_isMobile()) {
+          const ok = await showOrientationCoach(app)
+          if (!ok) { navigate('/'); return }
+        }
+        const result = await showSoloGame(app, gameId, entry)
+        if (result === '__back__') continue   // 이름 입력에서 뒤로 → 모드 선택
+        return
+      }
+      break  // multi
     }
-    await showSoloGame(app, gameId, entry)
-    return
   }
 
   // ── 여러 대 모드 ──────────────────────────────────────────
-  const sessionId = query.session?.toUpperCase()
-    || await showSessionEntry(app, entry.manifest)
-  if (!sessionId) { navigate('/'); return }
+  let _sessionId = query.session?.toUpperCase() || null
+  let _role = null
 
-  await channel.join(sessionId)
-  await channel.trackPresence({ role: 'connecting', ts: Date.now() })
+  while (true) {
+    if (!_sessionId) {
+      _sessionId = await showSessionEntry(app, entry.manifest)
+      if (!_sessionId) { navigate('/'); return }
+    }
 
-  const role = await showRoleSelection(app, sessionId)
-  if (!role) { channel.leave(); navigate('/'); return }
+    await channel.join(_sessionId)
+    await channel.trackPresence({ role: 'connecting', ts: Date.now() })
+
+    _role = await showRoleSelection(app, _sessionId)
+    if (_role === null)       { channel.leave(); navigate('/'); return }
+    if (_role === '__back__') { channel.leave(); _sessionId = null; continue }
+    break
+  }
+
+  const sessionId = _sessionId
+  const role      = _role
 
   channel.trackPresence({ role, ts: Date.now() })
 
@@ -175,6 +191,24 @@ function showModeSelection(app, manifest) {
           .mode-play-btn { width: 90%; }
           #mode-home-btn { width: 58%; }
         }
+        @media (max-height: 560px) {
+          #mode-root { overflow-y: auto; align-items: flex-start; }
+          #mode-outer {
+            width: 100%; min-height: 100vh;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 16px 0; box-sizing: border-box;
+          }
+          #mode-signboard { display: none; }
+          #mode-card {
+            border-radius: 40px; gap: 8px;
+            padding: 18px 20px 14px;
+            width: clamp(280px, 86vw, 500px);
+          }
+          #mode-title-img { width: clamp(160px, 60%, 280px); }
+          .mode-play-btn { width: 80%; }
+          #mode-home-btn { padding: 10px 0; font-size: 0.95rem; }
+        }
       </style>
 
       <div id="mode-root">
@@ -220,23 +254,100 @@ function showOrientationCoach(app) {
         60%,90% { transform:rotate(-90deg); }
         100%    { transform:rotate(0deg); }
       }
-      #_rotateIcon { animation:_phoneRotate 2s ease-in-out infinite; display:inline-block; }
+      #_rotateIcon { animation:_phoneRotate 2.4s ease-in-out infinite; display:inline-block; font-size:4rem; }
+      #orient-root {
+        position:fixed;inset:0;
+        background:url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+        display:flex;align-items:center;justify-content:center;
+        font-family:var(--font-main);
+      }
+      #orient-outer {
+        position:relative;display:flex;flex-direction:column;align-items:center;
+      }
+      #orient-signboard {
+        position:relative;z-index:10;
+        width:clamp(180px,48vw,280px);object-fit:contain;
+        filter:drop-shadow(0 6px 16px rgba(0,0,0,0.32));pointer-events:none;
+        margin-bottom:clamp(-40px,-6vw,-28px);
+      }
+      #orient-card {
+        position:relative;z-index:1;
+        background:#F7F0FF;
+        border:10px solid #c4a8f5;outline:10px solid #fff;
+        border-radius:90px;
+        padding:clamp(44px,7vw,64px) clamp(24px,6vw,48px) clamp(24px,4vw,36px);
+        width:clamp(280px,86vw,440px);
+        display:flex;flex-direction:column;align-items:center;
+        gap:clamp(10px,2vh,16px);
+        box-shadow:0 6px 0 #a78bda,0 16px 56px rgba(0,0,0,0.28);
+        text-align:center;
+      }
+      #orient-title {
+        color:#7c3aed;font-size:clamp(1.15rem,4.5vw,1.4rem);font-weight:800;margin:0;
+      }
+      #orient-sub {
+        color:#a78bda;font-size:clamp(0.85rem,3vw,1rem);margin:0;
+      }
+      #btn-skip-orient {
+        width:100%;padding:clamp(12px,2vh,16px) 0;
+        background:linear-gradient(180deg,#6ee75a,#3cb544);
+        border:none;border-radius:9999px;
+        box-shadow:0 5px 0 #2a8a30;
+        color:#fff;font-family:var(--font-main);
+        font-size:clamp(1rem,3.2vw,1.2rem);font-weight:800;
+        cursor:pointer;transition:transform 0.1s,box-shadow 0.1s;
+        -webkit-tap-highlight-color:transparent;
+      }
+      #btn-skip-orient:active { transform:scale(0.95) translateY(3px);box-shadow:0 2px 0 #2a8a30; }
+      #btn-home-coach {
+        width:100%;padding:clamp(12px,2vh,16px) 0;
+        background:linear-gradient(180deg,#b0b8c1,#8a9199);
+        border:none;border-radius:9999px;
+        box-shadow:0 5px 0 #626a71;
+        color:#fff;font-family:var(--font-main);
+        font-size:clamp(1rem,3.2vw,1.2rem);font-weight:800;
+        cursor:pointer;transition:transform 0.1s,box-shadow 0.1s;
+        -webkit-tap-highlight-color:transparent;
+      }
+      #btn-home-coach:active { transform:scale(0.95) translateY(3px);box-shadow:0 2px 0 #626a71; }
+      @media (max-height: 560px) {
+        #orient-root { overflow-y:auto; align-items:flex-start; }
+        #orient-outer {
+          width:100%; min-height:100vh;
+          display:flex; flex-direction:column;
+          align-items:center; justify-content:center;
+          padding:16px 0; box-sizing:border-box;
+        }
+        #orient-signboard { display:none; }
+        #orient-card {
+          border-radius:40px; gap:8px;
+          padding:18px 20px 14px;
+          width:clamp(280px,86vw,440px);
+        }
+        #_rotateIcon { font-size:2.4rem; }
+        #orient-title { font-size:1.1rem; }
+        #orient-sub { font-size:0.85rem; }
+        #btn-skip-orient, #btn-home-coach { padding:10px 0; font-size:0.95rem; }
+      }
     `
     document.head.appendChild(styleEl)
 
     app.innerHTML = `
-      <div style="
-        display:flex;flex-direction:column;align-items:center;justify-content:center;
-        height:100vh;gap:20px;text-align:center;padding:24px;
-        font-family:var(--font-main);background:var(--color-bg);
-      ">
-        <div id="_rotateIcon" style="font-size:5rem;">📱</div>
-        <h2 style="font-size:1.6rem;font-weight:800;color:var(--color-text);margin:0;">기기를 가로로 돌려주세요</h2>
-        <p style="color:var(--color-sub);margin:0;">게임은 가로 화면에 최적화되어 있어요</p>
-        <button id="btn-skip" class="btn-ghost" style="margin-top:12px;">건너뛰기 (세로 유지)</button>
-        <button id="btn-home-coach" class="btn-ghost" style="font-size:0.82rem;margin-top:4px;">← 홈으로</button>
+      <div id="orient-root">
+        <div id="orient-outer">
+          <img id="orient-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA" />
+          <div id="orient-card">
+            <div id="_rotateIcon">📱</div>
+            <h2 id="orient-title">기기를 가로로 돌려주세요</h2>
+            <p id="orient-sub">게임은 가로 화면에 최적화되어 있어요</p>
+            <button id="btn-skip-orient">건너뛰기 (세로 유지)</button>
+            <button id="btn-home-coach">← 홈으로</button>
+          </div>
+        </div>
       </div>
     `
+
+    app.querySelector('#orient-signboard')?.addEventListener('error', e => { e.target.style.display='none' })
 
     const done = result => {
       styleEl.remove()
@@ -249,7 +360,7 @@ function showOrientationCoach(app) {
     }
     window.addEventListener('resize', checkLandscape)
 
-    app.querySelector('#btn-skip').addEventListener('click', () => done(true))
+    app.querySelector('#btn-skip-orient').addEventListener('click', () => done(true))
     app.querySelector('#btn-home-coach').addEventListener('click', () => done(false))
   })
 }
@@ -262,103 +373,194 @@ async function showSoloGame(app, gameId, entry) {
   const soloSessionId = `solo-${Date.now()}`
 
   const playerName = await _askPlayerName(app, manifest)
-  if (!playerName) { navigate('/'); return }
+  if (!playerName) return '__back__'   // gamePage while loop이 모드 선택으로 돌아감
 
   const rounds = manifest.rounds ?? 5
 
   app.innerHTML = `
-    <div id="game-wrap" style="position:relative;width:100%;height:100vh;overflow:hidden;background:#0d1b2a;">
+    <style>
+      /* ── 솔로 HUD (개별 배경) ── */
+      #solo-hud {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: clamp(8px,1.4vh,12px) clamp(12px,2vw,20px);
+        font-family: var(--font-main);
+      }
+      #hud-rounds {
+        display: flex; gap: 7px; align-items: center;
+        background: rgba(10,6,22,0.65); backdrop-filter: blur(10px);
+        border-radius: 50px; padding: 7px 14px;
+      }
+      .hud-pip {
+        width: clamp(10px,1.4vw,15px); height: clamp(10px,1.4vw,15px);
+        border-radius: 50%; background: rgba(255,255,255,0.18);
+        flex-shrink: 0; transition: background 0.3s, box-shadow 0.3s;
+      }
+      .hud-pip.done { background: #7c3aed; box-shadow: 0 0 7px rgba(124,58,237,0.75); }
+      #hud-timer {
+        background: linear-gradient(180deg,#ffe94d,#f0c000);
+        color: #5a3c00; font-size: clamp(1rem,2.4vw,1.4rem); font-weight: 900;
+        min-width: clamp(36px,4.5vw,52px); text-align: center;
+        padding: 3px 14px; border-radius: 50px;
+        box-shadow: 0 3px 0 #b88e00, 0 4px 12px rgba(240,192,0,0.3);
+        line-height: 1.35;
+      }
+      #hud-score-wrap {
+        background: rgba(10,6,22,0.65); backdrop-filter: blur(10px);
+        border-radius: 50px; padding: 6px 16px;
+        font-size: clamp(0.78rem,1.8vw,0.95rem); color: rgba(255,255,255,0.5); font-weight: 700;
+      }
+      #score-val {
+        color: #6ee75a; font-size: clamp(1rem,2.4vw,1.3rem); font-weight: 900; margin-left: 4px;
+      }
+      #hud-lives {
+        background: rgba(10,6,22,0.65); backdrop-filter: blur(10px);
+        border-radius: 50px; padding: 6px 12px;
+        display: flex; gap: clamp(2px,0.5vw,6px); font-size: clamp(1.1rem,2.6vw,1.5rem);
+      }
+      .hud-icon-btn {
+        background: rgba(10,6,22,0.65); backdrop-filter: blur(10px);
+        border: 1px solid rgba(196,168,245,0.25); color: rgba(255,255,255,0.75);
+        font-size: 1rem; cursor: pointer; padding: 7px 12px; border-radius: 12px;
+        line-height: 1; flex-shrink: 0; transition: background 0.15s;
+        font-family: var(--font-main);
+      }
+      .hud-icon-btn:hover { background: rgba(30,16,60,0.8); }
+      /* ── 메뉴 카드 ── */
+      #menu-card {
+        background: #F7F0FF;
+        border: 10px solid #c4a8f5; outline: 10px solid #fff;
+        border-radius: 80px;
+        padding: clamp(28px,4vw,40px) clamp(32px,5vw,52px);
+        display: flex; flex-direction: column;
+        gap: clamp(10px,1.6vh,14px); min-width: clamp(260px,36vw,360px);
+        text-align: center;
+        box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.4);
+      }
+      #menu-title { font-size: clamp(1.2rem,2.8vw,1.5rem); font-weight: 900; color: #7c3aed; margin-bottom: 2px; }
+      .menu-btn {
+        width: 100%; padding: clamp(12px,2vh,16px) 0;
+        border: none; border-radius: 9999px;
+        font-family: var(--font-main); font-size: clamp(0.95rem,2.4vw,1.15rem); font-weight: 800;
+        cursor: pointer; transition: transform 0.1s; -webkit-tap-highlight-color: transparent;
+      }
+      .menu-btn:active { transform: scale(0.96) translateY(2px); }
+      .menu-btn.green { background: linear-gradient(180deg,#6ee75a,#3cb544); color:#fff; box-shadow:0 5px 0 #2a8a30; }
+      .menu-btn.gray  { background: linear-gradient(180deg,#b0b8c1,#8a9199); color:#fff; box-shadow:0 5px 0 #626a71; }
+      .menu-btn.danger {
+        background: linear-gradient(180deg,#ff6b6b,#e53935); color:#fff; box-shadow:0 5px 0 #b71c1c;
+      }
+      /* ── 솔로 게임오버 카드 ── */
+      #go-outer-solo { position:relative; display:flex; flex-direction:column; align-items:center; }
+      #go-signboard-solo {
+        position:relative; z-index:10;
+        width:clamp(200px,52vw,320px); object-fit:contain;
+        filter:drop-shadow(0 6px 16px rgba(0,0,0,0.32)); pointer-events:none;
+        margin-bottom:clamp(-44px,-6.5vw,-32px);
+      }
+      #go-card-solo {
+        position:relative; z-index:1; background:#F7F0FF;
+        border:10px solid #c4a8f5; outline:10px solid #fff; border-radius:90px;
+        padding:clamp(48px,7vw,64px) clamp(32px,6vw,60px) clamp(28px,4vw,40px);
+        width:clamp(300px,88vw,500px); display:flex; flex-direction:column; align-items:center;
+        gap:clamp(10px,2vh,16px); box-shadow:0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+      }
+      #go-emoji-solo { font-size:clamp(2.4rem,6vw,3.6rem); line-height:1; }
+      #go-title-solo { font-size:clamp(1.4rem,4vw,2rem); font-weight:900; text-align:center; }
+      #go-stats-solo {
+        font-size:clamp(0.82rem,2vw,1rem); color:#9d6ed8; text-align:center; line-height:2;
+        background:#ede5ff; border-radius:20px; padding:12px 20px; width:100%;
+      }
+      #go-stats-solo strong { color:#3b0764; }
+      .go-btn-row-solo { display:flex; gap:12px; width:100%; }
+      #btn-retry {
+        flex:1; padding:clamp(13px,2.2vh,18px) 0;
+        background:linear-gradient(180deg,#6ee75a,#3cb544); border:none; border-radius:9999px;
+        box-shadow:0 5px 0 #2a8a30; color:#fff; font-family:var(--font-main);
+        font-size:clamp(1rem,2.6vw,1.2rem); font-weight:800; cursor:pointer; transition:transform 0.1s;
+      }
+      #btn-home-go {
+        flex:1; padding:clamp(13px,2.2vh,18px) 0;
+        background:linear-gradient(180deg,#b0b8c1,#8a9199); border:none; border-radius:9999px;
+        box-shadow:0 5px 0 #626a71; color:#fff; font-family:var(--font-main);
+        font-size:clamp(1rem,2.6vw,1.2rem); font-weight:800; cursor:pointer; transition:transform 0.1s;
+      }
+    </style>
+
+    <div id="game-wrap" style="position:relative;width:100%;height:100vh;overflow:hidden;">
       <canvas id="game-canvas" style="display:block;width:100%;height:100%;"></canvas>
 
       <div id="game-overlay" style="
         position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
         pointer-events:none;font-family:var(--font-main);font-weight:800;
-        text-shadow:0 2px 16px rgba(0,0,0,0.7);transition:opacity 0.2s;opacity:0;
+        transition:opacity 0.2s;opacity:0;
       "></div>
 
-      <!-- HUD -->
-      <div style="
-        position:absolute;top:0;left:0;right:0;
-        display:flex;align-items:center;justify-content:space-between;
-        padding:12px 20px;background:rgba(13,27,42,0.85);font-family:var(--font-main);
-      ">
-        <div id="hud-rounds" style="display:flex;gap:6px;"></div>
-        <div style="display:flex;align-items:center;gap:20px;">
-          <div id="hud-timer" style="font-size:1.4rem;font-weight:800;color:var(--color-accent2);min-width:40px;text-align:center;"></div>
-          <div style="font-size:1rem;color:var(--color-sub);">
-            점수 <span id="score-val" style="color:var(--color-text);font-weight:700;">0</span>
-          </div>
-        </div>
-        <!-- 우측: 하트 + 음소거 + 햄버거 -->
+      <!-- HUD (배경 없음 — 각 요소에 개별 배경) -->
+      <div id="solo-hud">
+        <div id="hud-rounds"></div>
         <div style="display:flex;align-items:center;gap:10px;">
-          <div id="hud-lives" style="display:flex;gap:4px;font-size:1.4rem;"></div>
-          <button id="btn-mute" style="
-            background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
-            color:rgba(255,255,255,0.7);font-size:1rem;
-            cursor:pointer;padding:4px 8px;border-radius:8px;
-            line-height:1;flex-shrink:0;
-          ">🔊</button>
-          <button id="btn-menu" style="
-            background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
-            color:rgba(255,255,255,0.7);font-size:1.2rem;
-            cursor:pointer;padding:4px 10px;border-radius:8px;
-            line-height:1;flex-shrink:0;
-          ">☰</button>
+          <div id="hud-timer"></div>
+          <div id="hud-score-wrap">점수<span id="score-val">0</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div id="hud-lives"></div>
+          <button id="btn-mute" class="hud-icon-btn">🔊</button>
+          <button id="btn-menu" class="hud-icon-btn">☰</button>
         </div>
       </div>
 
       <!-- PIP 카메라 -->
       <video id="pip-video" playsinline style="
-        position:absolute;bottom:100px;right:12px;width:120px;height:90px;
-        border-radius:10px;border:2px solid rgba(0,207,0,0.4);
+        position:absolute;bottom:120px;right:12px;width:120px;height:90px;
+        border-radius:10px;border:2px solid rgba(196,168,245,0.5);
         object-fit:cover;transform:scaleX(-1);display:none;
+        box-shadow:0 4px 16px rgba(0,0,0,0.4);
       "></video>
 
       <!-- 카메라 소스 표시 -->
       <div id="source-badge" style="
         position:absolute;top:58px;left:12px;
-        background:rgba(0,0,0,0.6);padding:4px 10px;border-radius:50px;
+        background:rgba(10,6,22,0.72);backdrop-filter:blur(8px);
+        padding:4px 12px;border-radius:50px;border:1px solid rgba(196,168,245,0.18);
         font-size:0.72rem;font-family:var(--font-main);pointer-events:none;
         color:rgba(255,255,255,0.35);transition:color 0.3s;
       ">⌨️ 키보드</div>
 
-      <!-- 햄버거 메뉴 패널 -->
+      <!-- 일시정지 메뉴 -->
       <div id="menu-panel" style="
         position:absolute;inset:0;z-index:20;
-        background:rgba(0,0,0,0.82);
+        background:rgba(0,0,0,0.45);backdrop-filter:blur(4px);
         display:none;align-items:center;justify-content:center;
         font-family:var(--font-main);
       ">
-        <div style="
-          background:var(--color-panel);border-radius:var(--radius-card);
-          padding:32px 28px;display:flex;flex-direction:column;
-          gap:12px;min-width:280px;text-align:center;
-        ">
-          <div style="font-size:1.3rem;font-weight:800;color:var(--color-text);margin-bottom:6px;">⏸ 일시정지</div>
-          <button id="btn-resume" class="btn-primary" style="font-size:1.1rem;padding:18px;">▶ 계속하기</button>
-          <button id="btn-restart" class="btn-ghost" style="padding:14px;">⏹ 다시 시작</button>
-          <button id="menu-btn-mute" class="btn-ghost" style="padding:14px;">🔊 소리 켜짐</button>
-          <button id="btn-menu-exit" style="
-            padding:14px;font-size:0.9rem;font-weight:700;
-            background:transparent;border:1px solid rgba(255,71,87,0.3);
-            color:rgba(255,71,87,0.7);border-radius:var(--radius-btn);
-            cursor:pointer;font-family:var(--font-main);transition:all 0.15s;
-          ">🚪 게임 종료</button>
+        <div id="menu-card">
+          <div id="menu-title">⏸ 일시정지</div>
+          <button id="btn-resume"    class="menu-btn green">▶ 계속하기</button>
+          <button id="btn-restart"   class="menu-btn gray">⏹ 다시 시작</button>
+          <button id="menu-btn-mute" class="menu-btn gray">🔊 소리 켜짐</button>
+          <button id="btn-menu-exit" class="menu-btn danger">🚪 게임 종료</button>
         </div>
       </div>
 
       <!-- 게임 오버 -->
       <div id="gameover-overlay" style="
-        position:absolute;inset:0;display:none;flex-direction:column;
-        align-items:center;justify-content:center;gap:16px;
-        background:rgba(13,27,42,0.92);font-family:var(--font-main);
+        position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+        background:url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+        font-family:var(--font-main);
       ">
-        <div style="font-size:4rem;">💩</div>
-        <div id="go-title" style="font-size:2rem;font-weight:800;"></div>
-        <div id="go-stats" style="color:var(--color-sub);font-size:1rem;text-align:center;line-height:2;"></div>
-        <div style="display:flex;gap:12px;margin-top:8px;">
-          <button id="btn-retry" class="btn-primary">다시 하기</button>
-          <button id="btn-home-go" class="btn-ghost">홈으로</button>
+        <div id="go-outer-solo">
+          <img id="go-signboard-solo" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA"
+               onerror="this.style.display='none'" />
+          <div id="go-card-solo">
+            <div id="go-emoji-solo">💩</div>
+            <div id="go-title-solo"></div>
+            <div id="go-stats-solo"></div>
+            <div class="go-btn-row-solo">
+              <button id="btn-retry">다시 하기</button>
+              <button id="btn-home-go">홈으로</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -372,16 +574,28 @@ async function showSoloGame(app, gameId, entry) {
   const updateRoundPips = round =>
     (app.querySelector('#hud-rounds').innerHTML =
       Array.from({ length: rounds }, (_, i) =>
-        `<span style="font-size:1.1rem;color:${i < round ? '#00CF00' : 'rgba(255,255,255,0.2)'};">●</span>`
+        `<span class="hud-pip${i < round ? ' done' : ''}"></span>`
       ).join(''))
-  const updateLives  = n =>
+  const updateLives = n =>
     (app.querySelector('#hud-lives').innerHTML =
       Array.from({ length: 3 }, (_, i) =>
-        `<span style="opacity:${i < n ? 1 : 0.2};">❤️</span>`
+        `<span style="opacity:${i < n ? 1 : 0.18};transition:opacity 0.2s;">❤️</span>`
       ).join(''))
-  const updateScore  = s => { app.querySelector('#score-val').textContent = s }
-  const updateTimer  = ms => { app.querySelector('#hud-timer').textContent = Math.ceil(ms / 1000) }
-  const resetHUD     = () => { updateLives(3); updateScore(0); updateRoundPips(0); app.querySelector('#hud-timer').textContent = '' }
+  const updateScore = s => { app.querySelector('#score-val').textContent = s }
+  const updateTimer = ms => {
+    const el  = app.querySelector('#hud-timer')
+    const sec = Math.ceil(ms / 1000)
+    el.textContent      = sec
+    el.style.background = sec <= 3 ? 'linear-gradient(180deg,#ff6b6b,#e53935)' : 'linear-gradient(180deg,#ffe94d,#f0c000)'
+    el.style.boxShadow  = sec <= 3 ? '0 3px 0 #b71c1c' : '0 3px 0 #b88e00'
+    el.style.color      = sec <= 3 ? '#fff' : '#5a3c00'
+  }
+  const resetHUD = () => {
+    updateLives(3); updateScore(0); updateRoundPips(0)
+    const el = app.querySelector('#hud-timer')
+    el.textContent = ''; el.style.background = 'linear-gradient(180deg,#ffe94d,#f0c000)'
+    el.style.boxShadow = '0 3px 0 #b88e00'; el.style.color = '#5a3c00'
+  }
   resetHUD()
 
   // ── 소스 배지 ─────────────────────────────────────────────
@@ -426,10 +640,12 @@ async function showSoloGame(app, gameId, entry) {
 
   function showGameOver(stats) {
     const cleared = stats.roundsCleared === rounds
-    app.querySelector('#go-title').textContent = cleared ? '🎉 게임 클리어!' : '게임 오버'
-    app.querySelector('#go-title').style.color = cleared ? '#00CF00' : '#ff4757'
-    app.querySelector('#go-stats').innerHTML =
-      `최종 점수: <strong style="color:#fff;">${stats.score}점</strong><br>` +
+    app.querySelector('#go-emoji-solo').textContent = cleared ? '🎉' : '💩'
+    const titleEl = app.querySelector('#go-title-solo')
+    titleEl.textContent = cleared ? '게임 클리어!' : '게임 오버'
+    titleEl.style.color = cleared ? '#3cb544' : '#e53935'
+    app.querySelector('#go-stats-solo').innerHTML =
+      `최종 점수: <strong>${stats.score}점</strong><br>` +
       `클리어 라운드: ${stats.roundsCleared} / ${rounds}<br>` +
       `회피: ${stats.dodgeCount}회 · 피격: ${stats.hitCount}회`
     app.querySelector('#gameover-overlay').style.display = 'flex'
@@ -626,6 +842,26 @@ function showSessionEntry(app, manifest) {
         }
         #sess-btn-cancel:hover  { transform: scale(1.04); }
         #sess-btn-cancel:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #626a71; }
+        @media (max-height: 560px) {
+          #sess-root { overflow-y: auto; align-items: flex-start; }
+          #sess-outer {
+            width: 100%; min-height: 100vh;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 16px 0; box-sizing: border-box;
+          }
+          #sess-signboard { display: none; }
+          #sess-card {
+            border-radius: 40px; gap: 8px;
+            padding: 18px 20px 14px;
+            width: clamp(280px, 86vw, 480px);
+          }
+          #sess-title-img { width: clamp(140px, 55%, 240px); }
+          #sess-btn-create { width: clamp(180px, 72%, 320px); }
+          #sess-btn-cancel { padding: 10px 0; font-size: 0.95rem; }
+          #code-input { padding: 10px 14px; font-size: 0.95rem; }
+          #sess-btn-join { height: 42px; }
+        }
       </style>
 
       <div id="sess-root">
@@ -775,6 +1011,26 @@ function showRoleSelection(app, sessionId) {
         }
         #role-btn-back:hover  { transform: scale(1.04); }
         #role-btn-back:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #626a71; }
+        @media (max-height: 560px) {
+          #role-root { overflow-y: auto; align-items: flex-start; }
+          #role-outer {
+            width: 100%; min-height: 100vh;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 16px 0; box-sizing: border-box;
+          }
+          #role-signboard { display: none; }
+          #role-card {
+            border-radius: 40px; gap: 6px;
+            padding: 16px 18px 12px;
+            width: clamp(280px, 88vw, 500px);
+          }
+          #role-session-id { font-size: 1.3rem; }
+          .role-item { padding: 10px 14px; }
+          .role-emoji { font-size: 1.4rem; }
+          .role-desc { display: none; }
+          #role-btn-back { padding: 10px 0; font-size: 0.95rem; }
+        }
       </style>
 
       <div id="role-root">
@@ -791,7 +1047,7 @@ function showRoleSelection(app, sessionId) {
             ${_roleCard('controller', '🎮', '컨트롤러', '선생님 폰 — 게임을 시작하고 멈춥니다', '필수')}
             ${_roleCard('webcam',     '📸', '웹캠',     '아이 동작 인식 후 모니터로 전송 (모니터에 카메라 없을 때)')}
 
-            <button id="role-btn-back">← 세션 변경</button>
+            <button id="role-btn-back">← 뒤로가기</button>
           </div>
         </div>
       </div>
@@ -817,7 +1073,7 @@ function showRoleSelection(app, sessionId) {
       })
     })
 
-    app.querySelector('#role-btn-back').addEventListener('click', () => resolve(null))
+    app.querySelector('#role-btn-back').addEventListener('click', () => resolve('__back__'))
   })
 }
 
@@ -843,53 +1099,201 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   const { manifest } = entry
 
   const playerName = await _askPlayerName(app, manifest)
-  if (!playerName) { cleanup(); navigate('/'); return }
+  if (!playerName) {
+    window.removeEventListener('hashchange', cleanup)
+    cleanup()
+    const target = `/game?id=${gameId}&session=${sessionId}`
+    if (window.location.hash === '#' + target) reload()
+    else navigate(target)
+    return
+  }
 
   const rounds = manifest.rounds ?? 5
 
   app.innerHTML = `
+    <style>
+      /* ── HUD 바 ── */
+      #hud-bar {
+        position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: clamp(8px,1.4vh,12px) clamp(12px,2vw,20px);
+        font-family: var(--font-main);
+      }
+      /* 라운드 pip */
+      #hud-rounds { display: flex; gap: 7px; align-items: center; }
+      .hud-pip {
+        width: clamp(10px,1.4vw,16px); height: clamp(10px,1.4vw,16px);
+        border-radius: 50%; background: rgba(255,255,255,0.14);
+        transition: background 0.3s, box-shadow 0.3s; flex-shrink: 0;
+      }
+      .hud-pip.done {
+        background: #7c3aed;
+        box-shadow: 0 0 7px rgba(124,58,237,0.75);
+      }
+      /* 타이머 뱃지 */
+      #hud-timer {
+        background: linear-gradient(180deg, #ffe94d, #f0c000);
+        color: #5a3c00;
+        font-size: clamp(1rem, 2.4vw, 1.4rem); font-weight: 900;
+        min-width: clamp(36px, 4.5vw, 52px); text-align: center;
+        padding: 3px 12px; border-radius: 50px;
+        box-shadow: 0 3px 0 #b88e00, 0 4px 12px rgba(240,192,0,0.3);
+        line-height: 1.35; letter-spacing: 0.04em;
+      }
+      /* 점수 */
+      #hud-score-wrap {
+        font-size: clamp(0.78rem, 1.8vw, 0.95rem);
+        color: rgba(255,255,255,0.45); font-weight: 700;
+      }
+      #score-val {
+        color: #6ee75a; font-size: clamp(1rem, 2.4vw, 1.3rem);
+        font-weight: 900; margin-left: 4px;
+      }
+      /* 하트 */
+      #hud-lives { display: flex; gap: clamp(2px,0.5vw,6px); font-size: clamp(1.1rem,2.6vw,1.6rem); }
+      /* ── 대기 오버레이 공통 ── */
+      #wait-outer { position:relative; display:flex; flex-direction:column; align-items:center; }
+      #wait-signboard {
+        position:relative; z-index:10;
+        width:clamp(200px,52vw,320px); object-fit:contain;
+        filter:drop-shadow(0 6px 16px rgba(0,0,0,0.32)); pointer-events:none;
+        margin-bottom:clamp(-44px,-6.5vw,-32px);
+      }
+      #wait-card {
+        position:relative; z-index:1;
+        background:#F7F0FF;
+        border:10px solid #c4a8f5; outline:10px solid #fff;
+        border-radius:90px;
+        padding:clamp(48px,7vw,64px) clamp(28px,6vw,56px) clamp(28px,4vw,40px);
+        width:clamp(300px,88vw,480px);
+        display:flex; flex-direction:column; align-items:center;
+        gap:clamp(8px,1.8vh,16px);
+        box-shadow:0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+      }
+      #wait-title-img { width:clamp(200px,76%,340px); object-fit:contain; }
+      #wait-session {
+        font-size:clamp(1.6rem,4.5vw,2.2rem); font-weight:900;
+        letter-spacing:0.12em; color:#7c3aed;
+        text-shadow:2px 2px 0 rgba(124,58,237,0.2);
+      }
+      #wait-status {
+        font-size:clamp(0.9rem,2.4vw,1.1rem); font-weight:800;
+        color:#f59e0b; text-align:center;
+        background:#fff8e1; border-radius:50px;
+        padding:8px 20px; border:2px solid #fcd34d;
+      }
+      #wait-name { font-size:clamp(0.85rem,2.2vw,1rem); color:#9d6ed8; font-weight:700; }
+      #wait-name strong { color:#3b0764; }
+      #wait-btn-back {
+        width:100%;
+        padding:clamp(13px,2.2vh,18px) 0;
+        background:linear-gradient(180deg,#b0b8c1 0%,#8a9199 100%);
+        border:none; border-radius:9999px;
+        box-shadow:0 5px 0 #626a71, 0 8px 24px rgba(100,110,120,0.3);
+        color:#fff; font-family:var(--font-main);
+        font-size:clamp(1rem,2.6vw,1.2rem); font-weight:800;
+        cursor:pointer; transition:transform 0.1s, box-shadow 0.1s;
+        -webkit-tap-highlight-color:transparent; margin-top:4px;
+      }
+      #wait-btn-back:hover  { transform:scale(1.04); }
+      #wait-btn-back:active { transform:scale(0.95) translateY(3px); box-shadow:0 2px 0 #626a71; }
+      /* ── 게임오버 카드 ── */
+      #go-outer { position:relative; display:flex; flex-direction:column; align-items:center; }
+      #go-signboard {
+        position:relative; z-index:10;
+        width:clamp(200px,52vw,320px); object-fit:contain;
+        filter:drop-shadow(0 6px 16px rgba(0,0,0,0.32)); pointer-events:none;
+        margin-bottom:clamp(-44px,-6.5vw,-32px);
+      }
+      #go-card {
+        position:relative; z-index:1;
+        background:#F7F0FF;
+        border:10px solid #c4a8f5; outline:10px solid #fff;
+        border-radius:90px;
+        padding:clamp(48px,7vw,64px) clamp(32px,6vw,60px) clamp(28px,4vw,40px);
+        width:clamp(300px,88vw,500px);
+        display:flex; flex-direction:column; align-items:center;
+        gap:clamp(10px,2vh,16px);
+        box-shadow:0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+      }
+      #go-emoji { font-size:clamp(2.4rem,6vw,3.6rem); line-height:1; }
+      #go-title {
+        font-size:clamp(1.4rem,4vw,2rem); font-weight:900;
+        text-align:center; line-height:1.2;
+      }
+      #go-stats {
+        font-size:clamp(0.82rem,2vw,1rem); color:#9d6ed8;
+        text-align:center; line-height:2;
+        background:#ede5ff; border-radius:20px; padding:12px 20px;
+        width:100%;
+      }
+      #go-stats strong { color:#3b0764; }
+      .go-btn-row { display:flex; gap:12px; width:100%; }
+      #btn-retry {
+        flex:1; padding:clamp(13px,2.2vh,18px) 0;
+        background:linear-gradient(180deg,#6ee75a 0%,#3cb544 100%);
+        border:none; border-radius:9999px;
+        box-shadow:0 5px 0 #2a8a30;
+        color:#fff; font-family:var(--font-main);
+        font-size:clamp(1rem,2.6vw,1.2rem); font-weight:800;
+        cursor:pointer; transition:transform 0.1s;
+        -webkit-tap-highlight-color:transparent;
+      }
+      #btn-retry:hover { transform:scale(1.04); }
+      #btn-home-go {
+        flex:1; padding:clamp(13px,2.2vh,18px) 0;
+        background:linear-gradient(180deg,#b0b8c1 0%,#8a9199 100%);
+        border:none; border-radius:9999px;
+        box-shadow:0 5px 0 #626a71;
+        color:#fff; font-family:var(--font-main);
+        font-size:clamp(1rem,2.6vw,1.2rem); font-weight:800;
+        cursor:pointer; transition:transform 0.1s;
+        -webkit-tap-highlight-color:transparent;
+      }
+      #btn-home-go:hover { transform:scale(1.04); }
+    </style>
+
     <div id="game-wrap" style="position:relative;width:100%;height:100vh;overflow:hidden;background:#0d1b2a;">
       <canvas id="game-canvas" style="display:block;width:100%;height:100%;"></canvas>
 
       <div id="game-overlay" style="
         position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
         pointer-events:none;font-family:var(--font-main);font-weight:800;
-        text-shadow:0 2px 16px rgba(0,0,0,0.7);transition:opacity 0.2s;opacity:0;
+        transition:opacity 0.2s;opacity:0;
       "></div>
 
       <!-- HUD -->
-      <div style="
-        position:absolute;top:0;left:0;right:0;
-        display:flex;align-items:center;justify-content:space-between;
-        padding:12px 20px;background:rgba(13,27,42,0.85);font-family:var(--font-main);
-      ">
-        <div id="hud-rounds" style="display:flex;gap:6px;"></div>
-        <div style="display:flex;align-items:center;gap:20px;">
-          <div id="hud-timer" style="font-size:1.4rem;font-weight:800;color:var(--color-accent2);min-width:40px;text-align:center;"></div>
-          <div style="font-size:1rem;color:var(--color-sub);">
-            점수 <span id="score-val" style="color:var(--color-text);font-weight:700;">0</span>
-          </div>
+      <div id="hud-bar">
+        <div id="hud-rounds"></div>
+        <div style="display:flex;align-items:center;gap:clamp(8px,1.5vw,16px);">
+          <div id="hud-timer"></div>
+          <div id="hud-score-wrap">점수<span id="score-val">0</span></div>
         </div>
-        <div id="hud-lives" style="display:flex;gap:4px;font-size:1.4rem;"></div>
+        <div id="hud-lives"></div>
       </div>
 
       <!-- 전체화면 -->
       <button id="btn-fs" style="
-        position:absolute;top:12px;right:16px;background:transparent;border:none;
-        color:rgba(255,255,255,0.4);font-size:1.1rem;cursor:pointer;padding:4px 8px;
+        position:absolute;top:10px;right:14px;z-index:6;
+        background:rgba(196,168,245,0.15);border:1px solid rgba(196,168,245,0.25);
+        color:rgba(255,255,255,0.5);font-size:1rem;
+        cursor:pointer;padding:4px 9px;border-radius:8px;
+        transition:background 0.15s;
       " title="전체화면">⛶</button>
 
       <!-- PIP 카메라 -->
       <video id="pip-video" playsinline style="
         position:absolute;bottom:100px;right:12px;width:120px;height:90px;
-        border-radius:10px;border:2px solid rgba(0,207,0,0.4);
+        border-radius:10px;border:2px solid rgba(196,168,245,0.5);
         object-fit:cover;transform:scaleX(-1);display:none;
+        box-shadow:0 4px 16px rgba(0,0,0,0.4);
       "></video>
 
       <!-- 카메라 소스 표시 -->
       <div id="source-badge" style="
         position:absolute;top:58px;left:12px;
-        background:rgba(0,0,0,0.6);padding:4px 10px;border-radius:50px;
+        background:rgba(10,6,22,0.72);backdrop-filter:blur(8px);
+        padding:4px 12px;border-radius:50px;border:1px solid rgba(196,168,245,0.18);
         font-size:0.72rem;font-family:var(--font-main);pointer-events:none;
         color:rgba(255,255,255,0.35);transition:color 0.3s;
       ">⌨️ 키보드</div>
@@ -900,55 +1304,6 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
         background:url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
         font-family:var(--font-main);
       ">
-        <style>
-          #wait-outer { position:relative; display:flex; flex-direction:column; align-items:center; }
-          #wait-signboard {
-            position:relative; z-index:10;
-            width:clamp(200px,52vw,320px); object-fit:contain;
-            filter:drop-shadow(0 6px 16px rgba(0,0,0,0.32)); pointer-events:none;
-            margin-bottom:clamp(-44px,-6.5vw,-32px);
-          }
-          #wait-card {
-            position:relative; z-index:1;
-            background:#F7F0FF;
-            border:10px solid #c4a8f5; outline:10px solid #fff;
-            border-radius:90px;
-            padding:clamp(48px,7vw,64px) clamp(28px,6vw,56px) clamp(28px,4vw,40px);
-            width:clamp(300px,88vw,480px);
-            display:flex; flex-direction:column; align-items:center;
-            gap:clamp(8px,1.8vh,16px);
-            box-shadow:0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
-          }
-          #wait-title-img { width:clamp(200px,76%,340px); object-fit:contain; }
-          #wait-session {
-            font-size:clamp(1.6rem,4.5vw,2.2rem); font-weight:900;
-            letter-spacing:0.12em; color:#7c3aed;
-            text-shadow:2px 2px 0 rgba(124,58,237,0.2);
-          }
-          #wait-status {
-            font-size:clamp(0.9rem,2.4vw,1.1rem); font-weight:800;
-            color:#f59e0b; text-align:center;
-            background:#fff8e1; border-radius:50px;
-            padding:8px 20px; border:2px solid #fcd34d;
-          }
-          #wait-name {
-            font-size:clamp(0.85rem,2.2vw,1rem); color:#9d6ed8; font-weight:700;
-          }
-          #wait-name strong { color:#3b0764; }
-          #wait-btn-back {
-            width:100%;
-            padding:clamp(13px,2.2vh,18px) 0;
-            background:linear-gradient(180deg,#b0b8c1 0%,#8a9199 100%);
-            border:none; border-radius:9999px;
-            box-shadow:0 5px 0 #626a71, 0 8px 24px rgba(100,110,120,0.3);
-            color:#fff; font-family:var(--font-main);
-            font-size:clamp(1rem,2.6vw,1.2rem); font-weight:800;
-            cursor:pointer; transition:transform 0.1s, box-shadow 0.1s;
-            -webkit-tap-highlight-color:transparent; margin-top:4px;
-          }
-          #wait-btn-back:hover  { transform:scale(1.04); }
-          #wait-btn-back:active { transform:scale(0.95) translateY(3px); box-shadow:0 2px 0 #626a71; }
-        </style>
         <div id="wait-outer">
           <img id="wait-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA"
                onerror="this.style.display='none'" />
@@ -958,24 +1313,31 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
             <div id="wait-session">${sessionId}</div>
             <div id="wait-status">⚠️ 컨트롤러를 연결해주세요</div>
             <div id="wait-name">안녕하세요, <strong>${playerName}</strong>님!</div>
-            <button id="wait-btn-back">← 역할 선택으로</button>
+            <button id="wait-btn-back">← 뒤로가기</button>
           </div>
         </div>
       </div>
 
       <!-- 게임 오버 -->
       <div id="gameover-overlay" style="
-        position:absolute;inset:0;display:none;flex-direction:column;
-        align-items:center;justify-content:center;gap:16px;
-        background:rgba(13,27,42,0.92);font-family:var(--font-main);
+        position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+        background:url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+        font-family:var(--font-main);
       ">
-        <div style="font-size:4rem;">💩</div>
-        <div id="go-title" style="font-size:2rem;font-weight:800;"></div>
-        <div id="go-stats" style="color:var(--color-sub);font-size:1rem;text-align:center;line-height:2;"></div>
-        <div style="display:flex;gap:12px;margin-top:8px;">
-          <button id="btn-retry" class="btn-primary">다시 하기</button>
-          <button id="btn-home-go" class="btn-ghost">홈으로</button>
+        <div id="go-outer">
+          <img id="go-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA"
+               onerror="this.style.display='none'" />
+          <div id="go-card">
+            <div id="go-emoji">💩</div>
+            <div id="go-title"></div>
+            <div id="go-stats"></div>
+            <div class="go-btn-row">
+              <button id="btn-retry">다시 하기</button>
+              <button id="btn-home-go">홈으로</button>
+            </div>
+          </div>
         </div>
+      </div>
       </div>
     </div>
   `
@@ -988,16 +1350,34 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   const updateRoundPips = round =>
     (app.querySelector('#hud-rounds').innerHTML =
       Array.from({ length: rounds }, (_, i) =>
-        `<span style="font-size:1.1rem;color:${i < round ? '#00CF00' : 'rgba(255,255,255,0.2)'};">●</span>`
+        `<span class="hud-pip${i < round ? ' done' : ''}"></span>`
       ).join(''))
-  const updateLives  = n =>
+  const updateLives = n =>
     (app.querySelector('#hud-lives').innerHTML =
       Array.from({ length: 3 }, (_, i) =>
-        `<span style="opacity:${i < n ? 1 : 0.2};">❤️</span>`
+        `<span style="opacity:${i < n ? 1 : 0.18};transition:opacity 0.2s;">❤️</span>`
       ).join(''))
-  const updateScore  = s => { app.querySelector('#score-val').textContent = s }
-  const updateTimer  = ms => { app.querySelector('#hud-timer').textContent = Math.ceil(ms / 1000) }
-  const resetHUD     = () => { updateLives(3); updateScore(0); updateRoundPips(0); app.querySelector('#hud-timer').textContent = '' }
+  const updateScore = s => { app.querySelector('#score-val').textContent = s }
+  const updateTimer = ms => {
+    const el  = app.querySelector('#hud-timer')
+    const sec = Math.ceil(ms / 1000)
+    el.textContent      = sec
+    el.style.background = sec <= 3
+      ? 'linear-gradient(180deg,#ff6b6b,#e53935)'
+      : 'linear-gradient(180deg,#ffe94d,#f0c000)'
+    el.style.boxShadow  = sec <= 3
+      ? '0 3px 0 #b71c1c,0 4px 12px rgba(229,57,53,0.35)'
+      : '0 3px 0 #b88e00,0 4px 12px rgba(240,192,0,0.3)'
+    el.style.color      = sec <= 3 ? '#fff' : '#5a3c00'
+  }
+  const resetHUD = () => {
+    updateLives(3); updateScore(0); updateRoundPips(0)
+    const el = app.querySelector('#hud-timer')
+    el.textContent      = ''
+    el.style.background = 'linear-gradient(180deg,#ffe94d,#f0c000)'
+    el.style.boxShadow  = '0 3px 0 #b88e00,0 4px 12px rgba(240,192,0,0.3)'
+    el.style.color      = '#5a3c00'
+  }
   resetHUD()
 
   // ── 카메라 소스 추적 ──────────────────────────────────────
@@ -1049,10 +1429,13 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
 
   function showGameOver(stats) {
     const cleared = stats.roundsCleared === rounds
-    app.querySelector('#go-title').textContent = cleared ? '🎉 게임 클리어!' : '게임 오버'
-    app.querySelector('#go-title').style.color = cleared ? '#00CF00' : '#ff4757'
+    const emojiEl = app.querySelector('#go-emoji')
+    const titleEl = app.querySelector('#go-title')
+    emojiEl.textContent   = cleared ? '🎉' : '💩'
+    titleEl.textContent   = cleared ? '게임 클리어!' : '게임 오버'
+    titleEl.style.color   = cleared ? '#3cb544' : '#e53935'
     app.querySelector('#go-stats').innerHTML =
-      `최종 점수: <strong style="color:#fff;">${stats.score}점</strong><br>` +
+      `최종 점수: <strong>${stats.score}점</strong><br>` +
       `클리어 라운드: ${stats.roundsCleared} / ${rounds}<br>` +
       `회피: ${stats.dodgeCount}회 · 피격: ${stats.hitCount}회`
     app.querySelector('#gameover-overlay').style.display = 'flex'
@@ -1136,9 +1519,17 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
   }
 
   // 대기 화면 뒤로가기 → 같은 세션으로 역할 선택 화면 재진입
+  // hashchange cleanup 리스너를 먼저 제거해야 새 gamePage의 channel.join()이 즉시 취소되지 않음
   app.querySelector('#wait-btn-back').addEventListener('click', () => {
+    window.removeEventListener('hashchange', cleanup)
     cleanup()
-    navigate(`/game?id=${gameId}&session=${sessionId}`)
+    // 현재 해시가 이미 ?session=... 이면 hashchange 미발생 → reload()로 강제 재렌더링
+    const target = `/game?id=${gameId}&session=${sessionId}`
+    if (window.location.hash === '#' + target) {
+      reload()
+    } else {
+      navigate(target)
+    }
   })
 
   // ── 버튼 ──────────────────────────────────────────────────
@@ -1157,121 +1548,262 @@ function showControllerView(app, sessionId, cleanup) {
   let gameState = 'idle'
 
   app.innerHTML = `
-    <div style="
-      min-height:100vh;display:flex;flex-direction:column;
-      font-family:var(--font-main);background:var(--color-bg);
-      max-width:480px;margin:0 auto;
-    ">
-      <!-- 헤더 -->
-      <div style="
-        display:flex;align-items:center;justify-content:space-between;
-        padding:14px 20px;background:var(--color-panel);
-        border-bottom:1px solid rgba(255,255,255,0.08);
-      ">
-        <span style="font-weight:700;color:var(--color-accent2);">🎮 컨트롤러</span>
-        <button id="btn-home" style="background:transparent;border:none;color:var(--color-sub);cursor:pointer;font-size:0.85rem;">✕ 홈</button>
-      </div>
+    <style>
+      #ctrl-root {
+        position: fixed; inset: 0;
+        background: url('/assets/image/poop_game_bg.jpg') center/cover no-repeat;
+        display: flex; align-items: center; justify-content: center;
+        font-family: var(--font-main);
+        overflow-y: auto;
+        padding: clamp(12px, 3vh, 32px) 0;
+      }
+      #ctrl-outer {
+        position: relative;
+        display: flex; flex-direction: column; align-items: center;
+        width: 100%;
+      }
+      #ctrl-signboard {
+        position: relative; z-index: 10;
+        width: clamp(200px, 52vw, 300px);
+        object-fit: contain;
+        filter: drop-shadow(0 6px 16px rgba(0,0,0,0.32));
+        pointer-events: none;
+        margin-bottom: clamp(-44px, -6.5vw, -32px);
+        flex-shrink: 0;
+      }
+      #ctrl-card {
+        position: relative; z-index: 1;
+        background: #F7F0FF;
+        border: 10px solid #c4a8f5;
+        outline: 10px solid #fff;
+        border-radius: 90px;
+        padding: clamp(44px, 6vw, 60px) clamp(20px, 5vw, 40px) clamp(24px, 3.5vw, 36px);
+        width: clamp(300px, 90vw, 460px);
+        display: flex; flex-direction: column; align-items: center;
+        gap: clamp(8px, 1.6vh, 14px);
+        box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.32);
+      }
+      /* 세션 코드 영역 */
+      #ctrl-session-area { text-align: center; }
+      #ctrl-session-code {
+        font-size: clamp(2rem, 6vw, 2.8rem);
+        font-weight: 900; letter-spacing: 0.12em;
+        color: #7c3aed;
+        text-shadow: 2px 2px 0 rgba(124,58,237,0.2);
+        line-height: 1;
+      }
+      #ctrl-count-badge {
+        display: inline-block;
+        background: #e8d9ff; color: #7c3aed;
+        padding: 4px 14px; border-radius: 50px;
+        font-size: 0.82rem; font-weight: 700;
+        margin-top: 6px;
+      }
+      /* 상태 행 */
+      #ctrl-status-row {
+        display: flex; align-items: center; justify-content: space-between;
+        width: 100%;
+        background: #ede5ff; border-radius: 50px;
+        padding: clamp(10px,1.8vh,14px) clamp(16px,3vw,22px);
+      }
+      #ctrl-state-left { display: flex; align-items: center; gap: 8px; }
+      #ctrl-state-dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: #b0b8c1; display: inline-block; transition: background 0.3s;
+        flex-shrink: 0;
+      }
+      #ctrl-state-label { font-size: clamp(0.9rem,2.4vw,1rem); font-weight: 800; color: #3b0764; }
+      #ctrl-round-label { font-size: clamp(0.82rem,2vw,0.9rem); color: #9d6ed8; font-weight: 700; }
+      /* 버튼 공통 */
+      .ctrl-btn {
+        width: 100%;
+        border: none; border-radius: 9999px;
+        font-family: var(--font-main); font-weight: 800;
+        cursor: pointer; transition: transform 0.1s, box-shadow 0.1s, opacity 0.15s;
+        -webkit-tap-highlight-color: transparent;
+        padding: clamp(14px, 2.4vh, 20px) 0;
+        font-size: clamp(1rem, 3vw, 1.25rem);
+      }
+      .ctrl-btn:active { transform: scale(0.96) translateY(2px); }
+      /* 시작 — 초록 */
+      #btn-start {
+        background: linear-gradient(180deg, #6ee75a 0%, #3cb544 100%);
+        color: #fff;
+        box-shadow: 0 5px 0 #2a8a30, 0 8px 24px rgba(60,181,68,0.3);
+      }
+      #btn-start:hover { transform: scale(1.03); box-shadow: 0 6px 0 #2a8a30, 0 12px 30px rgba(60,181,68,0.35); }
+      /* 일시정지 / 정지 행 */
+      #ctrl-row-2 { display: flex; gap: clamp(8px,2vw,12px); width: 100%; }
+      #ctrl-row-2 .ctrl-btn { font-size: clamp(0.88rem, 2.4vw, 1.05rem); }
+      /* 일시정지 — 노랑 */
+      #btn-pause {
+        background: linear-gradient(180deg, #ffe94d 0%, #f0c000 100%);
+        color: #5a3c00;
+        box-shadow: 0 4px 0 #b88e00, 0 6px 18px rgba(240,192,0,0.28);
+        opacity: 0.4;
+      }
+      #btn-pause.active { opacity: 1; }
+      #btn-pause.active:hover { transform: scale(1.03); }
+      /* 정지 — 빨강 */
+      #btn-stop {
+        background: linear-gradient(180deg, #ff6b6b 0%, #e53935 100%);
+        color: #fff;
+        box-shadow: 0 4px 0 #b71c1c, 0 6px 18px rgba(229,57,53,0.28);
+        opacity: 0.4;
+      }
+      #btn-stop.active { opacity: 1; }
+      #btn-stop.active:hover { transform: scale(1.03); }
+      /* 게임 종료 — 연한 위험 */
+      #btn-exit {
+        background: rgba(255,107,107,0.1);
+        color: rgba(229,57,53,0.6);
+        border: 2px solid rgba(229,57,53,0.25);
+        border-radius: 9999px;
+        padding: clamp(10px, 1.8vh, 14px) 0;
+        font-size: clamp(0.85rem, 2.2vw, 1rem);
+        font-family: var(--font-main); font-weight: 700;
+        cursor: pointer; width: 100%;
+        transition: all 0.15s;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #btn-exit:hover { background: rgba(229,57,53,0.18); color: #e53935; border-color: rgba(229,57,53,0.5); }
+      /* 기록 보기 — 보라 ghost */
+      #btn-records {
+        background: transparent;
+        border: 2px solid #c4a8f5;
+        color: #7c3aed;
+        border-radius: 9999px;
+        padding: clamp(10px, 1.8vh, 14px) 0;
+        font-size: clamp(0.88rem, 2.2vw, 1rem);
+        font-family: var(--font-main); font-weight: 700;
+        cursor: pointer; width: 100%;
+        transition: border-color 0.15s, background 0.15s;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #btn-records:hover { background: #ede5ff; border-color: #7c3aed; }
+      /* 홈으로 — 회색 pill */
+      #btn-home {
+        background: linear-gradient(180deg, #b0b8c1 0%, #8a9199 100%);
+        color: #fff;
+        box-shadow: 0 4px 0 #626a71, 0 6px 18px rgba(100,110,120,0.25);
+      }
+      #btn-home:hover { transform: scale(1.03); }
+      /* 기록 패널 */
+      #records-panel {
+        display: none; width: 100%;
+        background: #fff; border-radius: 20px;
+        border: 2px solid #e0d0ff;
+        overflow: hidden;
+      }
+      #records-panel-header {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid #e0d0ff;
+      }
+      #btn-records-back {
+        background: transparent; border: none;
+        color: #9d6ed8; cursor: pointer;
+        font-size: 1.1rem; line-height: 1;
+        padding: 4px 8px; border-radius: 8px;
+        font-family: var(--font-main);
+        transition: background 0.1s;
+      }
+      #btn-records-back:hover { background: #ede5ff; }
+      #records-panel-title { font-size: 0.95rem; font-weight: 800; color: #3b0764; }
+      #records-list { padding: 10px 12px; max-height: 240px; overflow-y: auto; }
+      .record-item {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 12px; margin-bottom: 6px;
+        background: #F7F0FF; border-radius: 12px;
+      }
+      .record-name { font-weight: 700; font-size: 0.9rem; color: #3b0764; }
+      .record-sub  { font-size: 0.72rem; color: #9d6ed8; margin-top: 2px; }
+      .record-score { font-size: 1.2rem; font-weight: 800; color: #3cb544; }
+    </style>
 
-      <div style="padding:20px;display:flex;flex-direction:column;gap:14px;flex:1;">
+    <div id="ctrl-root">
+      <div id="ctrl-outer">
+        <img id="ctrl-signboard" src="/assets/image/tit_signboard_playzera.png" alt="PLAY ZERA"
+             onerror="this.style.display='none'" />
 
-        <!-- 세션 + 인원 -->
-        <div style="text-align:center;">
-          <div style="color:var(--color-sub);font-size:0.72rem;margin-bottom:4px;">세션</div>
-          <div style="font-size:2.6rem;font-weight:800;letter-spacing:0.1em;color:var(--color-accent);">${sessionId}</div>
-          <div id="count-badge" style="font-size:0.8rem;color:var(--color-sub);margin-top:4px;">... / ${MAX_DEVICES} 접속중</div>
-        </div>
-
-        <!-- 상태 -->
-        <div style="
-          display:flex;align-items:center;justify-content:space-between;
-          padding:12px 16px;background:var(--color-panel);border-radius:12px;
-        ">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span id="state-dot" style="width:10px;height:10px;border-radius:50%;background:var(--color-sub);display:inline-block;transition:background 0.3s;"></span>
-            <span id="state-label" style="font-size:0.95rem;">대기중</span>
+        <div id="ctrl-card">
+          <!-- 세션 코드 -->
+          <div id="ctrl-session-area">
+            <div id="ctrl-session-code">${sessionId}</div>
+            <div id="ctrl-count-badge">… / ${MAX_DEVICES} 접속중</div>
           </div>
-          <div style="color:var(--color-sub);font-size:0.85rem;">
-            라운드 <span id="round-label" style="color:var(--color-text);font-weight:700;">-</span> / 5
+
+          <!-- 상태 행 -->
+          <div id="ctrl-status-row">
+            <div id="ctrl-state-left">
+              <span id="ctrl-state-dot"></span>
+              <span id="ctrl-state-label">대기중</span>
+            </div>
+            <span id="ctrl-round-label">라운드 - / 5</span>
           </div>
-        </div>
 
-        <!-- 컨트롤 버튼 -->
-        <button id="btn-start" style="
-          padding:22px;font-size:1.2rem;font-weight:800;
-          background:var(--color-accent);color:#000;
-          border:none;border-radius:var(--radius-btn);cursor:pointer;
-          transition:opacity 0.15s;font-family:var(--font-main);
-        ">▶ 게임 시작</button>
+          <!-- 게임 시작 -->
+          <button id="btn-start" class="ctrl-btn">▶ 게임 시작</button>
 
-        <div style="display:flex;gap:12px;">
-          <button id="btn-pause" style="
-            flex:1;padding:18px;font-size:1rem;font-weight:700;
-            background:var(--color-accent2);color:#000;
-            border:none;border-radius:var(--radius-btn);cursor:pointer;
-            opacity:0.35;transition:opacity 0.15s;font-family:var(--font-main);
-          ">⏸ 일시정지</button>
-          <button id="btn-stop" style="
-            flex:1;padding:18px;font-size:1rem;font-weight:700;
-            background:var(--color-danger);color:#fff;
-            border:none;border-radius:var(--radius-btn);cursor:pointer;
-            opacity:0.35;transition:opacity 0.15s;font-family:var(--font-main);
-          ">⏹ 정지</button>
-        </div>
-
-        <!-- 게임 종료 버튼 -->
-        <button id="btn-exit" style="
-          padding:16px;font-size:0.95rem;font-weight:700;
-          background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);
-          border:1px solid rgba(255,255,255,0.12);border-radius:var(--radius-btn);
-          cursor:pointer;transition:all 0.15s;font-family:var(--font-main);
-        ">🚪 게임 종료 (전체)</button>
-
-        <!-- 기록 버튼 -->
-        <button id="btn-records" class="btn-ghost" style="margin-top:4px;">📊 오늘 기록 보기</button>
-
-        <!-- 기록 뷰 (인라인) -->
-        <div id="records-view" style="display:none;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-            <button id="btn-records-back" style="background:transparent;border:none;color:var(--color-sub);cursor:pointer;font-size:1.2rem;">←</button>
-            <span style="font-weight:700;">오늘 기록</span>
+          <!-- 일시정지 / 정지 -->
+          <div id="ctrl-row-2">
+            <button id="btn-pause" class="ctrl-btn">⏸ 일시정지</button>
+            <button id="btn-stop"  class="ctrl-btn">⏹ 정지</button>
           </div>
-          <div id="records-list"></div>
+
+          <!-- 게임 종료 전체 -->
+          <button id="btn-exit">🚪 게임 종료 (전체)</button>
+
+          <!-- 기록 보기 -->
+          <button id="btn-records">📊 오늘 기록 보기</button>
+
+          <!-- 기록 패널 (인라인) -->
+          <div id="records-panel">
+            <div id="records-panel-header">
+              <button id="btn-records-back">←</button>
+              <span id="records-panel-title">오늘 기록</span>
+            </div>
+            <div id="records-list"></div>
+          </div>
+
+          <!-- 홈으로 -->
+          <button id="btn-home" class="ctrl-btn">← 홈으로</button>
         </div>
       </div>
     </div>
   `
 
   channel.onPresenceSync(n => {
-    app.querySelector('#count-badge').textContent = `${n} / ${MAX_DEVICES} 접속중`
+    app.querySelector('#ctrl-count-badge').textContent = `${n} / ${MAX_DEVICES} 접속중`
   })
 
   channel.on(MSG.ROUND_CHANGE, ({ round }) => {
-    app.querySelector('#round-label').textContent = round
+    app.querySelector('#ctrl-round-label').textContent = `라운드 ${round} / 5`
   })
 
-  const dotEl    = app.querySelector('#state-dot')
-  const labelEl  = app.querySelector('#state-label')
+  const dotEl    = app.querySelector('#ctrl-state-dot')
+  const labelEl  = app.querySelector('#ctrl-state-label')
   const pauseBtn = app.querySelector('#btn-pause')
   const stopBtn  = app.querySelector('#btn-stop')
 
   function setState(s) {
     gameState = s
     const map = {
-      idle:    { label: '대기중',   color: 'var(--color-sub)' },
-      running: { label: '게임중',   color: 'var(--color-accent)' },
-      paused:  { label: '일시정지', color: 'var(--color-accent2)' },
+      idle:    { label: '대기중',   color: '#b0b8c1' },
+      running: { label: '게임중',   color: '#3cb544' },
+      paused:  { label: '일시정지', color: '#f0c000' },
     }
     const { label, color } = map[s] ?? map.idle
     labelEl.textContent    = label
     dotEl.style.background = color
-    pauseBtn.style.opacity = s === 'running' ? '1' : '0.35'
-    stopBtn.style.opacity  = s !== 'idle'    ? '1' : '0.35'
+    pauseBtn.classList.toggle('active', s === 'running')
+    stopBtn.classList.toggle('active',  s !== 'idle')
   }
 
   app.querySelector('#btn-start').addEventListener('click', () => {
     channel.send(MSG.GAME_START, {})
     setState('running')
-    app.querySelector('#round-label').textContent = '1'
+    app.querySelector('#ctrl-round-label').textContent = '라운드 1 / 5'
   })
   app.querySelector('#btn-pause').addEventListener('click', () => {
     if (gameState === 'idle') return
@@ -1282,22 +1814,10 @@ function showControllerView(app, sessionId, cleanup) {
     if (gameState === 'idle') return
     channel.send(MSG.GAME_STOP, {})
     setState('idle')
-    app.querySelector('#round-label').textContent = '-'
+    app.querySelector('#ctrl-round-label').textContent = '라운드 - / 5'
   })
 
-  // 종료 버튼
-  const exitBtn = app.querySelector('#btn-exit')
-  exitBtn.addEventListener('mouseenter', () => {
-    exitBtn.style.background  = 'rgba(255,71,87,0.12)'
-    exitBtn.style.color       = '#ff4757'
-    exitBtn.style.borderColor = 'rgba(255,71,87,0.35)'
-  })
-  exitBtn.addEventListener('mouseleave', () => {
-    exitBtn.style.background  = 'rgba(255,255,255,0.04)'
-    exitBtn.style.color       = 'rgba(255,255,255,0.45)'
-    exitBtn.style.borderColor = 'rgba(255,255,255,0.12)'
-  })
-  exitBtn.addEventListener('click', () => {
+  app.querySelector('#btn-exit').addEventListener('click', () => {
     if (!confirm('정말 게임을 종료하시겠어요?\n모든 화면이 메인으로 돌아갑니다.')) return
     channel.send(MSG.GAME_EXIT, {})
     cleanup()
@@ -1308,37 +1828,31 @@ function showControllerView(app, sessionId, cleanup) {
 
   // 오늘 기록
   app.querySelector('#btn-records').addEventListener('click', async () => {
-    const view = app.querySelector('#records-view')
-    const list = app.querySelector('#records-list')
-    view.style.display = 'block'
-    list.innerHTML = `<p style="color:var(--color-sub);text-align:center;">불러오는 중...</p>`
+    const panel = app.querySelector('#records-panel')
+    const list  = app.querySelector('#records-list')
+    panel.style.display = 'block'
+    list.innerHTML = `<p style="color:#9d6ed8;text-align:center;padding:16px 0;">불러오는 중...</p>`
     try {
       const results = await getTodayResults(sessionId)
       if (!results?.length) {
-        list.innerHTML = `<p style="color:var(--color-sub);text-align:center;">오늘 기록이 없습니다</p>`
+        list.innerHTML = `<p style="color:#9d6ed8;text-align:center;padding:16px 0;">오늘 기록이 없습니다</p>`
         return
       }
       list.innerHTML = results.map(r => `
-        <div style="
-          display:flex;justify-content:space-between;align-items:center;
-          padding:12px 16px;margin-bottom:8px;
-          background:var(--color-panel);border-radius:12px;
-        ">
+        <div class="record-item">
           <div>
-            <div style="font-weight:700;">${r.player_name}</div>
-            <div style="font-size:0.75rem;color:var(--color-sub);margin-top:2px;">
-              ${r.rounds_cleared}/5라운드 · 회피 ${r.dodge_count} · 피격 ${r.hit_count}
-            </div>
+            <div class="record-name">${r.player_name}</div>
+            <div class="record-sub">${r.rounds_cleared}/5라운드 · 회피 ${r.dodge_count} · 피격 ${r.hit_count}</div>
           </div>
-          <div style="font-size:1.3rem;font-weight:800;color:var(--color-accent);">${r.score}점</div>
+          <div class="record-score">${r.score}점</div>
         </div>
       `).join('')
     } catch (e) {
-      list.innerHTML = `<p style="color:var(--color-danger);">불러오기 실패: ${e.message}</p>`
+      list.innerHTML = `<p style="color:#e53935;text-align:center;padding:12px 0;">불러오기 실패</p>`
     }
   })
   app.querySelector('#btn-records-back').addEventListener('click', () => {
-    app.querySelector('#records-view').style.display = 'none'
+    app.querySelector('#records-panel').style.display = 'none'
   })
 
   app.querySelector('#btn-home').addEventListener('click', () => { cleanup(); navigate('/') })
@@ -1603,6 +2117,24 @@ function _askPlayerName(app, manifest) {
         }
         #name-btn-cancel:hover  { transform: scale(1.04); }
         #name-btn-cancel:active { transform: scale(0.95) translateY(3px); box-shadow: 0 2px 0 #626a71; }
+        @media (max-height: 560px) {
+          #name-root { overflow-y: auto; align-items: flex-start; }
+          #name-outer {
+            width: 100%; min-height: 100vh;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            padding: 16px 0; box-sizing: border-box;
+          }
+          #name-signboard { display: none; }
+          #name-card {
+            border-radius: 40px; gap: 8px;
+            padding: 18px 20px 14px;
+            width: clamp(280px, 86vw, 480px);
+          }
+          #name-title-img { width: clamp(140px, 55%, 240px); }
+          #name-input { padding: 10px 14px; font-size: 0.95rem; }
+          #name-btn-start, #name-btn-cancel { padding: 10px 0; font-size: 0.95rem; }
+        }
       </style>
 
       <div id="name-root">
@@ -1613,7 +2145,7 @@ function _askPlayerName(app, manifest) {
             <p id="name-label">아이 이름 또는 번호</p>
             <input id="name-input" type="text" maxlength="10" placeholder="예: 민준, 1번" />
             <button id="name-btn-start">시작!</button>
-            <button id="name-btn-cancel">취소</button>
+            <button id="name-btn-cancel">← 뒤로가기</button>
           </div>
         </div>
       </div>
