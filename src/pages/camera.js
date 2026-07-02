@@ -1,5 +1,5 @@
 import { navigate } from '../core/router.js'
-import { poseEngine } from '../core/pose.js'
+import { poseEngine } from '../core/pose/index.js'
 import * as channel from '../core/channel.js'
 import { MSG } from '../core/channel.js'
 

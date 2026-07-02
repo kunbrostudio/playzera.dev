@@ -1,5 +1,5 @@
 import { navigate, reload } from '../core/router.js'
-import { poseEngine } from '../core/pose.js'
+import { poseEngine } from '../core/pose/index.js'
 import * as channel from '../core/channel.js'
 import { MSG, MAX_DEVICES } from '../core/channel.js'
 import { saveResult, getTodayResults } from '../core/gameResult.js'
