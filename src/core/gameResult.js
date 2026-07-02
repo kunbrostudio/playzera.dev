@@ -1,31 +1,48 @@
 import supabase from './supabase.js'
 
-export async function save(result) {
-  console.log('[gameResult] save() 호출됨:', result)
-
+export async function saveResult({
+  sessionId   = null,
+  gameId,
+  playerName,
+  score,
+  roundsCleared,
+  extraData   = {},
+  centerCode  = null,
+}) {
   const payload = {
-    session_id: result.sessionId,
-    game_id: result.gameId,
-    player_name: result.playerName,
-    score: result.score,
-    rounds_cleared: result.roundsCleared,
-    dodge_count: result.dodgeCount,
-    hit_count: result.hitCount,
-    reaction_avg_ms: result.reactionAvgMs ?? null,
-    played_at: result.playedAt ?? new Date().toISOString(),
+    session_id:     sessionId,
+    game_id:        gameId,
+    player_name:    playerName,
+    score,
+    rounds_cleared: roundsCleared,
+    extra_data:     extraData,
+    center_code:    centerCode,
+    user_id:        null,
+    played_at:      new Date().toISOString(),
   }
-  console.log('[gameResult] Supabase insert payload:', payload)
 
   const { data, error } = await supabase.from('game_results').insert(payload).select()
-
-  if (error) {
-    console.error('[gameResult] 저장 실패 ❌', error)
-    throw error
-  }
-  console.log('[gameResult] 저장 성공 ✅', data)
+  if (error) throw error
   return data
 }
 
+// game_id / center_code 필터링 지원 범용 조회
+export async function getResults({ gameId = null, limit = 20, centerCode = null } = {}) {
+  let q = supabase
+    .from('game_results')
+    .select('*')
+    .order('played_at', { ascending: false })
+    .limit(limit)
+
+  if (gameId)     q = q.eq('game_id', gameId)
+  if (centerCode) q = q.eq('center_code', centerCode)
+
+  const { data, error } = await q
+  if (error) throw error
+  return data
+}
+
+// 오늘 세션 결과 조회 (컨트롤러 기록 보기용)
 export async function getTodayResults(sessionId) {
   const start = new Date()
   start.setHours(0, 0, 0, 0)

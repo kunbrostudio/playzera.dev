@@ -2,7 +2,7 @@ import { navigate, reload } from '../core/router.js'
 import { poseEngine } from '../core/pose.js'
 import * as channel from '../core/channel.js'
 import { MSG, MAX_DEVICES } from '../core/channel.js'
-import { save as saveResult, getTodayResults } from '../core/gameResult.js'
+import { saveResult, getTodayResults } from '../core/gameResult.js'
 import { GAME_REGISTRY } from '../games/registry.js'
 import * as sound from '../core/sound.js'
 import * as bgm   from '../core/bgm.js'
@@ -625,9 +625,11 @@ async function showSoloGame(app, gameId, entry) {
       onGameEnd:     async stats => {
         showGameOver(stats)
         try {
-          await saveResult({ sessionId: soloSessionId, gameId, playerName,
+          await saveResult({
+            sessionId: soloSessionId, gameId, playerName,
             score: stats.score, roundsCleared: stats.roundsCleared,
-            dodgeCount: stats.dodgeCount, hitCount: stats.hitCount, reactionAvgMs: null })
+            extraData: { dodge_count: stats.dodgeCount, hit_count: stats.hitCount, reaction_avg_ms: null },
+          })
         } catch (e) { console.error('[game] 결과 저장 실패:', e) }
       },
       onScoreUpdate: updateScore,
@@ -1419,9 +1421,11 @@ async function showMonitorView(app, gameId, sessionId, entry, onSetGame, cleanup
       onGameEnd:     async stats => {
         showGameOver(stats)
         try {
-          await saveResult({ sessionId, gameId, playerName,
+          await saveResult({
+            sessionId, gameId, playerName,
             score: stats.score, roundsCleared: stats.roundsCleared,
-            dodgeCount: stats.dodgeCount, hitCount: stats.hitCount, reactionAvgMs: null })
+            extraData: { dodge_count: stats.dodgeCount, hit_count: stats.hitCount, reaction_avg_ms: null },
+          })
         } catch (e) { console.error('[game] 결과 저장 실패:', e) }
       },
       onScoreUpdate: updateScore,
