@@ -25,6 +25,10 @@ export async function gamePage(app, query) {
   const entry  = GAME_REGISTRY[gameId]
   if (!entry) { navigate('/'); return }
 
+  await bgm.load(gameId)
+  await sound.load(gameId)
+  bgm.play()
+
   // ── STEP 1: 플레이 방식 선택 (세션 URL 직접 진입 시 건너뜀) ──
   if (!query.session) {
     while (true) {

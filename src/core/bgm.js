@@ -1,21 +1,39 @@
-// BGM 관리 모듈 — 게임 배경음악 재생/정지
+// BGM 관리 모듈 — 게임별 배경음악 자동 로드 + 재생/정지
 
-const BGM_SRC = '/assets/audio/Kingdom.mp3'
+const COMMON_BGM = '/assets/audio/common/Kingdom.mp3'
 const BGM_VOLUME = 0.45
+const FADE_MS    = 500
 
-let _audio = null
-let _muted = false
+let _audio      = null
+let _muted      = false
+let _currentSrc = null
 
 function _getAudio() {
   if (!_audio) {
-    _audio = new Audio(BGM_SRC)
-    _audio.loop = true
+    _audio = new Audio(COMMON_BGM)
+    _audio.loop   = true
     _audio.volume = _muted ? 0 : BGM_VOLUME
-    _audio.addEventListener('error', () => {
-      // 파일 로드 실패 시 조용히 무시
-    })
+    _audio.addEventListener('error', () => {})
+    _currentSrc = COMMON_BGM
   }
   return _audio
+}
+
+function _fadeOut() {
+  return new Promise(resolve => {
+    if (!_audio || _audio.paused) { resolve(); return }
+    const from    = _audio.volume
+    if (from <= 0) { _audio.pause(); resolve(); return }
+    const steps   = 20
+    const stepMs  = FADE_MS / steps
+    const stepVol = from / steps
+    let i = 0
+    const id = setInterval(() => {
+      i++
+      _audio.volume = Math.max(0, from - stepVol * i)
+      if (i >= steps) { clearInterval(id); _audio.pause(); resolve() }
+    }, stepMs)
+  })
 }
 
 // 첫 사용자 인터랙션에서 재생하도록 대기하는 fallback 등록
@@ -31,14 +49,34 @@ function _registerAutoplayFallback(audio) {
   document.addEventListener('keydown',    resume, { once: true })
 }
 
+// gameId 기반으로 BGM 소스 결정: 게임별 → 공통 fallback
+export async function load(gameId) {
+  const gameSrc = `/assets/audio/${gameId}/bgm/bgm.mp3`
+  let newSrc    = COMMON_BGM
+  try {
+    const res = await fetch(gameSrc, { method: 'HEAD' })
+    if (res.ok) newSrc = gameSrc
+  } catch (_) {}
+
+  if (newSrc === _currentSrc) return   // 변경 없으면 스킵
+
+  await _fadeOut()
+
+  const a   = _getAudio()
+  a.src     = newSrc
+  a.volume  = 0
+  a.load()
+  _currentSrc = newSrc
+}
+
 export async function play() {
   const a = _getAudio()
-  if (!a.paused) return           // 이미 재생 중이면 스킵
+  if (!a.paused) return
   if (_muted) return
+  a.volume = BGM_VOLUME
   try {
     await a.play()
   } catch (_) {
-    // 브라우저 자동재생 차단 → 첫 인터랙션 때 재생
     _registerAutoplayFallback(a)
   }
 }
@@ -62,6 +100,3 @@ export function toggleMute() {
   }
   return _muted
 }
-
-// 향후 확장 예정
-// export function setVolume(v) { BGM_VOLUME = Math.max(0, Math.min(1, v)); if (!_muted && _audio) _audio.volume = BGM_VOLUME }
