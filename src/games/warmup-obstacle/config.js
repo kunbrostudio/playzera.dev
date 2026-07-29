@@ -64,7 +64,9 @@ export const CONFIG = {
     hitWindow: 0.35,        // 히트 판정 여유(초)
   },
 
-  api: { records: '/api/records' },
+  // @deprecated STEP 1-4에서 Supabase로 전환됨. Express 서버는 더 이상 없다.
+  // stats.js가 core/gameResult.js를 직접 사용한다. 남겨둔 것은 참조 이력 확인용.
+  api: { records: null },
   gameId: 'japari-run',
   userId: 'local-default',
 

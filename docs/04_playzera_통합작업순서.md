@@ -89,9 +89,13 @@ curl https://japari-run.onrender.com/api/records/summary
 
 로컬 `data/records.json`(33건)도 별도 보관.
 
-- [ ] Render 기록 백업
-- [ ] 로컬 records.json 백업
-- [ ] 건수 확인 (0건이면 이미 유실된 것 — 그대로 진행)
+- [x] Render 기록 백업 → **0건 (`[]`)**. 배포본 기록은 이미 유실됨
+- [x] 로컬 records.json 백업 → `~/Documents/playzera_records_33.json`
+- [x] 건수 확인 — **로컬 33건이 유일하게 남은 기록**
+
+> 파일 저장 방식으로는 운동 데이터가 쌓이지 않는다는 것이 실증됐다. STEP 1-4가 그래서 필요하다.
+>
+> ⚠️ zsh에서 URL에 `?`가 있으면 따옴표로 감싸야 한다 — `curl "https://...?limit=1000"`
 
 ### 0-2. 폴더 정리
 
@@ -161,29 +165,62 @@ warm-up-web/public/assets/*    → playzera.dev/public/assets/warmup/
 
 > 여기까지가 가장 위험한 구간이다. **이 검증을 통과하기 전에는 다음 STEP으로 넘어가지 않는다.**
 
-### 1-4. server API → Supabase
+### 1-4. server API → Supabase ✅ 코드 작성 완료
 
-```sql
--- 기존 records.json 스키마를 그대로 수용하는 임시 테이블
-CREATE TABLE game_records (
-  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  game_id      TEXT NOT NULL,
-  user_id      TEXT,
-  started_at   TIMESTAMPTZ,
-  duration_sec INTEGER,
-  exercise     JSONB,          -- jumps/squats/sideSteps/poseHolds
-  level_reached INTEGER,
-  completed    BOOLEAN,
-  saved_at     TIMESTAMPTZ DEFAULT NOW()
-);
+> **새 테이블을 만들지 않는다.** 조사해보니 `playzera.dev`의 기존 `game_results` 테이블이 이미 `extra_data JSONB`를 갖고 있어(`001_extend_game_results.sql`) 게임별 지표를 그대로 흡수할 수 있다. 초안의 `game_records` 신설 계획은 폐기.
+
+**작성된 파일**
+
+| 파일 | 내용 |
+|---|---|
+| `supabase/migrations/002_warmup_records.sql` | 스키마 완화 + `exercise_summary` 뷰 |
+| `src/games/warmup-obstacle/stats.js` | `fetch` → `saveResult()` 전환 |
+| `scripts/import-warmup-records.mjs` | 기존 33건 임포트 |
+
+**매핑**
+
+| records.json | game_results |
+|---|---|
+| `score.stars` | `score` |
+| `levelReached` | `rounds_cleared` |
+| `userId` | `player_name` |
+| `startedAt` | `played_at` |
+| `gameId: 'japari-run'` | `game_id: 'warmup-obstacle'` (통일) |
+| `durationSec` · `exercise.*` · `completed` | `extra_data` JSONB |
+
+**부수 효과 — 기존 버그 하나 해소**
+`schema.sql`의 `session_id TEXT NOT NULL`인데 `gameResult.js`의 `saveResult()`는 `sessionId` 기본값으로 `null`을 넘긴다. 즉 **세션 없이 저장하면 NOT NULL 위반으로 실패**하는 상태였다. 002 마이그레이션에서 `session_id`·`player_name`을 nullable로 완화하면서 함께 해결된다.
+
+**실행 순서**
+
+```bash
+# 1. Supabase 대시보드 SQL Editor에서 002 실행
+
+# 2. 미리보기 (아무것도 안 넣음)
+node scripts/import-warmup-records.mjs
+
+# 3. 실제 임포트
+node scripts/import-warmup-records.mjs --commit
 ```
 
-`stats.js`의 `toRecord()` 출력을 그대로 넣는다. 스키마 정규화는 나중에.
+임포트 스크립트는 `extra_data.legacy_id`로 중복을 걸러서 **여러 번 실행해도 안전**하다.
 
-- [ ] 테이블 생성 + RLS(anon insert/select)
-- [ ] `stats.js`의 `fetch(CONFIG.api.records)` → `supabase.from('game_records').insert()`
-- [ ] 백업한 기록 임포트
-- [ ] `server/` 삭제, `package.json`에서 express 제거
+- [x] 마이그레이션 SQL 작성
+- [x] `stats.js` Supabase 전환 (`flushPending`도 함께)
+- [x] 임포트 스크립트 작성
+- [ ] **Supabase 대시보드에서 002 실행**
+- [ ] 임포트 실행 (33건)
+- [ ] 게임 완주 후 실제 저장 확인
+- [ ] `warm-up-web/server/` 삭제 (통합본 검증 후)
+
+**임포트 대상 데이터 (미리보기 확인됨)**
+
+```
+33건 · 2026-07-24 ~ 07-27
+총 플레이 79.0분 / 실제 활동 56.9분
+좌우 이동 307회 · 점프 136회 · 앉기 122회
+미션 완료 2/33회
+```
 
 ---
 
@@ -540,13 +577,17 @@ v3에서 **"폰이 본체"**로 방향을 잡았다. 아이폰 사용자에게�
 
 | STEP | 내용 | 상태 |
 |---|---|---|
-| 0 | 기록 백업 · 폴더 정리 | ⬜ |
+| 0 | 기록 백업 (Render 0건 / 로컬 33건) | ✅ |
+| 0 | 폴더 정리 (`_archive/`) | ⬜ |
 | **1** | **통합 준비** | 🔶 **진행중** |
-| 1-2 | 웜업 파일 이관 | ✅ `src/games/warmup-obstacle/` 생성됨 |
-| 1-3 | 임시 라우트 (`warmupLegacy.js`, `legacy-shell.js`) | ✅ 생성됨 |
-| 1-3 | 크롬 완주 검증 | ⬜ |
+| 1-2 | 웜업 파일 이관 · 에셋 경로 (89개 전부 200) | ✅ |
+| 1-3 | 임시 라우트 (`warmupLegacy.js`, `legacy-shell.js`) | ✅ |
+| 1-3 | 크롬 — 화면 전환 · 콘솔 0 · 회귀 | ✅ |
+| 1-3 | 크롬 — 키보드 모드 완주 | ⬜ |
+| 1-3 | 크롬 — 모션 모드 (몸 필요) | ⬜ |
 | 1-3 | **Safari 완주 검증** | ⬜ |
-| 1-4 | server API → Supabase | ⬜ |
+| 1-4 | 마이그레이션 SQL · stats.js · 임포트 스크립트 | ✅ 코드 완료 |
+| 1-4 | Supabase에서 002 실행 + 임포트 | ⬜ |
 | 2 | 허브 껍데기 | ⬜ |
 | 3 | 멀티디바이스 제거 | ⬜ |
 | **4** | **포즈 엔진 통합** (+MediaPipe 통일) | ⬜ **작업량 상향** |
@@ -558,6 +599,7 @@ v3에서 **"폰이 본체"**로 방향을 잡았다. 아이폰 사용자에게�
 
 ### 다음에 할 일
 
-1. **STEP 0 기록 백업** — 아직 안 됨. 재배포하면 사라진다.
-2. **STEP 1-3 검증** — 크롬 + Safari 양쪽에서 두 게임 완주
-3. Safari 검증을 위해 Netlify 프리뷰 배포 (아이폰은 HTTPS 필수라 로컬 `npm run dev`로는 카메라 테스트 불가)
+1. **Supabase 002 실행 + 임포트** — 대시보드 SQL Editor에서 `002_warmup_records.sql`, 그다음 `node scripts/import-warmup-records.mjs --commit`
+2. **키보드 모드 완주** — 책상에서 가능. 게임 끝나고 Supabase에 행이 생기는지 확인하면 1-4 검증까지 동시에 끝난다
+3. **모션 모드 검증** — 공간 될 때
+4. **Safari 검증** — Netlify 프리뷰 배포 필요 (아이폰은 HTTPS 필수라 로컬 `npm run dev`로는 카메라가 안 열린다)
