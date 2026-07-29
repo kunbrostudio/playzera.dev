@@ -15,12 +15,15 @@ import { homePage } from '../pages/home.js'
 import { gamePage } from '../pages/game.js'
 import { controlPage } from '../pages/control.js'
 import { cameraPage } from '../pages/camera.js'
+import { warmupLegacyPage } from '../pages/warmupLegacy.js'
 
 const routes = {
   '/': homePage,
   '/game': gamePage,
   '/control': controlPage,
   '/camera': cameraPage,
+  // STEP 1 임시 — 웜업이 이 저장소에서 예전처럼 도는지 확인용. STEP 2에서 제거.
+  '/warmup-legacy': warmupLegacyPage,
 }
 
 function parseHash() {

@@ -1,0 +1,454 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #050014; overflow: hidden; font-family: 'Jua', 'Fredoka', 'AppleSDGothicNeo', 'Malgun Gothic', sans-serif; }
+
+/* 뷰포트를 꽉 채우되 16:9 비율은 유지 (남는 공간은 레터박스) */
+#stage {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 100vw; height: 100vh;
+  max-width: calc(100vh * 16 / 9);
+  max-height: calc(100vw * 9 / 16);
+  aspect-ratio: 16/9;
+  background: #000;
+  transition: width .2s ease, height .2s ease;
+}
+#game-canvas { width: 100%; height: 100%; display: block; }
+
+/* 세로(포트레이트) 기기 처리 */
+@media (orientation: portrait) {
+  /* 타이틀 화면: 16:9 잠금을 풀고 화면 전체를 채움 */
+  body.on-title #stage {
+    width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; aspect-ratio: auto;
+  }
+
+  /* 게임플레이 화면: #stage는 뷰포트에 맞춰 UI(HUD/버튼/모달)가 정상 위치에 오도록 유지하고,
+     캔버스(게임 월드)만 16:9 비율을 유지한 채 화면 높이를 꽉 채움 — 좌우는 잘려도 무방(트랙 중심) */
+  body:not(.on-title) #stage {
+    width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; aspect-ratio: auto;
+  }
+  body:not(.on-title) #game-canvas {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: max(100vw, calc(100vh * 16 / 9));
+    height: max(100vh, calc(100vw * 9 / 16));
+  }
+}
+
+.hidden { display: none !important; }
+
+/* ── 게임플레이 HUD (DOM — 세로 모드에서 캔버스가 잘려도 항상 보임) ── */
+/* 레벨/별 개수는 좌상단 배지로 분리하고, 상단 중앙에는 목숨+동작 카운트만 남겨서
+   그 아래에 뜨는 방향 힌트 배너가 화면 최상단 가까이 올라올 수 있게 함 */
+#hud-left {
+  position: absolute; top: 2%; left: 2%; z-index: 25; pointer-events: none;
+  display: flex; align-items: baseline; gap: 10px;
+  background: rgba(20, 8, 46, .38); border-radius: 16px; padding: .3em .8em;
+}
+#hud-level, #hud-stars {
+  color: #ffd23e; font-size: clamp(16px, 2vw, 26px); font-weight: 900;
+  text-shadow: 0 3px 0 rgba(0,0,0,.35); line-height: 1.2; white-space: nowrap;
+}
+
+#hud {
+  position: absolute; top: 1%; left: 50%; transform: translateX(-50%); z-index: 25;
+  text-align: center; pointer-events: none;
+  background: rgba(20, 8, 46, .38); border-radius: 16px; padding: .3em 1em;
+}
+#hud-lives {
+  display: flex; justify-content: center; gap: 3px;
+}
+#hud-lives span { font-size: clamp(12px, 1.5vw, 19px); }
+#hud-lives .life-full { color: #ff4d6d; text-shadow: 0 2px 0 rgba(0,0,0,.35); }
+#hud-lives .life-empty { color: rgba(255,255,255,.22); }
+#hud-counts {
+  color: rgba(255,255,255,.92); font-size: clamp(11px, 1.4vw, 19px); font-weight: 700;
+  text-shadow: 0 2px 5px rgba(0,0,0,.5); white-space: nowrap; margin-top: 2px;
+}
+
+/* ── 상단 시스템 버튼 ── */
+#topbar { position: absolute; top: 2.5%; right: 2%; z-index: 45; display: flex; align-items: flex-start; gap: 16px; }
+
+/* 게임 중 팔로 엑스(X) 유지 진행 안내 — 종료 버튼 바로 아래, 모션 모드 플레이 중엔 항상 보임
+   (진행 중일 때만 나타나면 존재를 모르고 지나칠 수 있어 상시 노출 + 라벨로 안내) */
+.exit-gesture-gauge {
+  position: absolute; top: 100%; right: 0; margin-top: 8px; text-align: right;
+}
+.exit-gesture-label {
+  color: #ffe27a; font-size: 11px; font-weight: 700; white-space: nowrap;
+  text-shadow: 0 2px 4px rgba(0,0,0,.6); margin-bottom: 3px;
+}
+.exit-gesture-gauge-track {
+  width: 74px; height: 8px; background: rgba(20,8,46,.55); border-radius: 999px; overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0,0,0,.35); margin-left: auto;
+}
+.exit-gesture-gauge-fill {
+  height: 100%; width: 0%; background: linear-gradient(90deg, #ff8a8a, #ffd23e);
+}
+
+/* 배경 없는 순수 아이콘 버튼 (이미지 자체가 완성된 원형 배지) */
+.sys-icon-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; line-height: 0;
+}
+.sys-icon-btn img {
+  width: clamp(52px, 5vw, 76px); height: auto; display: block;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.4));
+  transition: transform .15s;
+}
+.sys-icon-btn:hover img { transform: scale(1.08); }
+.sys-icon-btn:active img { transform: scale(.9); }
+
+/* ── 햄버거 메뉴 (똥피하기와 동일한 Play Zera UI) ── */
+.menu-wrap { position: relative; }
+.menu-icon-btn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; line-height: 0;
+}
+.menu-icon-btn img {
+  width: clamp(52px, 5vw, 76px); height: auto; display: block;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,.4));
+  transition: transform .15s;
+}
+.menu-icon-btn:hover img { transform: scale(1.1); }
+.menu-icon-btn:active img { transform: scale(.92); }
+
+#menu-panel {
+  position: absolute; top: 130%; right: 0; z-index: 50;
+  background: #F7F0FF; border: 5px solid #c4a8f5; outline: 5px solid #fff;
+  border-radius: 34px; padding: 16px 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  box-shadow: 0 6px 0 #a78bda, 0 12px 32px rgba(0,0,0,.35);
+  min-width: 68px;
+}
+.menu-item { background: none; border: none; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.menu-item img {
+  width: clamp(42px, 3.6vw, 56px); height: auto; display: block;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.18));
+  transition: transform .12s;
+}
+.menu-item:hover img { transform: scale(1.1); }
+.menu-item:active img { transform: scale(.92); }
+
+/* ── 모바일 터치 컨트롤 (키보드 모드 대체) ── */
+#touch-controls { position: absolute; inset: 0; z-index: 26; pointer-events: none; }
+#touch-controls > * { pointer-events: auto; }
+
+.tc-pad { position: absolute; left: 3%; bottom: 4%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.tc-pad-row { display: flex; gap: 10px; }
+.tc-pose-group { position: absolute; right: 3%; bottom: 4%; display: flex; gap: 10px; }
+
+.tc-btn {
+  width: clamp(52px, 7vw, 82px); height: clamp(52px, 7vw, 82px);
+  border-radius: 20px; border: 3px solid rgba(255,255,255,.4);
+  background: rgba(20, 8, 46, .58); color: #fff;
+  font-size: clamp(20px, 2.8vw, 32px); font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
+  touch-action: none; transition: background .1s, transform .08s;
+}
+.tc-btn:active { background: rgba(255,210,62,.6); transform: scale(.92); }
+
+.tc-pose { flex-direction: column; gap: 2px; }
+.tc-pose b { font-size: clamp(20px, 2.6vw, 30px); }
+.tc-pose span { font-size: clamp(10px, 1.2vw, 14px); font-weight: 700; opacity: .85; }
+
+/* ── 종료 확인 모달 ── */
+#confirm-modal {
+  position: absolute; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 3, 20, .72);
+}
+.confirm-box {
+  background: linear-gradient(#2a1a6e, #1c1050);
+  border: 3px solid #ffd23e; border-radius: 22px;
+  padding: 6% 7%; text-align: center; min-width: 30%;
+}
+.confirm-box p { color: #fff; font-size: clamp(16px, 2.2vw, 30px); margin-bottom: 1.2em; font-weight: 700; }
+.confirm-actions { display: flex; gap: 16px; justify-content: center; }
+
+/* ── 손동작(제스처) 컨트롤 안내 — 카메라 준비/종료 확인/게임오버 화면 공통 ── */
+.gesture-hint {
+  margin-top: 4%; color: #ffe27a; font-size: clamp(13px, 1.5vw, 20px); font-weight: 700;
+  text-align: center; line-height: 1.5;
+}
+.gesture-hint b { color: #ffd23e; }
+/* 카메라 준비 화면의 손동작 안내는 유일한 시작 방법이라 눈에 잘 띄어야 함 —
+   글자를 크게 키우고, 은은한 배경 박스를 둘러서 영역 자체도 넓고 확실하게 보이도록 함 */
+.cam-setup .gesture-hint {
+  margin-top: 1.4%;
+  font-size: clamp(20px, 2.8vw, 36px);
+  padding: .6em 1.5em;
+  background: rgba(255, 210, 62, .12);
+  border: 2px solid rgba(255, 210, 62, .45);
+  border-radius: 20px;
+  display: inline-block;
+}
+.cam-setup .gesture-gauge { width: 320px; max-width: 70vw; height: 14px; margin: 14px auto 0; }
+.gesture-gauge {
+  width: 220px; max-width: 60vw; height: 10px; margin: 8px auto 0;
+  background: rgba(255,255,255,.18); border-radius: 999px; overflow: hidden;
+}
+.gesture-gauge-fill {
+  height: 100%; width: 0%; background: linear-gradient(90deg, #58e08a, #ffd23e);
+  transition: width .08s linear;
+}
+
+/* ── 웹캠 PIP ── */
+/* 16:9로 넓게 — 옆으로 피하기(좌우 이동) 인식 범위를 위해 실제 캡처 자체도
+   poseEngine.js에서 16:9로 요청함(getUserMedia). 여기서는 그 비율과 맞춰 표시 */
+#pip {
+  position: absolute; right: 1.5%; bottom: 2.5%;
+  width: 24%; aspect-ratio: 16/9;
+  border: 4px solid #ffd23e; border-radius: 14px; overflow: hidden;
+  box-shadow: 0 0 24px rgba(255, 210, 62, .5);
+  background: #000; z-index: 20;
+  transition: width .4s ease;
+}
+#pip.big { width: 34%; }
+
+/* 카메라 준비/캘리브레이션 화면 전용 — 어두운 화면 필터(#overlay, z-index 30)에 가려
+   안 보이던 문제 + 버튼을 가려버리던 문제 수정: 고정 좌표로 덮어씌우는 대신, 화면 자체의
+   레이아웃 흐름(.pip-slot) 안으로 실제로 옮겨 넣어서 버튼이 항상 그 아래쪽에 자연스럽게
+   배치되게 함 (screens.js에서 #pip 엘리먼트를 .pip-slot 안으로/밖으로 이동시킴) */
+.pip-slot {
+  position: relative; aspect-ratio: 16/9;
+  /* 셋 중 가장 작은 값으로 정해서 화면이 넓든 좁든/짧든 항상 버튼·텍스트가 가려지지 않는
+     한도 안에서 최대한 크게 보이도록 함: 가로 72%, 절대 1000px, 세로 기준(100vh→약 56vh 높이) 중 최소값 */
+  width: min(72%, 1000px, 100vh);
+  /* 테두리 두께(padding 7px) + 웹캠 자체 radius(14px)를 더해 모서리가 어긋나지 않게 21px */
+  margin: .6% auto 1%; border-radius: 21px;
+}
+/* 카메라 준비 화면 전용 — 웹캠 미리보기를 크게 보여주기 위해 제목/설명 텍스트와 버튼 간격을
+   최대한 압축해서 세로 공간을 확보한다(다른 화면(.screen)에는 영향 없음) */
+/* .screen h1/.screen p 와 동일한 우선순위(클래스1+엘리먼트1)라 소스 순서상 뒤에 나오는
+   .screen h1 규칙에 뒤집힐 수 있었던 문제 — 클래스 두 개(.screen.cam-setup)로 명시도를
+   확실히 높여서 항상 이 화면 전용 여백/크기가 적용되도록 함 */
+.screen.cam-setup h1 { font-size: clamp(26px, 3.6vw, 52px); margin-bottom: .1em; }
+.screen.cam-setup p { margin: 0; line-height: 1.3; font-size: clamp(14px, 1.6vw, 22px); }
+/* 기본(데스크톱/세로모드): 영상 아래에 텍스트/버튼이 세로로 쌓이는 기존 배치 그대로 유지 */
+.cam-body { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.cam-controls { display: flex; flex-direction: column; align-items: center; width: 100%; }
+
+/* 모바일 가로모드(화면이 옆으로 넓지만 세로 높이가 짧음) — 세로로 쌓으면 영상이 화면 아래로
+   넘쳐 잘려버렸던 문제(제목이 위로 잘리고 영상이 아래로 넘침). 영상은 왼쪽, 텍스트/버튼은
+   오른쪽에 좌우로 배치해서 짧은 세로 높이 안에 전부 들어오게 함.
+   높이 계산에 vh를 직접 쓰면 DevTools에서 세로↔가로를 빠르게 왔다갔다 할 때 뷰포트 갱신이
+   꼬여 크기가 이상해지는 경우가 있었음 — 대신 #stage 크기를 그대로 물려받는 flex 레이아웃
+   (.screen을 세로 flex로, .cam-body를 나머지 공간을 채우는 flex:1로, .pip-slot을 그 안에서
+   height:100%)만으로 크기를 정해서 뷰포트 단위에 기대지 않게 함.
+   조건에서 `orientation: landscape`도 뺐음 — 실기기/DevTools 모두에서 orientation 미디어
+   피처가 가로↔세로를 연속으로 전환할 때 즉시 재평가되지 않는 경우가 있어(브라우저 구현
+   편차) 레이아웃이 안 바뀌는 원인이 됐던 것으로 보임. 세로로 쌓기엔 세로 공간이 부족하다는
+   것 자체가 핵심이라 max-height만으로도 조건은 충분하고, 이게 더 안정적으로 즉시 반영됨 */
+@media (max-height: 520px) {
+  .screen.cam-setup { flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 2% 3%; }
+  .screen.cam-setup h1 { flex: 0 0 auto; font-size: clamp(14px, 2.2vw, 22px); margin-bottom: .1em; }
+  .cam-body { flex: 1 1 auto; min-height: 0; flex-direction: row; align-items: center; justify-content: center; gap: 3%; }
+  .cam-setup .pip-slot {
+    flex: 0 1 auto; width: auto; height: 100%; max-height: 260px; aspect-ratio: 16/9; margin: 0;
+  }
+  .cam-controls { flex: 1 1 auto; min-width: 0; align-self: center; gap: 4px; }
+  .screen.cam-setup .cam-controls p { font-size: clamp(11px, 1.6vw, 15px); }
+  .cam-setup .gesture-hint { margin-top: 2%; font-size: clamp(10px, 1.4vw, 13px); line-height: 1.3; }
+  .cam-setup .gesture-gauge { width: 140px; margin: 6px auto 0; }
+  .cam-setup #btn-calib, .cam-setup #btn-skip { font-size: clamp(11px, 1.6vw, 16px); padding: .4em 1.1em; }
+}
+/* 더 짧은 기기(iPhone SE 가로 등)는 영상 폭까지 좁게 눌러서 오른쪽 텍스트/버튼 공간을 더 확보 */
+@media (max-height: 400px) {
+  .screen.cam-setup h1 { font-size: clamp(12px, 2vw, 18px); }
+  .cam-setup .pip-slot { max-height: 190px; }
+}
+#pip.docked {
+  position: relative; inset: auto; right: auto; bottom: auto; left: auto; transform: none;
+  width: 100%; height: 100%; margin: 0;
+  border-color: #ffe27a;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 0 26px rgba(255,210,62,.5);
+  transition: border-color .25s ease, box-shadow .25s ease;
+}
+/* 카메라 준비 화면: 전신이 다 안 보이면 빨강 테두리(살짝 깜빡임)로 위치 조정을 유도,
+   전신이 다 보이면 초록 테두리로 바뀌면서 캘리브레이션 진행 가능함을 알려준다 */
+#pip.docked.body-missing {
+  border-color: #ff4d4d;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 0 26px rgba(255,77,77,.55);
+}
+#pip.docked.body-ok {
+  border-color: #4ade80;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55), 0 0 32px rgba(74,222,128,.75);
+}
+
+/* ── 전신 인식 상태를 확실히 눈에 띄게 하는 연출 ──
+   테두리 색만 바뀌면 잘 알아채지 못해서, 테두리 자체에 "빛줄기가 화면 둘레를 따라 도는"
+   효과를 준다. 구현: 슬롯에 padding으로 테두리 두께를 확보하고(overflow:hidden),
+   그 안에 화면보다 큰 정사각형 원뿔형 그라디언트(conic-gradient)를 넣어 회전시킨다.
+   가운데는 웹캠(#pip, z-index 20)이 덮으므로 padding 두께만큼의 테두리에서만 빛이 보이고,
+   회전에 따라 밝은 구간이 둘레를 한 바퀴씩 도는 것처럼 보인다. */
+.pip-slot { padding: 7px; overflow: hidden; }
+
+@keyframes pip-ring-spin {
+  from { transform: translate(-50%, -50%) rotate(0turn); }
+  to   { transform: translate(-50%, -50%) rotate(1turn); }
+}
+.pip-slot.body-missing::before,
+.pip-slot.body-ok::before {
+  content: '';
+  position: absolute; top: 50%; left: 50%;
+  width: 145%; aspect-ratio: 1;   /* 회전해도 네 모서리가 비지 않도록 대각선보다 크게 */
+  animation: pip-ring-spin 1.8s linear infinite;
+}
+/* 전신 미인식 — 빨강 빛줄기가 계속 돈다 */
+.pip-slot.body-missing::before {
+  background: conic-gradient(from 0turn,
+    rgba(255, 77, 77, .25) 0 .58turn,
+    #ff4d4d .74turn, #ffe3e3 .82turn, #ff4d4d .90turn,
+    rgba(255, 77, 77, .25) 1turn);
+}
+/* 전신 인식 — 초록으로 바뀌며 빠르게 두 바퀴 돌고 멈춤(= 준비됐다는 신호) */
+.pip-slot.body-ok::before {
+  background: conic-gradient(from 0turn,
+    rgba(74, 222, 128, .55) 0 .58turn,
+    #4ade80 .74turn, #ffffff .82turn, #4ade80 .90turn,
+    rgba(74, 222, 128, .55) 1turn);
+  animation: pip-ring-spin .55s linear 2;
+}
+
+/* 인식 성공 순간 — 초록 테두리가 바깥에서 조여들며 "딱 맞춰졌다"는 느낌을 주고 사라짐
+   (슬롯이 overflow:hidden이라 바깥으로 퍼지는 파동은 잘리므로 안쪽으로 조여드는 방향으로 연출) */
+@keyframes pip-success-wave {
+  0%   { transform: scale(1.12); opacity: 0; }
+  35%  { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(.97);  opacity: 0; }
+}
+@keyframes pip-success-pop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+.pip-slot.body-ok::after {
+  content: '';
+  position: absolute; inset: 0; z-index: 30;
+  border-radius: 20px;
+  border: 5px solid #4ade80;
+  pointer-events: none;
+  animation: pip-success-wave .6s ease-out forwards;
+}
+.pip-slot.body-ok { animation: pip-success-pop .5s ease-out; }
+
+/* 안내 문구도 상태에 따라 확실히 움직여서 놓치지 않게 함 */
+@keyframes cam-status-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(7px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+@keyframes cam-status-pop {
+  0%   { transform: scale(.85); opacity: 0; }
+  55%  { transform: scale(1.07); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.screen.cam-setup .cam-status {
+  display: inline-block; padding: .35em 1.2em; border-radius: 999px;
+  font-weight: 900; transition: color .25s, background .25s, border-color .25s;
+  border: 2px solid transparent;
+}
+.screen.cam-setup .cam-status.warn {
+  color: #fff; background: rgba(255, 77, 77, .2); border-color: rgba(255, 77, 77, .6);
+  animation: cam-status-shake 1.5s ease-in-out infinite;
+}
+.screen.cam-setup .cam-status.ok {
+  color: #86f5ab; background: rgba(74, 222, 128, .18); border-color: rgba(74, 222, 128, .65);
+  animation: cam-status-pop .45s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+#pip video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+#pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#pip-label {
+  position: absolute; left: 0; right: 0; bottom: 0; text-align: center;
+  font-size: 12px; color: #fff; background: rgba(20, 8, 46, .65); padding: 2px 0;
+}
+#pip.docked #pip-label { font-size: clamp(12px, 1.4vw, 17px); padding: .3em 0; font-weight: 700; }
+#pip.docked #pip-label { font-size: clamp(13px, 1.6vw, 20px); padding: .3em 0; font-weight: 700; }
+
+/* ── 오버레이 공통 ── */
+#overlay { position: absolute; inset: 0; z-index: 30; pointer-events: none; }
+#overlay > * { pointer-events: auto; }
+
+.screen {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+}
+.screen.dark { background: rgba(10, 4, 26, .92); }
+
+/* 타이틀 배경: 기본(가로/데스크톱/모바일 가로)은 가로 메인 이미지
+   (playzera 통합 후 public/ 루트 기준 절대경로 /assets/warmup/... 사용) */
+.screen.title-bg {
+  background: center/cover no-repeat;
+  background-image: url('/assets/warmup/image/fx_title_screen.png');
+}
+.title-start-wrap { margin-top: 38%; }
+
+/* 세로(포트레이트) 기기에서만 세로 전용 메인 이미지 + 버튼 위치 조정 */
+@media (orientation: portrait) {
+  .screen.title-bg { background-image: url('/assets/warmup/image/fx_title_screen_mobile.png'); }
+  .title-start-wrap { margin-top: 80%; }
+}
+
+.btn {
+  font-size: clamp(18px, 2.4vw, 34px); font-weight: 900; color: #7a3c00;
+  background: linear-gradient(#ffe27a, #ffb62e);
+  border: 4px solid #fff; border-radius: 999px;
+  padding: .55em 2.2em; cursor: pointer;
+  box-shadow: 0 6px 0 #c67900, 0 10px 24px rgba(0,0,0,.4);
+  letter-spacing: .1em; transition: transform .08s;
+}
+.btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #c67900; }
+.btn:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.3); }
+.btn:disabled:active { transform: none; box-shadow: 0 6px 0 #c67900, 0 10px 24px rgba(0,0,0,.4); }
+.btn.secondary { font-size: clamp(12px, 1.3vw, 18px); background: linear-gradient(#e8e0ff, #b9a7f0); color: #3c2a72; box-shadow: 0 4px 0 #7d63c4; }
+
+/* 타이틀 START 버튼 (디자인 원본 이미지 그대로 사용) */
+.start-img-btn {
+  width: clamp(220px, 28vw, 440px); height: auto; display: block;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  filter: drop-shadow(0 10px 26px rgba(0,0,0,.5));
+  transition: transform .1s ease;
+}
+.start-img-btn:hover  { transform: scale(1.05); }
+.start-img-btn:active { transform: scale(.93) translateY(5px); }
+
+.screen h1 { color: #ffd23e; font-size: clamp(36px, 5.6vw, 80px); letter-spacing: .12em; text-shadow: 0 4px 0 #7d2fa8, 0 8px 24px rgba(0,0,0,.6); margin-bottom: .4em; }
+.screen h2 { color: #fff; font-size: clamp(24px, 3vw, 42px); margin-bottom: 1em; }
+.screen p  { color: #d9ccff; font-size: clamp(17px, 2vw, 28px); line-height: 1.6; }
+
+/* 튜토리얼 카드 */
+.kbd-hint {
+  background: rgba(255,210,62,.14); border: 2px solid rgba(255,210,62,.5); border-radius: 999px;
+  color: #ffe27a; font-size: clamp(16px, 2vw, 26px); font-weight: 700;
+  padding: .55em 1.5em; margin-bottom: 1%;
+}
+.kbd-hint b { color: #ffd23e; font-size: 1.2em; }
+
+.tut-row { display: flex; gap: 3%; justify-content: center; width: 90%; margin: 2% 0; }
+.tut-card {
+  flex: 1; max-width: 30%;
+  background: rgba(255,255,255,.06); border: 3px solid #5a3fa0; border-radius: 18px;
+  padding: 1.2% 1%; color: #fff;
+}
+.tut-card img { width: 68%; aspect-ratio: 1; object-fit: contain; }
+.tut-card .key { color: #ffd23e; font-size: clamp(19px, 2.6vw, 36px); font-weight: 900; margin: .3em 0; }
+.tut-card .desc { font-size: clamp(15px, 1.8vw, 24px); color: #cbbcf5; }
+.tut-card.done { border-color: #58e08a; box-shadow: 0 0 18px rgba(88,224,138,.45); }
+.tut-card .check { font-size: clamp(22px, 2.8vw, 38px); height: 1.2em; color: #58e08a; font-weight: 900; }
+
+/* 카메라 셋업 */
+#cam-setup video-wrap { display: block; }
+.cam-frame { width: 34%; aspect-ratio: 4/3; border: 4px dashed #8f6fe0; border-radius: 16px; margin-bottom: 1.5%; overflow: hidden; position: relative; }
+
+/* 리포트 */
+.report {
+  background: rgba(255,255,255,.07); border: 3px solid #ffd23e; border-radius: 22px;
+  padding: 2% 4%; margin-top: 1.5%; min-width: 46%;
+}
+.report table { width: 100%; border-collapse: collapse; color: #fff; font-size: clamp(13px, 1.6vw, 24px); }
+.report td { padding: .35em .6em; border-bottom: 1px solid rgba(255,255,255,.15); }
+.report td:last-child { text-align: right; color: #ffd23e; font-weight: 900; }
+.save-status { margin-top: 1em; font-size: clamp(11px, 1.2vw, 17px); color: #9be09b; }
