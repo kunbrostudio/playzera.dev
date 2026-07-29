@@ -7,6 +7,9 @@ const FADE_MS    = 500
 let _audio      = null
 let _muted      = false
 let _currentSrc = null
+// stop() 이후 "첫 인터랙션 자동재생 fallback"이 되살리지 못하도록 막는 플래그.
+// (웜업처럼 자체 BGM을 트는 게임팩에서 두 곡이 겹치는 걸 방지)
+let _suspended  = false
 
 function _getAudio() {
   if (!_audio) {
@@ -39,7 +42,7 @@ function _fadeOut() {
 // 첫 사용자 인터랙션에서 재생하도록 대기하는 fallback 등록
 function _registerAutoplayFallback(audio) {
   const resume = () => {
-    if (audio.paused && !_muted) audio.play().catch(() => {})
+    if (audio.paused && !_muted && !_suspended) audio.play().catch(() => {})
     document.removeEventListener('click',      resume)
     document.removeEventListener('touchstart', resume)
     document.removeEventListener('keydown',    resume)
@@ -70,6 +73,7 @@ export async function load(gameId) {
 }
 
 export async function play() {
+  _suspended = false
   const a = _getAudio()
   if (!a.paused) return
   if (_muted) return
@@ -82,6 +86,7 @@ export async function play() {
 }
 
 export function stop() {
+  _suspended = true
   if (!_audio) return
   _audio.pause()
   _audio.currentTime = 0

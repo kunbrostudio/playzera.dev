@@ -3,23 +3,31 @@
 // STEP 2에서 registry 기반 실행으로 대체되면 이 파일과 legacy-shell.js는 삭제한다.
 
 import { STAGE_HTML, mountWarmupStyle, unmountWarmupStyle } from '../games/warmup-obstacle/legacy-shell.js'
+import { play as hubBgmPlay, stop as hubBgmStop } from '../core/bgm.js'
 
 let booted = false
 let cleanupArmed = false
 
-// style.css가 html/body를 덮어쓰므로 다른 라우트로 나가면 걷어낸다.
-function armStyleCleanup() {
+// 웜업은 자기 BGM(bgm_strawberry_lane)을 직접 틀기 때문에 허브 BGM(Kingdom)을 꺼야
+// 두 곡이 겹쳐 나오지 않는다. 또 style.css가 html/body를 덮어쓰므로 나갈 때 걷어낸다.
+function armRouteCleanup() {
   if (cleanupArmed) return
   cleanupArmed = true
   window.addEventListener('hashchange', () => {
-    if (!window.location.hash.startsWith('#/warmup-legacy')) unmountWarmupStyle()
-    else mountWarmupStyle()
+    if (window.location.hash.startsWith('#/warmup-legacy')) {
+      mountWarmupStyle()
+      hubBgmStop()
+    } else {
+      unmountWarmupStyle()
+      hubBgmPlay()
+    }
   })
 }
 
 export async function warmupLegacyPage(app) {
   mountWarmupStyle()
-  armStyleCleanup()
+  hubBgmStop()
+  armRouteCleanup()
   app.innerHTML = STAGE_HTML
 
   if (booted) {
