@@ -208,10 +208,118 @@ node scripts/import-warmup-records.mjs --commit
 - [x] 마이그레이션 SQL 작성
 - [x] `stats.js` Supabase 전환 (`flushPending`도 함께)
 - [x] 임포트 스크립트 작성
-- [ ] **Supabase 대시보드에서 002 실행**
-- [ ] 임포트 실행 (33건)
-- [ ] 게임 완주 후 실제 저장 확인
+- [x] Supabase 대시보드에서 002 실행
+- [x] 임포트 실행 — **33건 삽입 완료**
+- [x] 게임 완주 후 실제 저장 확인 — 실시간 기록 생성 확인
 - [ ] `warm-up-web/server/` 삭제 (통합본 검증 후)
+
+### 1-5. 저장 누락 · 데이터 정합 수정 ★ 실제 데이터 확인 후 발견
+
+첫 실시간 기록을 조회해보니 세 가지 문제가 드러났다. 운동 데이터가 플랫폼의 핵심이므로 데이터가 더 쌓이기 전에 수정했다.
+
+**① 미션 완료 시 저장 누락 (가장 심각)**
+
+```js
+stats.completed = missionDone || ...
+await showMissionComplete(stats);   // ← save() 없음
+// 루프 → 타이틀로 → new Stats()로 덮어씀
+```
+
+5레벨 완주, 즉 **운동량이 가장 많은 판이 통째로 유실**되고 있었다. `handleQuit`·`handleGameOver`에는 저장이 있었는데 정상 완주 경로만 빠져 있었다.
+→ `showMissionComplete()` 앞에 `await stats.save()` 추가.
+
+**② `duration_sec`이 운동 시간이 아니었다**
+
+`stats = new Stats()`가 `gameFlow` 루프 맨 위에 있어 `startedAt`이 **타이틀 화면 도착 시점**에 찍혔다. 타이틀·카메라 준비·튜토리얼에 머문 시간이 전부 포함된 것.
+
+실측: `duration_sec 58` / `active_sec 6` → 52초가 메뉴 시간
+
+→ `playStartedAt`을 분리해 카운트다운 직후(`markPlayStart()`)에 설정. 세션 시작 시각은 `extra_data.session_started_at`으로 보존.
+
+> **임포트된 33건은 교정 전 값이다.** 리포트에서 `duration_sec`을 운동량으로 쓰면 안 된다. `active_sec`이 정답.
+
+**③ 이탈 경로에서 기록 유실**
+
+| 경로 | 이전 | 이후 |
+|---|---|---|
+| 종료 확인 → 종료 | ✅ | ✅ |
+| 게임오버 | ✅ | ✅ |
+| 미션 완료 | ❌ | ✅ (①) |
+| 탭 닫기 · 새로고침 | ❌ | ✅ `pagehide` |
+| 허브 홈으로 라우팅 | ❌ | ✅ `hashchange` |
+| 백그라운드 전환 (iOS) | ❌ | ✅ `visibilitychange` |
+
+`pagehide` 시점에는 비동기 요청이 브라우저에 취소되므로 Supabase를 부르지 않는다. **`localStorage`에 동기로 써두고 다음 접속 때 `flushPending()`이 전송**한다. 이미 있던 큐 구조를 그대로 활용.
+
+**④ `visibilitychange` 함정 — 이탈 저장을 넣자 새로 생긴 위험**
+
+`visibilitychange`는 **탭을 잠깐 전환할 때도** 발동한다. 여기서 "저장 완료"로 표시해버리면 사용자가 돌아와 완주해도 그 기록이 저장되지 않는다. 부분 기록이 최종 기록을 밀어내는 셈.
+
+해결: `Stats`에 `runId`(판 식별자)를 두고
+
+| 함수 | 동작 |
+|---|---|
+| `queueOnExit()` | 큐에 **upsert** (같은 `runId`면 교체). `_saved`는 켜지 않음 |
+| `save()` 성공 시 | `_saved = true` + 큐에서 같은 `runId` **제거** |
+
+이러면 백그라운드 전환이 몇 번 일어나도 큐는 1건으로 유지되고, 나중에 완주하면 그 기록이 큐를 대체한다. 탭을 진짜 닫으면 큐에 남아 다음 접속 때 전송된다.
+
+**⑤ 멱등성** — `Stats._saved`로 Supabase insert가 한 번만 일어나게 했다. 움직임 판정(`hasMovement`)도 `Stats` 안으로 옮겨 호출처마다 중복돼 있던 가드를 제거.
+
+- [x] 미션 완료 경로에 `save()` 추가
+- [x] `playStartedAt` 분리 + `markPlayStart()`
+- [x] `pagehide` / `visibilitychange` / `hashchange` 이탈 저장
+- [x] `runId` 기반 큐 upsert/dequeue (백그라운드 전환 대응)
+- [x] `_saved` 멱등 플래그 · `hasMovement` 게터
+- [x] 시나리오 검증 16건 통과 (탭 전환 후 완주 · 백그라운드 3회 · 탭 닫기 · 중복 · 무동작 · 네트워크 실패 · 재시도)
+- [ ] **실기기 검증**: 미션 완주 → 저장 확인 / 플레이 중 탭 닫기 → 재접속 시 큐 전송 확인
+
+> 저장 경로를 늘리는 작업은 **중복과 유실이 동시에 위험해진다.** 경로가 하나면 안 되거나 되거나지만, 다섯 개가 되면 "두 번 저장"과 "아무도 저장 안 함"이 둘 다 생길 수 있다. `runId` + `_saved` 두 장치가 그 경계를 지킨다.
+
+### 1-6. 키보드 모드 기록 분리 ★ 데이터 신뢰도
+
+**문제** — 점프·앉기·피하기 카운트는 장애물 성공 여부와 무관하게 **몸 동작 횟수**를 센다. 운동량 지표로는 올바른 설계다. 그런데 **키보드 모드에서는 방향키만 눌러도 카운트가 올라간다.** 손가락 운동이지 유아체육이 아니다.
+
+개발·검증은 대부분 키보드로 이뤄지므로, 구분하지 않으면 "이 아이 이번 달 점프 300회" 리포트에 테스트 기록이 섞인다. 운동 데이터 누적이 플랫폼의 존재 이유인 이상 방치할 수 없다.
+
+**해결** — 기록을 지우지 않고 `extra_data.input_mode`로 표시한 뒤 통계 뷰에서 거른다.
+
+| `input_mode` | 의미 | 운동 통계 |
+|---|---|---|
+| `motion` | 카메라로 몸 인식 | ✅ 집계 |
+| `keyboard` | 키보드·터치 조작 | ❌ 제외 |
+| `unknown` | Render 시절 임포트 33건 (모드 불명) | ❌ 제외 |
+
+**뷰 두 개로 분리**
+
+| 뷰 | 용도 |
+|---|---|
+| `exercise_summary` | **운동 데이터** — `motion`만 |
+| `play_summary_by_mode` | 개발·검증용 — 모드별 현황 |
+
+- [x] `Stats.inputMode` + `setInputMode()`
+- [x] `main.js` 카메라 준비 화면에서 모드 확정 시 주입
+- [x] `extra_data.input_mode` 저장
+- [x] 임포트 스크립트에 `'unknown'` 표시
+- [x] `003_input_mode.sql` — 기존 기록 보정 + 뷰 재정의
+- [x] Supabase에서 003 실행
+- [x] **검증 완료 (2026-07-31)** — 아래 참조
+
+**검증 결과**
+
+```
+콘솔  [stats] 저장 시도 — [keyboard] 점프 0 / 앉기 0 / 피하기 2 / 활동 8초  ※ 운동 통계에서 제외됨
+      [stats] ✔ Supabase 저장 완료 (run_id ms8siyge-vgeem4)
+
+DB    keyboard   1건   활동 8초   피하기 2   ← 새 기록, 통계에서 분리됨
+      unknown   38건   활동 4157초           ← 임포트 33 + 초기 테스트 5
+```
+
+콘솔 값과 DB 값이 정확히 일치. `keyboard`가 별도 행으로 분리되어 운동 통계를 오염시키지 않는다.
+
+> ⚠️ `CREATE OR REPLACE VIEW`는 컬럼을 제거할 수 없다(`42P16: cannot drop columns from view`). 002의 `exercise_summary`에서 `total_duration_sec`을 빼는 변경이라 `DROP VIEW` 후 재생성해야 했다. 뷰 컬럼 구성을 바꿀 때 반복될 이슈.
+
+> **모션 모드로 플레이한 기록이 아직 하나도 없다.** 003 실행 직후 `exercise_summary`는 비어 있는 것이 정상이다. 이 뷰에 첫 줄이 생기는 순간이 플레이 제라의 실질적인 데이터 시작점이다.
 
 **임포트 대상 데이터 (미리보기 확인됨)**
 
@@ -586,8 +694,13 @@ v3에서 **"폰이 본체"**로 방향을 잡았다. 아이폰 사용자에게�
 | 1-3 | 크롬 — 키보드 모드 완주 | ⬜ |
 | 1-3 | 크롬 — 모션 모드 (몸 필요) | ⬜ |
 | 1-3 | **Safari 완주 검증** | ⬜ |
-| 1-4 | 마이그레이션 SQL · stats.js · 임포트 스크립트 | ✅ 코드 완료 |
-| 1-4 | Supabase에서 002 실행 + 임포트 | ⬜ |
+| 1-4 | 마이그레이션 SQL · stats.js · 임포트 스크립트 | ✅ |
+| 1-4 | Supabase 002 실행 + 33건 임포트 | ✅ |
+| 1-5 | 저장 누락 3건 수정 (미션완료 · duration · 이탈) | ✅ |
+| 1-5 | 키보드 모드 저장 검증 | ✅ |
+| 1-5 | 모션 모드 검증 (몸 필요) | ⬜ |
+| 1-6 | 키보드 모드 기록 분리 (`input_mode`) | ✅ |
+| 1-6 | Supabase 003 실행 + 분리 확인 | ✅ |
 | 2 | 허브 껍데기 | ⬜ |
 | 3 | 멀티디바이스 제거 | ⬜ |
 | **4** | **포즈 엔진 통합** (+MediaPipe 통일) | ⬜ **작업량 상향** |
@@ -599,7 +712,84 @@ v3에서 **"폰이 본체"**로 방향을 잡았다. 아이폰 사용자에게�
 
 ### 다음에 할 일
 
-1. **Supabase 002 실행 + 임포트** — 대시보드 SQL Editor에서 `002_warmup_records.sql`, 그다음 `node scripts/import-warmup-records.mjs --commit`
-2. **키보드 모드 완주** — 책상에서 가능. 게임 끝나고 Supabase에 행이 생기는지 확인하면 1-4 검증까지 동시에 끝난다
-3. **모션 모드 검증** — 공간 될 때
-4. **Safari 검증** — Netlify 프리뷰 배포 필요 (아이폰은 HTTPS 필수라 로컬 `npm run dev`로는 카메라가 안 열린다)
+> **STEP 1의 데이터 파이프라인은 검증 완료.** 남은 것은 몸·기기가 필요한 검증 두 가지.
+
+**1. 모션 모드 검증** — 카메라 켜고 한 판. 이게 `exercise_summary`의 첫 줄이 되고 플레이 제라의 실질적인 운동 데이터 1호가 된다.
+
+```sql
+SELECT * FROM exercise_summary;   -- 지금은 비어 있음이 정상
+```
+
+**2. Safari 검증** — Netlify 프리뷰 배포 필요 (아이폰은 HTTPS 필수라 로컬 `npm run dev`로는 카메라가 안 열린다)
+
+**3. STEP 2 허브 껍데기** — 위 둘과 병행 가능
+
+---
+
+### 검증용 쿼리 모음
+
+```sql
+-- 모드별 현황
+SELECT * FROM play_summary_by_mode;
+
+-- 실제 운동 데이터 (motion만)
+SELECT * FROM exercise_summary;
+
+-- 최근 기록
+SELECT played_at,
+       extra_data->>'input_mode'        AS 모드,
+       extra_data->>'duration_sec'      AS 플레이초,
+       extra_data->>'active_sec'        AS 활동초,
+       extra_data->'exercise'->>'jumps' AS 점프,
+       extra_data->>'run_id'            AS run_id
+FROM game_results
+WHERE game_id = 'warmup-obstacle'
+ORDER BY played_at DESC LIMIT 5;
+
+-- 중복 저장 확인 (비어 있어야 정상)
+SELECT extra_data->>'run_id' AS run_id, count(*)
+FROM game_results
+WHERE game_id = 'warmup-obstacle' AND extra_data ? 'run_id'
+GROUP BY 1 HAVING count(*) > 1;
+
+-- 임포트 vs 실제 플레이
+SELECT count(*) FILTER (WHERE extra_data ? 'legacy_id')     AS 임포트,
+       count(*) FILTER (WHERE NOT extra_data ? 'legacy_id') AS 실제플레이
+FROM game_results WHERE game_id = 'warmup-obstacle';
+```
+
+브라우저 콘솔에서 큐 상태:
+
+```js
+JSON.parse(localStorage.getItem('pz_pending_records') || '[]')
+```
+
+| 테스트 | 기대 결과 |
+|---|---|
+| 키보드로 5레벨 완주 | 행 +1, `completed = true` |
+| `duration_sec` vs `active_sec` | 둘이 비슷해야 함 (메뉴 시간 제외됐으므로) |
+| 플레이 중 탭 닫기 → 재접속 | 콘솔 `[stats] 큐 1건 전송 완료`, 행 +1 |
+| 플레이 중 홈으로 이동 → 재접속 | 위와 동일 |
+| 플레이 중 다른 탭 보다가 돌아와 완주 | 행 **+1만** (부분 기록이 남으면 안 됨) |
+| 아무것도 안 하고 종료 | 행 증가 없음 (의도된 동작) |
+
+큐 상태는 브라우저 콘솔에서 직접 볼 수 있다:
+
+```js
+JSON.parse(localStorage.getItem('pz_pending_records') || '[]')
+```
+
+`run_id`로 중복 여부도 확인 가능:
+
+```sql
+SELECT extra_data->>'run_id' AS run_id, count(*)
+FROM game_results WHERE game_id = 'warmup-obstacle'
+  AND extra_data ? 'run_id'
+GROUP BY 1 HAVING count(*) > 1;
+```
+
+결과가 비어 있어야 정상이다 (같은 판이 두 번 저장된 게 없음).
+
+**2. 모션 모드 검증** — 공간 될 때
+
+**3. Safari 검증** — Netlify 프리뷰 배포 필요 (아이폰은 HTTPS 필수라 로컬 `npm run dev`로는 카메라가 안 열린다)

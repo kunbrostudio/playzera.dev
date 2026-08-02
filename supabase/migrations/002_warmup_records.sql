@@ -37,8 +37,8 @@ CREATE INDEX IF NOT EXISTS idx_game_results_played_at
 -- ============================================================
 -- {
 --   "source":      "warmup-obstacle",
---   "duration_sec": 92,
---   "active_sec":   78,          -- 실제로 움직인 시간
+--   "duration_sec": 92,          -- 플레이 시작~종료. 메뉴 시간은 제외됨
+--   "active_sec":   78,          -- 실제로 움직인 시간 ★운동량 지표는 이것을 쓴다
 --   "completed":    true,
 --   "obstacles_cleared": 18,
 --   "obstacles_missed":   2,
@@ -57,7 +57,17 @@ CREATE INDEX IF NOT EXISTS idx_game_results_played_at
 --   rounds_cleared ← levelReached         (도달 레벨)
 --   game_id        ← 'warmup-obstacle'    (기존 'japari-run'에서 통일)
 --   player_name    ← userId 또는 null
---   played_at      ← startedAt
+--   played_at      ← 실제 플레이 시작 시점 (playStartedAt)
+--
+-- ⚠️ duration_sec 의미 변경 (2026-07-29)
+--   초기 구현은 Stats 생성 시점(= 타이틀 화면 도착)부터 계산해서
+--   타이틀·카메라 준비·튜토리얼에 머문 시간이 전부 포함됐다.
+--   실측 예: duration_sec 58 / active_sec 6  → 52초가 메뉴 시간이었다.
+--   이후 playStartedAt 기준으로 교정했고, 세션 시작 시각은
+--   extra_data.session_started_at 으로 따로 남긴다.
+--
+--   임포트된 33건(legacy_id 있음)은 교정 전 값이므로
+--   duration_sec을 운동량으로 신뢰할 수 없다. → active_sec을 쓸 것.
 -- ============================================================
 
 -- 4) 확인용 뷰 — 운동 데이터 요약

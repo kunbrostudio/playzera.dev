@@ -340,9 +340,8 @@ async function handleQuit() {
   setTouchControlsVisible(false);
   poseEngine.stop();
   pipEl.classList.add('hidden');
-  if (stats.jumps || stats.squats || stats.sideSteps || Object.keys(stats.poseHolds).length) {
-    await stats.save();
-  }
+  // save()가 움직임 유무·중복 저장을 스스로 판단한다 (Stats.hasMovement / _saved)
+  await stats.save();
   quitRequested = false;
 }
 
@@ -355,9 +354,7 @@ async function handleGameOver() {
   btnExit.classList.add('hidden');
   setTouchControlsVisible(false);
   pipEl.classList.add('hidden');
-  if (stats.jumps || stats.squats || stats.sideSteps || Object.keys(stats.poseHolds).length) {
-    await stats.save();
-  }
+  await stats.save();
   // 머리 위 엑스(X) 유지로도 종료하기 선택 가능(모션 모드일 때만) — 이 화면에서 손동작을
   // 인식하려면 poseEngine이 계속 돌고 있어야 하므로, 화면이 끝난 뒤에 정지시킨다.
   const choice = await showGameOver(inputMode === 'motion' ? () => lastLandmarks : null);
@@ -411,6 +408,9 @@ async function gameFlow() {
         });
         if (quitRequested) { await handleQuit(); continue outer; }
         inputMode = setup.mode;
+        // 운동 데이터의 신뢰도를 가르는 값이므로 기록에 함께 남긴다.
+        // 키보드 모드는 몸을 안 움직여도 카운트가 올라가 통계를 오염시킨다.
+        stats.setInputMode(inputMode);
         if (inputMode === 'keyboard') {
           pipEl.classList.add('hidden');
           setTouchControlsVisible(true); // 키보드 없는 기기(모바일)에서도 조작 가능하게
@@ -433,6 +433,8 @@ async function gameFlow() {
     // 카운트다운 → 레벨 1~5
     await showCountdown();
     stats.startActive();
+    // 운동 시간의 기준점. Stats 생성 시점(타이틀 도착)이 아니라 여기가 실제 플레이 시작이다.
+    stats.markPlayStart();
 
     let missionDone = false;
     for (currentLevel = 0; currentLevel < CONFIG.levels.length; currentLevel++) {
@@ -469,6 +471,10 @@ async function gameFlow() {
     btnExit.classList.add('hidden');
     setTouchControlsVisible(false);
     stats.completed = missionDone || currentLevel >= CONFIG.levels.length - 1;
+    // 미션 완료 경로에 저장이 빠져 있었다 — 끝까지 완주한 판, 즉 운동량이 가장 많은
+    // 기록이 통째로 유실되고 있었다(루프가 타이틀로 돌아가며 new Stats()로 덮어씀).
+    // 결과 화면을 보여주기 전에 저장한다. 화면에서 오래 머물다 탭을 닫아도 남는다.
+    await stats.save();
     await showMissionComplete(stats);
     // 루프 → 타이틀로
   }
@@ -488,11 +494,38 @@ function armFirstInteractionAudioUnlock() {
   document.addEventListener('keydown', unlockOnce);
 }
 
+// ── 이탈 시 운동 기록 보존 ──
+//
+// 정상 종료 경로(handleQuit / handleGameOver / 미션 완료)는 stats.save()로 처리된다.
+// 하지만 아래 경로들은 그 함수를 거치지 않아 기록이 그냥 사라졌다:
+//   · 탭 닫기 · 새로고침 · 브라우저 뒤로가기
+//   · 허브 홈으로 라우팅 (#/warmup-legacy 이탈)
+//
+// pagehide 시점에는 비동기 요청이 취소되므로 Supabase를 부르지 않는다.
+// localStorage에 동기로 써두고, 다음 접속 때 Stats.flushPending()이 보낸다.
+// stats.queueOnExit()은 멱등하므로 아래 핸들러가 중복 발동해도 한 번만 저장된다.
+function armExitPersistence() {
+  const persist = () => stats?.queueOnExit();
+
+  window.addEventListener('pagehide', persist);
+
+  // iOS Safari는 pagehide가 누락되는 경우가 있어 visibilitychange를 함께 본다
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persist();
+  });
+
+  // 허브 홈 등 다른 화면으로 라우팅될 때
+  window.addEventListener('hashchange', () => {
+    if (!window.location.hash.startsWith('#/warmup-legacy')) persist();
+  });
+}
+
 // ── 부트스트랩 ──
 (async function boot() {
   initAudio();
-  Stats.flushPending();
+  Stats.flushPending();          // 이전 이탈로 큐에 남은 기록을 먼저 전송
   armFirstInteractionAudioUnlock();
+  armExitPersistence();
 
   // 로딩 표시
   const ov = document.getElementById('overlay');

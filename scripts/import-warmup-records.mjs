@@ -70,6 +70,8 @@ function toRow(rec) {
     played_at:      rec.startedAt ?? rec.savedAt ?? new Date().toISOString(),
     extra_data: {
       source:            GAME_ID,
+      // Render 시절 기록은 키보드/모션 구분이 없었다 → 운동 통계에서 제외된다
+      input_mode:        'unknown',
       duration_sec:      rec.durationSec ?? 0,
       active_sec:        rec.exercise?.activeSec ?? 0,
       completed:         !!rec.completed,
