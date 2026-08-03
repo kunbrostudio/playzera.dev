@@ -2,7 +2,34 @@
   command = "npm run build"
   publish = "dist"
 
+# 브랜치 프리뷰 — 실기기(아이폰) 검증용.
+#
+# 아이폰은 카메라에 HTTPS가 필수라 로컬 `npm run dev`로는 열리지 않는다.
+# `integrate-warmup` 브랜치를 push하면 아래 주소가 생긴다.
+#
+#   https://integrate-warmup--<사이트이름>.netlify.app
+#
+# main 자동 배포는 그대로라 프리뷰 검증이 끝날 때까지 운영본은 건드려지지 않는다.
+# (Netlify 대시보드 → Site settings → Build & deploy → Branch deploys에서
+#  "Let me add individual branches"로 integrate-warmup을 켜야 한다)
+[context.branch-deploy]
+  command = "npm run build"
+
+[context.deploy-preview]
+  command = "npm run build"
+
+# 해시 라우팅이라 모든 경로를 index.html로 보낸다
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# 카메라 권한을 이 출처에 허용한다.
+#
+# ⚠️ 교차 출처 격리(COOP/COEP)는 켜지 않는다. 켜면 SharedArrayBuffer를 쓸 수 있어
+# MediaPipe가 빨라지지만, jsdelivr에서 받아오는 WASM·모델이 CORP 헤더 없이 오면
+# 전부 차단된다. 속도를 얻으려다 인식 자체가 죽는다.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self)"

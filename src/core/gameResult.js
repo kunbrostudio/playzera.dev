@@ -42,18 +42,6 @@ export async function getResults({ gameId = null, limit = 20, centerCode = null 
   return data
 }
 
-// 오늘 세션 결과 조회 (컨트롤러 기록 보기용)
-export async function getTodayResults(sessionId) {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-
-  const { data, error } = await supabase
-    .from('game_results')
-    .select('*')
-    .eq('session_id', sessionId)
-    .gte('played_at', start.toISOString())
-    .order('played_at', { ascending: false })
-
-  if (error) throw error
-  return data
-}
+// getTodayResults(sessionId)는 STEP 3에서 삭제했다. 컨트롤러 화면(여러 대 모드)에서만
+// 쓰였고, session_id로 묶는다는 전제 자체가 사라졌다. 기록 화면이 필요해지면
+// 위 getResults()에 기간 조건을 얹는 편이 맞다.

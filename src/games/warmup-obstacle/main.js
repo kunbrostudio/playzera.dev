@@ -1,5 +1,19 @@
 // JAPARI RUN! — 부트스트랩 + 게임 루프 + 입력 통합(모션/키보드)
+//
+// STEP 2 — 재진입 가능하게 재구성.
+//   이전에는 파일 최상단에서 DOM을 잡고 IIFE로 부팅했다. 모듈 캐시가 남아 있어
+//   허브 → 웜업 → 허브 → 웜업으로 다시 들어오면 아무 일도 일어나지 않았고
+//   (새로고침이 필요했다), 웹캠·rAF·window 리스너도 그대로 살아 있었다.
+//   이제 모든 상태를 boot()에서 만들고 destroy()에서 되돌린다.
+//
+//   규칙 세 가지
+//     · DOM 참조는 boot() 안에서 잡는다 (마운트할 때마다 새 엘리먼트다)
+//     · window/document 리스너는 전부 AbortController signal로 건다
+//     · 루프(rAF·setInterval)는 id를 남겨 destroy에서 취소한다
+//
+//   게임팩 인터페이스(init/update/render/destroy) 정식 규격화는 STEP 5.
 import { CONFIG } from './config.js';
+import { handSession } from '../../core/handSession.js';
 import { loadAssets } from './assets.js';
 import {
   initAudio, unlockAudio, startBgm, stopBgm, playSfx,
@@ -17,32 +31,35 @@ import { Stats } from './stats.js';
 import {
   showTitle, showCameraSetup, showTutorial1, showTutorial2,
   showCountdown, showLevelBanner, showMissionComplete, showGameOver,
+  abortScreens,
 } from './screens.js';
 
-const canvas = document.getElementById('game-canvas');
-const ctx = canvas.getContext('2d');
-const pipEl = document.getElementById('pip');
-const btnFullscreen = document.getElementById('btn-fullscreen');
-const btnExit = document.getElementById('btn-exit');
-const confirmModal = document.getElementById('confirm-modal');
-const btnMenu = document.getElementById('btn-menu');
-const menuIco = document.getElementById('menu-ico');
-const menuPanel = document.getElementById('menu-panel');
-const menuMusicImg = document.getElementById('menu-music-img');
-const menuAudioImg = document.getElementById('menu-audio-img');
-const hudEl = document.getElementById('hud');
-const hudLeftEl = document.getElementById('hud-left');
-const hudLevelEl = document.getElementById('hud-level');
-const hudLivesEl = document.getElementById('hud-lives');
-const hudStarsEl = document.getElementById('hud-stars');
-const hudCountsEl = document.getElementById('hud-counts');
-const exitGestureGauge = document.getElementById('exit-gesture-gauge');
-const exitGestureGaugeFill = document.getElementById('exit-gesture-gauge-fill');
+// ── 수명 관리 ──
+let running = false;        // boot() 완료 ~ destroy() 전
+let ac = null;              // 이 세션에 건 모든 리스너를 한 번에 떼기 위한 컨트롤러
+let rafId = null;
+const timers = new Set();   // setInterval id — destroy에서 일괄 정리
+function track(id) { timers.add(id); return id; }
+function untrack(id) { clearInterval(id); timers.delete(id); }
 
-// ── 전역 상태 ──
-const world = new World();
-let character = new Character();
-let stats = new Stats();
+// 에셋·오디오는 세션마다 다시 만들 필요가 없다 (브라우저 캐시로 빨라도 수십 개 디코드)
+let assetsReady = false;
+let audioReady = false;
+
+// ── DOM 참조 (boot에서 채운다) ──
+let canvas, ctx, pipEl, btnFullscreen, btnExit, confirmModal;
+let btnMenu, menuIco, menuPanel, menuMusicImg, menuAudioImg;
+let hudEl, hudLeftEl, hudLevelEl, hudLivesEl, hudStarsEl, hudCountsEl;
+let exitGestureGauge, exitGestureGaugeFill;
+let confirmGestureHint, confirmGaugeFill;
+let touchControlsEl, btnHub;
+
+// ── 게임 상태 (boot에서 초기화) ──
+let world = null;
+let character = null;
+let stats = null;
+let poseEngine = null;
+let detector = null;
 let run = null;              // 현재 레벨 ObstacleRun
 let currentLevel = 0;
 let inputMode = 'keyboard';  // 'motion' | 'keyboard'
@@ -50,15 +67,12 @@ let lastLandmarks = null;
 let playing = false;
 let paused = false;          // 종료 확인 모달 등으로 일시정지
 let quitRequested = false;   // 플레이 중 "종료하기" 선택 시
-let lives = CONFIG.game.lives;      // 목숨(하트) — 장애물/포즈 실패 시 차감
+let lives = 0;               // 목숨(하트) — 장애물/포즈 실패 시 차감
 let gameOverRequested = false;      // 목숨 소진 시
 let skipTitleNext = false;          // 게임오버 "다시 하기" → 타이틀 생략하고 바로 재도전
-
-const poseEngine = new PoseEngine(
-  document.getElementById('webcam'),
-  document.getElementById('pip-overlay'),
-);
-const detector = new MotionDetector();
+let menuOpen = false;
+let heldPoseKeys = new Set();
+let gameplayExitXHold = null;
 
 // 튜토리얼 동작 대기 콜백 저장소
 const actionWaiters = { dodge: [], jump: [], duck: [] };
@@ -67,26 +81,11 @@ function fireAction(name) {
   while (list.length) list.pop()();
 }
 function waitAction(name, cb) { actionWaiters[name].push(cb); }
-
-// ── 모션 입력 → 게임 ──
-poseEngine.onFrame = lms => { lastLandmarks = lms; detector.update(lms); };
-
-detector.onLaneChange = lane => {
-  if (playing) { character.setLane(lane); stats.countSideStep(); }
-  fireAction('dodge');
-};
-detector.onJump = () => {
-  if (playing) { character.jump(); stats.countJump(); }
-  fireAction('jump');
-};
-detector.onDuckStart = () => {
-  if (playing) { character.setSlide(true); stats.countSquat(); }
-  fireAction('duck');
-};
-detector.onDuckEnd = () => { if (playing) character.setSlide(false); };
+function clearActionWaiters() {
+  for (const k of Object.keys(actionWaiters)) actionWaiters[k].length = 0;
+}
 
 // ── 키보드/터치 공통 폴백 액션 (개발·데모 + 카메라 미지원 + 모바일 터치 컨트롤) ──
-const heldPoseKeys = new Set();
 function actDodgeLeft() {
   if (playing) { character.setLane(character.lane - 1); stats.countSideStep(); }
   fireAction('dodge');
@@ -107,55 +106,20 @@ function actDuckEnd() { if (playing) character.setSlide(false); }
 function actPoseDown(key) { heldPoseKeys.add(key); }
 function actPoseUp(key) { heldPoseKeys.delete(key); }
 
-// e.key 대신 e.code(물리적 키 위치)를 사용 — 한글 등 IME가 켜져 있으면 e.key가
-// 'a'/'s'/'d'가 아닌 다른 문자로 바뀌어버려 키를 눌러도 인식되지 않는 문제가 있었음.
-// e.code는 입력기(IME)/언어 레이아웃과 무관하게 항상 물리적 키 위치를 그대로 보고한다.
-// 방향키(특히 ↓, ↑, Space)는 브라우저 기본 동작으로 페이지를 스크롤시켜버려서
-// 게임 화면 아래로 검은 여백이 드러나는 문제가 있었음 — 게임에서 쓰는 키는 preventDefault로 막는다.
-const GAME_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyS', 'KeyD', 'Space']);
-window.addEventListener('keydown', e => {
-  if (GAME_KEYS.has(e.code)) e.preventDefault();
-  if (e.repeat) return;
-  switch (e.code) {
-    case 'ArrowLeft': actDodgeLeft(); break;
-    case 'ArrowRight': actDodgeRight(); break;
-    case 'ArrowUp': actJump(); break;
-    case 'ArrowDown': actDuckStart(); break;
-    case 'KeyA': actPoseDown('lunge'); break;
-    case 'KeyS': actPoseDown('forwardbend'); break;
-    case 'KeyD': actPoseDown('armsopen'); break;
-  }
-}, { passive: false });
-window.addEventListener('keyup', e => {
-  if (GAME_KEYS.has(e.code)) e.preventDefault();
-  switch (e.code) {
-    case 'ArrowDown': actDuckEnd(); break;
-    case 'KeyA': actPoseUp('lunge'); break;
-    case 'KeyS': actPoseUp('forwardbend'); break;
-    case 'KeyD': actPoseUp('armsopen'); break;
-  }
-}, { passive: false });
-
-// ── 모바일 터치 컨트롤 (키보드 없는 기기에서 키보드 모드 대체) ──
-function bindTouchButton(el, onDown, onUp) {
-  if (!el) return;
-  const start = ev => { ev.preventDefault(); onDown(); };
-  const end = ev => { ev.preventDefault(); onUp?.(); };
-  el.addEventListener('pointerdown', start);
-  el.addEventListener('pointerup', end);
-  el.addEventListener('pointerleave', end);
-  el.addEventListener('pointercancel', end);
-}
-bindTouchButton(document.getElementById('tc-left'), actDodgeLeft);
-bindTouchButton(document.getElementById('tc-right'), actDodgeRight);
-bindTouchButton(document.getElementById('tc-jump'), actJump);
-bindTouchButton(document.getElementById('tc-duck'), actDuckStart, actDuckEnd);
-bindTouchButton(document.getElementById('tc-pose-a'), () => actPoseDown('lunge'), () => actPoseUp('lunge'));
-bindTouchButton(document.getElementById('tc-pose-s'), () => actPoseDown('forwardbend'), () => actPoseUp('forwardbend'));
-bindTouchButton(document.getElementById('tc-pose-d'), () => actPoseDown('armsopen'), () => actPoseUp('armsopen'));
-
-const touchControlsEl = document.getElementById('touch-controls');
 function setTouchControlsVisible(on) { touchControlsEl?.classList.toggle('hidden', !on); }
+
+// 플레이 중이면 종료 버튼, 아니면 허브 복귀 버튼. 둘은 항상 배타적이다.
+//
+// 플레이 중에 허브로 바로 나가는 길을 열어두면 종료 확인 플로우를 건너뛰게 되고,
+// 그 경로에 있는 stats.save()도 함께 건너뛴다. (destroy()의 queueOnExit이 받아주긴
+// 하지만 "저장됐다"는 피드백 없이 사라지는 건 다른 문제다.)
+function setInPlayUi(on) {
+  btnExit?.classList.toggle('hidden', !on);
+  btnHub?.classList.toggle('hidden', on);
+  // 타이틀에서는 손 커서로 START·게임 목록을 고를 수 있고, 플레이에 들어가면 숨긴다.
+  // 몸으로 조종하는 화면에서 커서가 따라다니면 시야를 가린다.
+  handSession.setPointerActive(!on);
+}
 
 // 포즈 유사도 (모션 우선, 키보드 폴백)
 function getPoseScore(poseType) {
@@ -165,7 +129,6 @@ function getPoseScore(poseType) {
 }
 
 // ── 일시정지 상태 통합 관리 (햄버거 메뉴 열림 OR 종료 확인창 열림 → 일시정지) ──
-let menuOpen = false;
 function updatePaused() {
   paused = menuOpen || !confirmModal.classList.contains('hidden');
 }
@@ -181,31 +144,9 @@ function syncMenuIcons() {
   menuMusicImg.src = isBgmMuted() ? '/assets/warmup/image/btn_main_music_off.png' : '/assets/warmup/image/btn_main_music.png';
   menuAudioImg.src = isSfxMuted() ? '/assets/warmup/image/btn_main_audio_off.png' : '/assets/warmup/image/btn_main_audio.png';
 }
-btnMenu.addEventListener('click', e => {
-  e.stopPropagation();
-  if (!confirmModal.classList.contains('hidden')) return; // 종료 확인창이 떠 있으면 무시
-  setMenuOpen(!menuOpen);
-});
-menuPanel.addEventListener('click', e => e.stopPropagation());
-document.addEventListener('click', () => { if (menuOpen) setMenuOpen(false); });
-document.getElementById('menu-item-music').addEventListener('click', () => { toggleBgmMute(); syncMenuIcons(); });
-document.getElementById('menu-item-audio').addEventListener('click', () => { toggleSfxMute(); syncMenuIcons(); });
-syncMenuIcons();
-
-// ── 전체화면 토글 (햄버거 메뉴 안 버튼) ──
-btnFullscreen.addEventListener('click', () => {
-  if (!document.fullscreenElement) {
-    (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)
-      ?.call(document.documentElement);
-  } else {
-    (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
-  }
-});
 
 // ── 게임 종료(일시정지 → 확인) ──
 // 모션 모드에서는 버튼 클릭 대신 손동작으로도 선택 가능: 머리 위 동그라미(O)=계속하기, 엑스(X)=종료하기
-const confirmGestureHint = document.getElementById('confirm-gesture-hint');
-const confirmGaugeFill = document.getElementById('confirm-gauge-fill');
 let confirmGestureRaf = null;
 let confirmOHold = null, confirmXHold = null;
 let confirmGestureLast = 0;
@@ -213,7 +154,7 @@ let confirmGestureLast = 0;
 function stopConfirmGestureLoop() {
   if (confirmGestureRaf) cancelAnimationFrame(confirmGestureRaf);
   confirmGestureRaf = null;
-  confirmGestureHint.classList.add('hidden');
+  confirmGestureHint?.classList.add('hidden');
 }
 function startConfirmGestureLoop() {
   if (inputMode !== 'motion') return; // 키보드 모드는 카메라가 없으니 스킵
@@ -222,7 +163,7 @@ function startConfirmGestureLoop() {
   confirmXHold = new GestureHold(lms => isArmsUpCross(lms, CONFIG.gesture), CONFIG.gesture.confirmHoldSec);
   confirmGestureLast = performance.now();
   const loop = () => {
-    if (confirmModal.classList.contains('hidden')) { confirmGestureRaf = null; return; }
+    if (!running || confirmModal.classList.contains('hidden')) { confirmGestureRaf = null; return; }
     const now = performance.now();
     const dt = (now - confirmGestureLast) / 1000; confirmGestureLast = now;
     const oDone = confirmOHold.update(dt, lastLandmarks);
@@ -254,24 +195,12 @@ function doQuitConfirm() {
   stopConfirmGestureLoop();
   quitRequested = true;  // gameFlow 루프가 감지해서 정리
 }
-btnExit.addEventListener('click', openExitConfirm);
-document.getElementById('btn-resume').addEventListener('click', () => { playSfx('button_press'); resumeFromExitConfirm(); });
-document.getElementById('btn-quit-confirm').addEventListener('click', () => { playSfx('button_press'); doQuitConfirm(); });
-window.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    if (!confirmModal.classList.contains('hidden')) resumeFromExitConfirm();
-    else if (menuOpen) setMenuOpen(false);
-    else openExitConfirm();
-  }
-});
-
-// 게임 진행 중(모션 모드) 팔로 엑스(X)를 일정 시간 유지하면 종료 확인창을 연다 —
-// 확인창이 뜬 뒤에는 위 startConfirmGestureLoop()가 이어받아 한 번 더 X를 유지해야 실제 종료됨
-const gameplayExitXHold = new GestureHold(lms => isArmsUpCross(lms, CONFIG.gesture), CONFIG.gesture.duringPlayExitHoldSec);
 
 // ── 렌더 루프 ──
-let lastT = performance.now();
+let lastT = 0;
 function frame(now) {
+  if (!running) { rafId = null; return; }
+
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
 
@@ -317,7 +246,7 @@ function frame(now) {
     hudLeftEl.classList.add('hidden');
   }
 
-  requestAnimationFrame(frame);
+  rafId = requestAnimationFrame(frame);
 }
 
 // HUD는 DOM 요소로 표시(세로 모드에서 캔버스를 크롭/확대해도 항상 화면에 남도록)
@@ -336,7 +265,7 @@ async function handleQuit() {
   paused = false;
   run = null;
   stopBgm();
-  btnExit.classList.add('hidden');
+  setInPlayUi(false);
   setTouchControlsVisible(false);
   poseEngine.stop();
   pipEl.classList.add('hidden');
@@ -351,7 +280,7 @@ async function handleGameOver() {
   paused = false;
   run = null;
   stopBgm();
-  btnExit.classList.add('hidden');
+  setInPlayUi(false);
   setTouchControlsVisible(false);
   pipEl.classList.add('hidden');
   await stats.save();
@@ -364,8 +293,12 @@ async function handleGameOver() {
 }
 
 // ── 게임 플로우 ──
+//
+// 모든 await 뒤에 running을 확인한다. destroy()는 대기 중인 화면 Promise를
+// abortScreens()로 즉시 resolve시키므로, 확인이 없으면 게임이 이미 사라진
+// DOM을 상대로 다음 단계를 진행해 버린다.
 async function gameFlow() {
-  outer: while (true) {
+  outer: while (running) {
     stats = new Stats();
     character = new Character();
     run = null;
@@ -374,16 +307,19 @@ async function gameFlow() {
     quitRequested = false;
     gameOverRequested = false;
     lives = CONFIG.game.lives;
-    btnExit.classList.add('hidden');
+    heldPoseKeys.clear();
+    clearActionWaiters();
+    setInPlayUi(false);
     setTouchControlsVisible(false);
     startBgm(); // 이미 오디오가 잠금 해제된 상태(재방문 등)라면 타이틀 화면부터 바로 재생
 
     if (!skipTitleNext) await showTitle();
+    if (!running) return;
     skipTitleNext = false;
     unlockAudio();
     playSfx('button_press');
     startBgm();
-    btnExit.classList.remove('hidden'); // 카메라 준비 화면부터 종료 버튼 사용 가능
+    setInPlayUi(true); // 카메라 준비 화면부터 종료 버튼 사용 가능
 
     // 카메라 셋업 → 튜토리얼1 → 튜토리얼2
     // 모션 모드에서는 각 화면에서 머리 위 엑스(X)를 1초 유지하면 바로 이전 화면으로 돌아갈 수 있다
@@ -397,6 +333,10 @@ async function gameFlow() {
         const setup = await showCameraSetup({
           poseInit: async () => {
             if (!poseEngine.available) await poseEngine.init();
+            // init()이 도는 동안 허브로 나가버렸다면 destroy()의 release()는 아직
+            // 스트림이 없는 상태에서 이미 지나갔다. 여기서 다시 끊지 않으면
+            // 카메라 표시등이 켜진 채로 남는다.
+            if (!running) { poseEngine.release(); return; }
             poseEngine.start();
             pipEl.classList.remove('hidden');
           },
@@ -406,7 +346,16 @@ async function gameFlow() {
           pipEl,
           getLandmarks: () => lastLandmarks, // 머리 위 동그라미(O) 3초 유지로도 캘리브레이션 시작 가능
         });
+        if (!running) return;
         if (quitRequested) { await handleQuit(); continue outer; }
+        // 카메라 준비에서 팔로 X = 이전 화면(타이틀). 튜토리얼의 X와 같은 규칙이다.
+        // 아직 아무것도 플레이하지 않았으므로 바깥 루프를 처음부터 돌리면 된다.
+        if (setup.mode === 'back') {
+          poseEngine.stop();
+          pipEl.classList.add('hidden');
+          skipTitleNext = false;
+          continue outer;
+        }
         inputMode = setup.mode;
         // 운동 데이터의 신뢰도를 가르는 값이므로 기록에 함께 남긴다.
         // 키보드 모드는 몸을 안 움직여도 카운트가 올라가 통계를 오염시킨다.
@@ -418,6 +367,7 @@ async function gameFlow() {
         step = 'tutorial1';
       } else if (step === 'tutorial1') {
         const r = await showTutorial1(waitAction, () => quitRequested, inputMode === 'motion' ? () => lastLandmarks : null);
+        if (!running) return;
         if (quitRequested) { await handleQuit(); continue outer; }
         step = r === 'back' ? 'camera' : 'tutorial2';
       } else if (step === 'tutorial2') {
@@ -425,6 +375,7 @@ async function gameFlow() {
           getPoseScore, () => quitRequested, inputMode === 'keyboard',
           inputMode === 'motion' ? () => lastLandmarks : null,
         );
+        if (!running) return;
         if (quitRequested) { await handleQuit(); continue outer; }
         step = r === 'back' ? 'tutorial1' : 'done';
       }
@@ -432,6 +383,7 @@ async function gameFlow() {
 
     // 카운트다운 → 레벨 1~5
     await showCountdown();
+    if (!running) return;
     stats.startActive();
     // 운동 시간의 기준점. Stats 생성 시점(타이틀 도착)이 아니라 여기가 실제 플레이 시작이다.
     stats.markPlayStart();
@@ -450,17 +402,20 @@ async function gameFlow() {
 
       // 레벨 종료 대기 (일시정지 중엔 진행 판정 없이 대기만)
       await new Promise(res => {
-        const iv = setInterval(() => {
+        const iv = track(setInterval(() => {
+          if (!running) { untrack(iv); res(); return; }
           if (paused) return;
-          if (run.finished || missionDone || quitRequested || gameOverRequested) { clearInterval(iv); res(); }
-        }, 100);
+          if (run.finished || missionDone || quitRequested || gameOverRequested) { untrack(iv); res(); }
+        }, 100));
       });
       playing = false;
       run = null;
+      if (!running) return;
 
       if (quitRequested || missionDone || gameOverRequested) break;
       if (currentLevel < CONFIG.levels.length - 1) {
         await showLevelBanner(currentLevel + 1);
+        if (!running) return;
       }
     }
 
@@ -468,7 +423,7 @@ async function gameFlow() {
     if (gameOverRequested) { await handleGameOver(); continue; }
 
     stopBgm();
-    btnExit.classList.add('hidden');
+    setInPlayUi(false);
     setTouchControlsVisible(false);
     stats.completed = missionDone || currentLevel >= CONFIG.levels.length - 1;
     // 미션 완료 경로에 저장이 빠져 있었다 — 끝까지 완주한 판, 즉 운동량이 가장 많은
@@ -480,61 +435,257 @@ async function gameFlow() {
   }
 }
 
-// 브라우저 자동재생 정책상 완전 무음 자동재생은 불가능 — 페이지에서의 "첫 상호작용"
-// (START 버튼을 누르기 전이라도 어디든 클릭/터치/키 입력) 즉시 BGM을 시작해서
-// 타이틀 화면을 보는 동안에도 음악이 나오게 함
-function armFirstInteractionAudioUnlock() {
+// ── 부트스트랩 ──
+export async function boot() {
+  if (running) return;
+  running = true;
+  ac = new AbortController();
+  const { signal } = ac;
+
+  // ── DOM 참조 ──
+  canvas = document.getElementById('game-canvas');
+  ctx = canvas.getContext('2d');
+  pipEl = document.getElementById('pip');
+  btnFullscreen = document.getElementById('btn-fullscreen');
+  btnExit = document.getElementById('btn-exit');
+  confirmModal = document.getElementById('confirm-modal');
+  btnMenu = document.getElementById('btn-menu');
+  menuIco = document.getElementById('menu-ico');
+  menuPanel = document.getElementById('menu-panel');
+  menuMusicImg = document.getElementById('menu-music-img');
+  menuAudioImg = document.getElementById('menu-audio-img');
+  hudEl = document.getElementById('hud');
+  hudLeftEl = document.getElementById('hud-left');
+  hudLevelEl = document.getElementById('hud-level');
+  hudLivesEl = document.getElementById('hud-lives');
+  hudStarsEl = document.getElementById('hud-stars');
+  hudCountsEl = document.getElementById('hud-counts');
+  exitGestureGauge = document.getElementById('exit-gesture-gauge');
+  exitGestureGaugeFill = document.getElementById('exit-gesture-gauge-fill');
+  confirmGestureHint = document.getElementById('confirm-gesture-hint');
+  confirmGaugeFill = document.getElementById('confirm-gauge-fill');
+  touchControlsEl = document.getElementById('touch-controls');
+  btnHub = document.getElementById('btn-hub');
+
+  // ── 게임 객체 ──
+  world = new World();
+  character = new Character();
+  stats = new Stats();
+  run = null;
+  currentLevel = 0;
+  inputMode = 'keyboard';
+  lastLandmarks = null;
+  playing = false;
+  paused = false;
+  quitRequested = false;
+  gameOverRequested = false;
+  skipTitleNext = false;
+  menuOpen = false;
+  lives = CONFIG.game.lives;
+  heldPoseKeys = new Set();
+  clearActionWaiters();
+
+  poseEngine = new PoseEngine(
+    document.getElementById('webcam'),
+    document.getElementById('pip-overlay'),
+  );
+  detector = new MotionDetector();
+
+  // 게임 진행 중(모션 모드) 팔로 엑스(X)를 일정 시간 유지하면 종료 확인창을 연다 —
+  // 확인창이 뜬 뒤에는 startConfirmGestureLoop()가 이어받아 한 번 더 X를 유지해야 실제 종료됨
+  gameplayExitXHold = new GestureHold(lms => isArmsUpCross(lms, CONFIG.gesture), CONFIG.gesture.duringPlayExitHoldSec);
+
+  // ── 모션 입력 → 게임 ──
+  poseEngine.onFrame = lms => { lastLandmarks = lms; detector.update(lms); };
+
+  detector.onLaneChange = lane => {
+    if (playing) { character.setLane(lane); stats.countSideStep(); }
+    fireAction('dodge');
+  };
+  detector.onJump = () => {
+    if (playing) { character.jump(); stats.countJump(); }
+    fireAction('jump');
+  };
+  detector.onDuckStart = () => {
+    if (playing) { character.setSlide(true); stats.countSquat(); }
+    fireAction('duck');
+  };
+  detector.onDuckEnd = () => { if (playing) character.setSlide(false); };
+
+  // ── 키보드 ──
+  // e.key 대신 e.code(물리적 키 위치)를 사용 — 한글 등 IME가 켜져 있으면 e.key가
+  // 'a'/'s'/'d'가 아닌 다른 문자로 바뀌어버려 키를 눌러도 인식되지 않는 문제가 있었음.
+  // e.code는 입력기(IME)/언어 레이아웃과 무관하게 항상 물리적 키 위치를 그대로 보고한다.
+  // 방향키(특히 ↓, ↑, Space)는 브라우저 기본 동작으로 페이지를 스크롤시켜버려서
+  // 게임 화면 아래로 검은 여백이 드러나는 문제가 있었음 — 게임에서 쓰는 키는 preventDefault로 막는다.
+  const GAME_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyS', 'KeyD', 'Space']);
+  window.addEventListener('keydown', e => {
+    if (GAME_KEYS.has(e.code)) e.preventDefault();
+    if (e.repeat) return;
+    switch (e.code) {
+      case 'ArrowLeft': actDodgeLeft(); break;
+      case 'ArrowRight': actDodgeRight(); break;
+      case 'ArrowUp': actJump(); break;
+      case 'ArrowDown': actDuckStart(); break;
+      case 'KeyA': actPoseDown('lunge'); break;
+      case 'KeyS': actPoseDown('forwardbend'); break;
+      case 'KeyD': actPoseDown('armsopen'); break;
+    }
+  }, { passive: false, signal });
+  window.addEventListener('keyup', e => {
+    if (GAME_KEYS.has(e.code)) e.preventDefault();
+    switch (e.code) {
+      case 'ArrowDown': actDuckEnd(); break;
+      case 'KeyA': actPoseUp('lunge'); break;
+      case 'KeyS': actPoseUp('forwardbend'); break;
+      case 'KeyD': actPoseUp('armsopen'); break;
+    }
+  }, { passive: false, signal });
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      if (!confirmModal.classList.contains('hidden')) resumeFromExitConfirm();
+      else if (menuOpen) setMenuOpen(false);
+      else openExitConfirm();
+    }
+  }, { signal });
+
+  // ── 모바일 터치 컨트롤 (키보드 없는 기기에서 키보드 모드 대체) ──
+  const bindTouchButton = (id, onDown, onUp) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const start = ev => { ev.preventDefault(); onDown(); };
+    const end = ev => { ev.preventDefault(); onUp?.(); };
+    el.addEventListener('pointerdown', start, { signal });
+    el.addEventListener('pointerup', end, { signal });
+    el.addEventListener('pointerleave', end, { signal });
+    el.addEventListener('pointercancel', end, { signal });
+  };
+  bindTouchButton('tc-left', actDodgeLeft);
+  bindTouchButton('tc-right', actDodgeRight);
+  bindTouchButton('tc-jump', actJump);
+  bindTouchButton('tc-duck', actDuckStart, actDuckEnd);
+  bindTouchButton('tc-pose-a', () => actPoseDown('lunge'), () => actPoseUp('lunge'));
+  bindTouchButton('tc-pose-s', () => actPoseDown('forwardbend'), () => actPoseUp('forwardbend'));
+  bindTouchButton('tc-pose-d', () => actPoseDown('armsopen'), () => actPoseUp('armsopen'));
+
+  // ── 햄버거 메뉴 ──
+  btnMenu.addEventListener('click', e => {
+    e.stopPropagation();
+    if (!confirmModal.classList.contains('hidden')) return; // 종료 확인창이 떠 있으면 무시
+    setMenuOpen(!menuOpen);
+  }, { signal });
+  menuPanel.addEventListener('click', e => e.stopPropagation(), { signal });
+  document.addEventListener('click', () => { if (menuOpen) setMenuOpen(false); }, { signal });
+  document.getElementById('menu-item-music').addEventListener('click', () => { toggleBgmMute(); syncMenuIcons(); }, { signal });
+  document.getElementById('menu-item-audio').addEventListener('click', () => { toggleSfxMute(); syncMenuIcons(); }, { signal });
+
+  // ── 전체화면 토글 (햄버거 메뉴 안 버튼) ──
+  btnFullscreen.addEventListener('click', () => {
+    if (!document.fullscreenElement) {
+      (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)
+        ?.call(document.documentElement);
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    }
+  }, { signal });
+
+  // ── 허브 복귀 ──
+  // 라우터의 onLeave가 destroy()를 부르므로 여기서는 해시만 바꾸면 된다.
+  setInPlayUi(false);
+  btnHub?.addEventListener('click', () => { location.hash = '#/'; }, { signal });
+
+  // ── 종료 확인 ──
+  btnExit.addEventListener('click', openExitConfirm, { signal });
+  document.getElementById('btn-resume').addEventListener('click', () => { playSfx('button_press'); resumeFromExitConfirm(); }, { signal });
+  document.getElementById('btn-quit-confirm').addEventListener('click', () => { playSfx('button_press'); doQuitConfirm(); }, { signal });
+
+  // ── 오디오 ──
+  if (!audioReady) { initAudio(); audioReady = true; }
+  syncMenuIcons();
+
+  // 브라우저 자동재생 정책상 완전 무음 자동재생은 불가능 — 페이지에서의 "첫 상호작용"
+  // (START 버튼을 누르기 전이라도 어디든 클릭/터치/키 입력) 즉시 BGM을 시작해서
+  // 타이틀 화면을 보는 동안에도 음악이 나오게 함
   const unlockOnce = () => {
     unlockAudio();
     startBgm();
     document.removeEventListener('pointerdown', unlockOnce);
     document.removeEventListener('keydown', unlockOnce);
   };
-  document.addEventListener('pointerdown', unlockOnce);
-  document.addEventListener('keydown', unlockOnce);
-}
+  document.addEventListener('pointerdown', unlockOnce, { signal });
+  document.addEventListener('keydown', unlockOnce, { signal });
 
-// ── 이탈 시 운동 기록 보존 ──
-//
-// 정상 종료 경로(handleQuit / handleGameOver / 미션 완료)는 stats.save()로 처리된다.
-// 하지만 아래 경로들은 그 함수를 거치지 않아 기록이 그냥 사라졌다:
-//   · 탭 닫기 · 새로고침 · 브라우저 뒤로가기
-//   · 허브 홈으로 라우팅 (#/warmup-legacy 이탈)
-//
-// pagehide 시점에는 비동기 요청이 취소되므로 Supabase를 부르지 않는다.
-// localStorage에 동기로 써두고, 다음 접속 때 Stats.flushPending()이 보낸다.
-// stats.queueOnExit()은 멱등하므로 아래 핸들러가 중복 발동해도 한 번만 저장된다.
-function armExitPersistence() {
-  const persist = () => stats?.queueOnExit();
-
-  window.addEventListener('pagehide', persist);
-
+  // ── 이탈 시 운동 기록 보존 ──
+  //
+  // 정상 종료 경로(handleQuit / handleGameOver / 미션 완료)는 stats.save()로 처리된다.
+  // 하지만 아래 경로들은 그 함수를 거치지 않아 기록이 그냥 사라졌다:
+  //   · 탭 닫기 · 새로고침 · 브라우저 뒤로가기
+  //   · 허브 홈으로 라우팅 → 이건 이제 destroy()가 직접 처리한다
+  //
+  // pagehide 시점에는 비동기 요청이 취소되므로 Supabase를 부르지 않는다.
+  // localStorage에 동기로 써두고, 다음 접속 때 Stats.flushPending()이 보낸다.
+  // stats.queueOnExit()은 멱등하므로 아래 핸들러가 중복 발동해도 한 번만 저장된다.
+  window.addEventListener('pagehide', () => stats?.queueOnExit(), { signal });
   // iOS Safari는 pagehide가 누락되는 경우가 있어 visibilitychange를 함께 본다
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') persist();
-  });
+    if (document.visibilityState === 'hidden') stats?.queueOnExit();
+  }, { signal });
 
-  // 허브 홈 등 다른 화면으로 라우팅될 때
-  window.addEventListener('hashchange', () => {
-    if (!window.location.hash.startsWith('#/warmup-legacy')) persist();
-  });
-}
-
-// ── 부트스트랩 ──
-(async function boot() {
-  initAudio();
   Stats.flushPending();          // 이전 이탈로 큐에 남은 기록을 먼저 전송
-  armFirstInteractionAudioUnlock();
-  armExitPersistence();
 
   // 로딩 표시
   const ov = document.getElementById('overlay');
   ov.innerHTML = `<div class="screen dark"><h1>JAPARI RUN!</h1><p id="load-p">로딩 중… 0%</p></div>`;
-  await loadAssets(f => {
-    const p = document.getElementById('load-p');
-    if (p) p.textContent = `로딩 중… ${Math.round(f * 100)}%`;
-  });
+  if (!assetsReady) {
+    await loadAssets(f => {
+      const p = document.getElementById('load-p');
+      if (p) p.textContent = `로딩 중… ${Math.round(f * 100)}%`;
+    });
+    assetsReady = true;
+  }
+  if (!running) return;   // 로딩 중에 나가버린 경우
 
-  requestAnimationFrame(frame);
+  lastT = performance.now();
+  rafId = requestAnimationFrame(frame);
   gameFlow();
-})();
+}
+
+// ── 정리 ──
+//
+// 허브로 돌아갈 때 호출한다. 여기서 되돌리지 않은 것은 다음 진입에 그대로 남는다:
+//   웹캠 트랙(카메라 표시등이 안 꺼짐) · rAF 루프(두 번 돌아 배속) ·
+//   window 리스너(방향키가 두 번 먹음) · 화면 Promise(gameFlow가 멈춘 채 잔류)
+export function destroy() {
+  if (!running) return;
+  running = false;
+
+  // 저장 안 된 판이 있으면 큐에 보존 — 리스너를 떼기 전에 먼저 한다.
+  // save()가 이미 성공했거나 움직임이 없으면 queueOnExit()이 알아서 건너뛴다.
+  try { stats?.queueOnExit(); } catch { /* 무시 */ }
+
+  ac?.abort();
+  ac = null;
+
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+  stopConfirmGestureLoop();
+
+  for (const id of timers) clearInterval(id);
+  timers.clear();
+
+  abortScreens();          // 대기 중인 화면 Promise를 즉시 resolve → gameFlow 탈출
+  clearActionWaiters();
+
+  poseEngine?.release();   // 웹캠 트랙 정지 + 랜드마커 해제
+  stopBgm();
+
+  document.body.classList.remove('on-title');
+
+  // world·stats·poseEngine 참조는 null로 밀지 않는다. destroy 직후 마이크로태스크에서
+  // 깨어나는 await 뒤 코드가 `if (!running) return`에 닿기 전에 이들을 건드릴 수 있어
+  // null이면 그 자리에서 터진다. 다음 boot()이 어차피 전부 새로 만들어 덮어쓴다.
+  run = null;
+  playing = false;
+  paused = false;
+  menuOpen = false;
+}

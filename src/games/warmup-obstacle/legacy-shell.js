@@ -47,6 +47,11 @@ export const STAGE_HTML = `
     <div id="hud-counts">🦘 점프 0&nbsp;&nbsp;&nbsp;🧎 앉기 0&nbsp;&nbsp;&nbsp;🏃 피하기 0</div>
   </div>
 
+  <!-- 허브 복귀 (좌상단) — 플레이 중이 아닐 때만 보인다.
+       플레이 중에는 기존 종료 확인 플로우(우상단 종료 버튼 / 팔로 X)로 나가야
+       운동 기록이 저장된다. 여기로 바로 빠져나가면 그 경로를 건너뛴다. -->
+  <button id="btn-hub" class="hub-back-btn" data-pz-hit data-pz-dwell="800">← 게임 목록</button>
+
   <!-- 상단 시스템 버튼 (햄버거 메뉴 / 전체화면 / 종료) -->
   <div id="topbar">
     <div class="menu-wrap">

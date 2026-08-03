@@ -1,0 +1,15 @@
+{
+  "id": "warmup-obstacle",
+  "title": "인터랙션 웜업 장애물 피하기",
+  "description": "장애물을 피하고 포즈를 따라해요!",
+  "thumbnail": "/assets/warmup/image/fx_title_screen.png",
+  "hero": "/assets/warmup/image/fx_title_screen.png",
+  "ageRange": "4-8",
+  "players": { "min": 1, "max": 1 },
+  "gestures": ["O", "X"],
+  "detectors": ["lane", "jump", "duck", "poseMatch"],
+  "tags": ["달리기", "점프", "균형", "웜업"],
+  "metrics": ["sideSteps", "jumps", "squats", "poseHolds"],
+  "status": "active",
+  "createdAt": "2026-07-20"
+}

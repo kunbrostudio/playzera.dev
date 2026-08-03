@@ -195,8 +195,25 @@ export default class PoopDodgeGame {
     }
   }
 
+  // 떨어질 칸을 고른다 — **기본은 플레이어가 서 있는 칸이다.**
+  //
+  // 무작위로 떨어뜨리면 가만히 서 있어도 3분의 2는 그냥 지나간다. 운동이 목적인
+  // 게임에서 "안 움직여도 되는 순간"이 대부분이면 앉은 자세로 게임이 끝난다.
+  // 내가 선 자리로 온다는 규칙은 아이에게도 단순하다 — 오면 옆으로 비킨다.
+  _pickZone() {
+    const zone = this.playerZone
+    const inFlight = new Set(this.poops.map(p => p.zone))
+
+    // 다만 도망갈 칸은 반드시 남겨둔다. 다른 두 칸에 이미 똥이 떨어지는 중인데
+    // 남은 한 칸까지 겨누면 어디로 가도 맞는다 — 그건 반응이 아니라 운이다.
+    if (!inFlight.has(zone) && inFlight.size >= 2) {
+      return [...inFlight][0]
+    }
+    return zone
+  }
+
   _spawnPoop(speed) {
-    const zone = Math.floor(Math.random() * 3)
+    const zone = this._pickZone()
     const w    = this.lw
     const zw   = w / 3
     const sc   = this._scale

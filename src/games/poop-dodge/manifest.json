@@ -1,10 +1,16 @@
 {
   "id": "poop-dodge",
   "title": "똥 피하기",
-  "emoji": "💩",
   "description": "하늘에서 떨어지는 똥을 피하세요!",
   "thumbnail": "/assets/image/poop_game_tit.png",
-  "minAge": 4,
-  "maxAge": 8,
+  "hero": "/assets/image/poop_game_bg.jpg",
+  "ageRange": "4-8",
+  "players": { "min": 1, "max": 4 },
+  "gestures": ["O", "X"],
+  "detectors": ["zone"],
+  "tags": ["순발력", "좌우이동", "피하기"],
+  "metrics": ["dodges", "hits"],
+  "status": "active",
+  "createdAt": "2026-07-01",
   "rounds": 5
 }

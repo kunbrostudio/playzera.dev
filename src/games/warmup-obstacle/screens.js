@@ -22,6 +22,24 @@ function armQuitPoll(quitCheck, onQuit) {
   return setInterval(() => { if (quitCheck()) onQuit(); }, 150);
 }
 
+// ── 화면 중단 지원 (허브 복귀용) ──────────────────────────────
+//
+// 각 화면은 사용자 입력을 기다리는 Promise다. 허브로 돌아가면서 게임을 destroy할 때
+// 이 Promise들이 영원히 대기하면 gameFlow가 그 자리에 멈춘 채 남고, 화면이 걸어둔
+// rAF·setInterval·이벤트가 계속 돌아 다음 진입과 겹친다.
+// 화면마다 finish를 등록해 두고, destroy 시 abortScreens()로 일괄 정리한다.
+const pendingScreens = new Set();
+function trackScreen(finish) { pendingScreens.add(finish); return finish; }
+
+export function abortScreens() {
+  for (const finish of [...pendingScreens]) {
+    try { finish('abort'); } catch { /* 개별 화면 정리 실패는 무시 */ }
+  }
+  pendingScreens.clear();
+  document.body.classList.remove('on-title');
+  overlay() && clear();
+}
+
 // ── 타이틀 ──
 // 세로(포트레이트) 화면에서는 세로 전용 타이틀 이미지로, 전체 뷰포트를 꽉 채워 표시.
 // 가로(모바일 가로 포함)에서는 기존 가로 메인 이미지를 그대로 사용.
@@ -32,16 +50,23 @@ export function showTitle() {
     const s = el(`
       <div class="screen title-bg">
         <div class="title-start-wrap">
-          <img class="start-img-btn" id="btn-start" src="/assets/warmup/image/fx_start_button_1.png" alt="START">
+          <img class="start-img-btn" id="btn-start" data-pz-hit data-pz-dwell="1200" src="/assets/warmup/image/fx_start_button_1.png" alt="START">
         </div>
       </div>`);
     overlay().appendChild(s);
-    s.querySelector('#btn-start').onclick = () => {
-      playSfx('button_press');
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      pendingScreens.delete(finish);
       document.body.classList.remove('on-title');
       clear();
       resolve();
     };
+    trackScreen(finish);
+
+    s.querySelector('#btn-start').onclick = () => { playSfx('button_press'); finish(); };
   });
 }
 
@@ -68,7 +93,7 @@ export function showCameraSetup({ poseInit, startCalibration, isCalibrated, quit
               <button class="btn hidden" id="btn-calib">준비 완료! 차렷 자세로 측정</button>
             </div>
             <div class="gesture-hint hidden" id="gesture-hint">
-              ✋ 양손을 머리 위로 모아 <b>동그라미</b>를 3초 유지하면 시작돼요
+              ✋ 머리 위 <b>동그라미(O)</b> 3초 = 시작 · 팔로 <b>엑스(X)</b> = 이전 화면
               <div class="gesture-gauge"><div class="gesture-gauge-fill" id="gesture-gauge-fill"></div></div>
             </div>
             <div style="margin-top:1%">
@@ -95,6 +120,7 @@ export function showCameraSetup({ poseInit, startCalibration, isCalibrated, quit
     const finish = result => {
       if (settled) return;
       settled = true;
+      pendingScreens.delete(finish);
       clearInterval(calibIv);
       clearInterval(quitIv);
       stopGestureLoop();
@@ -108,6 +134,7 @@ export function showCameraSetup({ poseInit, startCalibration, isCalibrated, quit
       clear();
       resolve(result);
     };
+    trackScreen(finish);
     const quitIv = armQuitPoll(quitCheck, () => finish({ mode: 'quit' }));
 
     s.querySelector('#btn-skip').onclick = () => { playSfx('button_press'); finish({ mode: 'keyboard' }); };
@@ -178,14 +205,21 @@ export function showCameraSetup({ poseInit, startCalibration, isCalibrated, quit
           bodyRaf = requestAnimationFrame(bodyLoop);
 
           gestureHint.classList.remove('hidden');
-          const hold = new GestureHold(lms => isFullBodyVisible(lms) && isArmsUpCircle(lms, CONFIG.gesture), CONFIG.gesture.startHoldSec);
+          // O = 시작(전신이 보여야 한다 — 캘리브레이션이 전신 기준이므로)
+          const oHold = new GestureHold(lms => isFullBodyVisible(lms) && isArmsUpCircle(lms, CONFIG.gesture), CONFIG.gesture.startHoldSec);
+          // X = 이전 화면. **전신을 요구하지 않는다** — 뒤로 나가려는 사람에게
+          // "먼저 뒤로 물러나세요"를 요구하면 갇힌다. 튜토리얼 화면들과 같은 규칙이다.
+          const xHold = new GestureHold(lms => isArmsUpCross(lms, CONFIG.gesture), CONFIG.gesture.confirmHoldSec);
           let last = performance.now();
           const loop = () => {
             const now = performance.now();
             const dt = (now - last) / 1000; last = now;
-            const done = hold.update(dt, getLandmarks());
-            gaugeFill.style.width = `${hold.progress * 100}%`;
-            if (done) { startCalib(); return; }
+            const lms = getLandmarks();
+            const oDone = oHold.update(dt, lms);
+            const xDone = xHold.update(dt, lms);
+            gaugeFill.style.width = `${Math.max(oHold.progress, xHold.progress) * 100}%`;
+            if (oDone) { startCalib(); return; }
+            if (xDone) { playSfx('button_press'); finish({ mode: 'back' }); return; }
             gestureRaf = requestAnimationFrame(loop);
           };
           gestureRaf = requestAnimationFrame(loop);
@@ -197,8 +231,19 @@ export function showCameraSetup({ poseInit, startCalibration, isCalibrated, quit
         }
       })
       .catch(err => {
-        console.warn('camera init failed:', err);
-        if (!settled) status.textContent = '카메라를 사용할 수 없어요. 키보드 모드로 플레이할 수 있어요.';
+        // 원인을 한 줄로 뭉뚱그리면 "왜 안 되지"를 매번 콘솔에서 찾아야 한다.
+        // 실패 이유마다 할 일이 다르므로 그것까지 알려준다.
+        console.warn('camera init failed:', err?.name, err?.message, err);
+        if (settled) return;
+        const byName = {
+          NotAllowedError:      '카메라 권한이 꺼져 있어요. 주소창 왼쪽 자물쇠에서 허용해 주세요.',
+          NotFoundError:        '연결된 카메라를 찾지 못했어요.',
+          NotReadableError:     '다른 앱이나 다른 게임이 카메라를 쓰고 있어요. 그 창을 닫고 새로고침해 주세요.',
+          OverconstrainedError: '카메라가 이 화질을 지원하지 않아요.',
+          SecurityError:        'HTTPS가 아니면 카메라를 열 수 없어요.',
+        };
+        const extra = byName[err?.name] ?? '카메라를 사용할 수 없어요.';
+        status.textContent = `${extra} 키보드 모드로 플레이할 수 있어요.`;
       });
   });
 }
@@ -249,11 +294,13 @@ export function showTutorial1(waitAction, quitCheck, getLandmarks) {
     const finish = (result = 'next') => {
       if (settled) return;
       settled = true;
+      pendingScreens.delete(finish);
       clearInterval(quitIv);
       stopGestureLoop();
       clear();
       resolve(result);
     };
+    trackScreen(finish);
     const quitIv = armQuitPoll(quitCheck, () => finish('next'));
 
     let remaining = 3;
@@ -333,11 +380,13 @@ export function showTutorial2(getPoseScore, quitCheck, isKeyboard, getLandmarks)
     const finish = (result = 'next') => {
       if (settled) return;
       settled = true;
+      pendingScreens.delete(finish);
       cancelAnimationFrame(raf);
       clearInterval(quitIv);
       clear();
       resolve(result);
     };
+    trackScreen(finish);
     const quitIv = armQuitPoll(quitCheck, () => finish('next'));
 
     const held = { lunge: 0, forwardbend: 0, armsopen: 0 };
@@ -400,13 +449,25 @@ export function showCountdown() {
       ['/assets/warmup/image/fx_count_1.png', 'countdown_beep'],
       ['/assets/warmup/image/fx_start_word.png', 'go'],
     ];
+    let settled = false;
+    let timer = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      pendingScreens.delete(finish);
+      clearTimeout(timer);
+      clear();
+      resolve();
+    };
+    trackScreen(finish);
+
     let i = 0;
     const step = () => {
-      if (i >= seq.length) { clear(); resolve(); return; }
+      if (i >= seq.length) { finish(); return; }
       img.src = seq[i][0];
       playSfx(seq[i][1]);
       i++;
-      setTimeout(step, i === seq.length ? 800 : 1000);
+      timer = setTimeout(step, i === seq.length ? 800 : 1000);
     };
     step();
   });
@@ -419,7 +480,18 @@ export function showLevelBanner(levelNum) {
     playSfx('level_complete');
     const s = el(`<div class="screen"><img style="height:34%" src="/assets/warmup/image/fx_level_complete_${levelNum}.png"></div>`);
     overlay().appendChild(s);
-    setTimeout(() => { clear(); resolve(); }, 1400);
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      pendingScreens.delete(finish);
+      clearTimeout(timer);
+      clear();
+      resolve();
+    };
+    trackScreen(finish);
+    const timer = setTimeout(finish, 1400);
   });
 }
 
@@ -448,13 +520,15 @@ export function showGameOver(getLandmarks) {
     let settled = false;
     let gestureRaf = null;
     const stopGestureLoop = () => { if (gestureRaf) cancelAnimationFrame(gestureRaf); gestureRaf = null; };
-    const finish = result => {
+    const finish = (result = 'quit') => {
       if (settled) return;
       settled = true;
+      pendingScreens.delete(finish);
       stopGestureLoop();
       clear();
       resolve(result);
     };
+    trackScreen(finish);
 
     s.querySelector('#btn-go-retry').onclick = () => { playSfx('button_press'); finish('retry'); };
     s.querySelector('#btn-go-quit').onclick = () => { playSfx('button_press'); finish('quit'); };
@@ -507,11 +581,22 @@ export function showMissionComplete(stats) {
       </div>`);
     overlay().appendChild(s);
 
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      pendingScreens.delete(finish);
+      clear();
+      resolve();
+    };
+    trackScreen(finish);
+
     stats.save().then(r => {
-      s.querySelector('#save-status').textContent =
-        r.ok ? '✓ 운동 기록이 저장되었어요!' : '오프라인 — 기록은 나중에 자동 저장돼요';
+      const el = s.querySelector('#save-status');
+      if (!el || settled) return;   // 이미 화면을 떠났으면 건드리지 않는다
+      el.textContent = r.ok ? '✓ 운동 기록이 저장되었어요!' : '오프라인 — 기록은 나중에 자동 저장돼요';
     });
 
-    s.querySelector('#btn-again').onclick = () => { playSfx('button_press'); clear(); resolve(); };
+    s.querySelector('#btn-again').onclick = () => { playSfx('button_press'); finish(); };
   });
 }

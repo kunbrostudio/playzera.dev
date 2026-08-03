@@ -5,7 +5,7 @@ import { LM } from './poseEngine.js';
 
 export class MotionDetector {
   constructor() {
-    this.baseline = null;      // { hipX(mirrored), hipY, bodyHeight }
+    this.baseline = null;      // { hipX(거울 좌표), hipY, bodyHeight }
     this.calibrating = false;
     this._calibSamples = [];
     this._calibStart = 0;
@@ -37,7 +37,9 @@ export class MotionDetector {
     const hip = mid(lms[LM.L_HIP], lms[LM.R_HIP]);
     const ankle = mid(lms[LM.L_ANKLE], lms[LM.R_ANKLE]);
     const nose = lms[LM.NOSE];
-    const mirroredHipX = 1 - hip.x;   // 거울 기준 좌표(사용자 체감 방향과 일치)
+    // STEP 4-0 이전에는 여기서 `1 - hip.x`로 뒤집었다. 이제 엔진이 거울 좌표로
+    // 내보내므로 그대로 쓴다. 여기서 또 뒤집으면 레인이 반대로 움직인다.
+    const mirroredHipX = hip.x;
     const bodyHeight = Math.abs(ankle.y - nose.y);
     if (bodyHeight < 0.15) return;    // 전신이 안 보임
 

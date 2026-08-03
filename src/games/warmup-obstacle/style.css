@@ -5,6 +5,10 @@ html, body { width: 100%; height: 100%; background: #050014; overflow: hidden; f
 #stage {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 100vw; height: 100vh;
+  /* iOS Safari의 100vh는 주소창을 뺀 실제 보이는 높이보다 크다 —
+     화면 아래가 잘려 종료 버튼이나 안내 문구가 가려진다.
+     dvh를 지원하는 브라우저(Safari 15.4+)는 아래 줄이 덮어쓴다. */
+  height: 100dvh;
   max-width: calc(100vh * 16 / 9);
   max-height: calc(100vw * 9 / 16);
   aspect-ratio: 16/9;
@@ -17,13 +21,15 @@ html, body { width: 100%; height: 100%; background: #050014; overflow: hidden; f
 @media (orientation: portrait) {
   /* 타이틀 화면: 16:9 잠금을 풀고 화면 전체를 채움 */
   body.on-title #stage {
-    width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; aspect-ratio: auto;
+    width: 100vw; height: 100vh; height: 100dvh;
+    max-width: 100vw; max-height: 100vh; max-height: 100dvh; aspect-ratio: auto;
   }
 
   /* 게임플레이 화면: #stage는 뷰포트에 맞춰 UI(HUD/버튼/모달)가 정상 위치에 오도록 유지하고,
      캔버스(게임 월드)만 16:9 비율을 유지한 채 화면 높이를 꽉 채움 — 좌우는 잘려도 무방(트랙 중심) */
   body:not(.on-title) #stage {
-    width: 100vw; height: 100vh; max-width: 100vw; max-height: 100vh; aspect-ratio: auto;
+    width: 100vw; height: 100vh; height: 100dvh;
+    max-width: 100vw; max-height: 100vh; max-height: 100dvh; aspect-ratio: auto;
   }
   body:not(.on-title) #game-canvas {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -65,6 +71,22 @@ html, body { width: 100%; height: 100%; background: #050014; overflow: hidden; f
 
 /* ── 상단 시스템 버튼 ── */
 #topbar { position: absolute; top: 2.5%; right: 2%; z-index: 45; display: flex; align-items: flex-start; gap: 16px; }
+
+/* ── 허브 복귀 (좌상단) — 똥 피하기 스플래시와 같은 모양 ── */
+.hub-back-btn {
+  position: fixed; top: clamp(12px, 2vw, 24px); left: clamp(12px, 2vw, 24px);
+  z-index: 60;
+  background: rgba(255,255,255,.92); border: none;
+  border-radius: 9999px; padding: clamp(8px, 1.2vw, 12px) clamp(16px, 2.2vw, 24px);
+  font-family: inherit; font-size: clamp(.9rem, 1.6vw, 1.15rem); font-weight: 900;
+  color: #6b3fa0; cursor: pointer;
+  box-shadow: 0 3px 0 #c4a8f5, 0 6px 18px rgba(0,0,0,.22);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s;
+}
+.hub-back-btn:hover  { transform: scale(1.06); }
+.hub-back-btn:active { transform: scale(.94); }
+.hub-back-btn.hidden { display: none; }
 
 /* 게임 중 팔로 엑스(X) 유지 진행 안내 — 종료 버튼 바로 아래, 모션 모드 플레이 중엔 항상 보임
    (진행 중일 때만 나타나면 존재를 모르고 지나칠 수 있어 상시 노출 + 라벨로 안내) */

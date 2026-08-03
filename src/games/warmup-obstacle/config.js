@@ -1,4 +1,10 @@
 // ─── 모든 튜닝 포인트 집약 ───
+//
+// gesture 블록만 예외다. 똥 피하기도 같은 O/X를 쓰게 되면서 `core/pose/tuning.js`로
+// 올렸다 — 값이 두 벌이 되면 반드시 어긋난다.
+import { GESTURE } from '../../core/pose/tuning.js'
+import { getCurrentPlayerName } from '../../core/player.js'
+
 export const CONFIG = {
   canvas: { w: 1600, h: 900 },
 
@@ -68,18 +74,10 @@ export const CONFIG = {
   // stats.js가 core/gameResult.js를 직접 사용한다. 남겨둔 것은 참조 이력 확인용.
   api: { records: null },
   gameId: 'japari-run',
-  userId: 'local-default',
+  userId: getCurrentPlayerName(),   // → core/player.js (계정은 기획안 2단계)
 
   game: { lives: 10 }, // 캐릭터 목숨 — 장애물에 부딪히거나(Miss) 포즈 실패 시 1씩 차감
 
   // 손 동작(제스처) 컨트롤 — 머리 위로 동그라미(O)=시작/확인/건너뛰기, 엑스(X)=종료/뒤로가기
-  gesture: {
-    startHoldSec: 3.0,          // 카메라 준비 화면: O 포즈 유지 시간 → 캘리브레이션 시작
-    confirmHoldSec: 1.5,        // 종료 확인/게임오버 화면: O(계속)·X(종료) 유지 시간
-    tutorialHoldSec: 1.0,       // 튜토리얼 화면: O=건너뛰기, X=이전 화면으로
-    duringPlayExitHoldSec: 1.5, // 게임 진행 중: X 유지 시 종료 확인창 열기
-    armsUpMargin: 0.12,     // O: 손목이 코보다 이만큼(bodyHeight 비율) 위에 있어야 "든" 것으로 인정
-    closeMargin: 0.28,      // O: 두 손목 사이 거리가 이 이내(bodyHeight 비율)면 동그라미로 인정
-    crossSeparation: 0.15,  // X: 두 손목이 최소 이만큼(어깨너비 비율)은 벌어져야 교차로 인정(낮을수록 쉬움) — 발목 대신 어깨너비 기준으로 변경(플레이 중에도 안정적으로 인식되도록)
-  },
+  gesture: GESTURE,   // → core/pose/tuning.js
 };
