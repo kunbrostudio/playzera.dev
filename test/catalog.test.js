@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isNew, playersLabel, buildCategories, buildFeatured,
-  buildPages, labelPosition, findPageAfterRebuild, railPageCount,
+  buildRail, searchGames, railPageCount,
 } from '../src/core/catalog.js'
 
 const g = (id, over = {}) => ({
@@ -102,111 +102,85 @@ describe('히어로 추천 정렬', () => {
   })
 })
 
-describe('줄 페이지 구성', () => {
-  it('첫 방문(기록 없음)은 전체 게임부터 시작한다', () => {
-    const pages = buildPages({ all: many(6), recent: [] })
-    expect(pages).toHaveLength(2)
-    expect(pages[0].label).toBe('전체 게임')
-    expect(pages[0].items).toHaveLength(4)
-    expect(pages[1].items).toHaveLength(2)
+describe('한 줄 목록 — 최근 것이 앞', () => {
+  const list = [g('a'), g('b'), g('c'), g('d')]
+
+  it('기록이 없으면 등록 순서 그대로', () => {
+    expect(buildRail({ all: list }).map(m => m.id)).toEqual(['a', 'b', 'c', 'd'])
   })
 
-  it('기록이 있으면 이어서 하기가 0페이지', () => {
-    const pages = buildPages({ all: many(6), recent: many(3) })
-    expect(pages[0]).toMatchObject({ label: '이어서 하기', kind: 'recent' })
-    expect(pages[1].label).toBe('전체 게임')
+  it('최근에 한 게임이 맨 앞으로 온다', () => {
+    expect(buildRail({ all: list, recentIds: ['c'] }).map(m => m.id))
+      .toEqual(['c', 'a', 'b', 'd'])
   })
 
-  // 세로로 쪼개면 전체 게임까지 가는 길이 길어진다 — 좌우로 넘기기로 한 규칙
-  it('이어서 하기는 8개여도 페이지 하나다', () => {
-    const pages = buildPages({ all: many(4), recent: many(8) })
-    expect(pages.filter(p => p.kind === 'recent')).toHaveLength(1)
-    expect(pages[0].items).toHaveLength(8)
+  it('최근 목록의 순서를 그대로 지킨다', () => {
+    expect(buildRail({ all: list, recentIds: ['d', 'b'] }).map(m => m.id))
+      .toEqual(['d', 'b', 'a', 'c'])
   })
 
-  it('이어서 하기는 8개를 넘겨받아도 8개로 자른다', () => {
-    const pages = buildPages({ all: many(4), recent: many(20) })
-    expect(pages[0].items).toHaveLength(8)
+  // 앞뒤에 같은 게임이 두 번 나오면 아이는 다른 게임인 줄 안다
+  it('앞으로 올린 게임이 뒤에 또 나오지 않는다', () => {
+    const ids = buildRail({ all: list, recentIds: ['a', 'b', 'c', 'd'] }).map(m => m.id)
+    expect(ids).toEqual(['a', 'b', 'c', 'd'])
+    expect(new Set(ids).size).toBe(4)
   })
 
-  it('전체 게임은 4개씩 나뉜다', () => {
-    const pages = buildPages({ all: many(20), recent: [] })
-    expect(pages).toHaveLength(5)
-    expect(pages.every(p => p.total === 20)).toBe(true)
+  it('registry에 없는 최근 기록은 무시한다', () => {
+    expect(buildRail({ all: list, recentIds: ['없는게임', 'b'] }).map(m => m.id))
+      .toEqual(['b', 'a', 'c', 'd'])
   })
 
-  it('필터를 걸면 해당 태그만 남는다', () => {
-    const all = [g('a', { tags: ['점프'] }), g('b', { tags: ['균형'] }), g('c', { tags: ['점프'] })]
-    const pages = buildPages({ all, recent: [], filter: '점프' })
-    expect(pages[0].items.map(m => m.id)).toEqual(['a', 'c'])
-    expect(pages[0].total).toBe(2)
+  it('필터를 걸면 그 태그만 남고, 최근 순서는 그 안에서 유지된다', () => {
+    const tagged = [
+      g('a', { tags: ['점프'] }), g('b', { tags: ['균형'] }), g('c', { tags: ['점프'] }),
+    ]
+    expect(buildRail({ all: tagged, recentIds: ['c'], filter: '점프' }).map(m => m.id))
+      .toEqual(['c', 'a'])
   })
 
-  // 결과가 0개여도 페이지가 하나는 있어야 한다. 없으면 화면이 통째로 빈다.
-  it('필터 결과가 없어도 빈 페이지 하나는 만든다', () => {
-    const pages = buildPages({ all: many(4), recent: [], filter: '없는태그' })
-    expect(pages).toHaveLength(1)
-    expect(pages[0].items).toEqual([])
-    expect(pages[0].total).toBe(0)
-  })
-
-  it('이어서 하기는 필터의 영향을 받지 않는다', () => {
-    const all = [g('a', { tags: ['점프'] }), g('b', { tags: ['균형'] })]
-    const pages = buildPages({ all, recent: [g('b', { tags: ['균형'] })], filter: '점프' })
-    expect(pages[0].kind).toBe('recent')
-    expect(pages[0].items.map(m => m.id)).toEqual(['b'])
+  it('필터에 걸리지 않는 최근 게임은 앞으로 오지 않는다', () => {
+    const tagged = [g('a', { tags: ['점프'] }), g('b', { tags: ['균형'] })]
+    expect(buildRail({ all: tagged, recentIds: ['b'], filter: '점프' }).map(m => m.id))
+      .toEqual(['a'])
   })
 })
 
-describe('줄 제목 위치 표시', () => {
-  const pages = buildPages({ all: many(12), recent: many(2) })
+describe('검색 — 부모·선생님용', () => {
+  const list = [
+    g('a', { title: '똥 피하기', description: '하늘에서 떨어지는 똥', tags: ['순발력'] }),
+    g('b', { title: '로켓 타고 슝', description: '몸을 기울여요', tags: ['균형'] }),
+  ]
 
-  it('이어서 하기는 1/1', () => {
-    expect(labelPosition(pages, 0)).toEqual({ idx: 1, of: 1 })
+  it('빈 검색어는 전체를 그대로 준다', () => {
+    expect(searchGames(list, '')).toHaveLength(2)
+    expect(searchGames(list, '   ')).toHaveLength(2)
+    expect(searchGames(list, null)).toHaveLength(2)
   })
 
-  it('전체 게임은 자기들끼리 번호를 센다', () => {
-    expect(labelPosition(pages, 1)).toEqual({ idx: 1, of: 3 })
-    expect(labelPosition(pages, 3)).toEqual({ idx: 3, of: 3 })
+  it('제목으로 찾는다', () => {
+    expect(searchGames(list, '로켓').map(m => m.id)).toEqual(['b'])
   })
 
-  it('범위 밖이면 0/0', () => {
-    expect(labelPosition(pages, 99)).toEqual({ idx: 0, of: 0 })
-  })
-})
-
-describe('페이지 다시 만든 뒤 자리 찾기', () => {
-  // 게임을 처음 실행하는 순간 이어서 하기가 0페이지로 끼어들면서 뒤가 한 칸 밀린다.
-  // 인덱스로 기억했다면 보던 줄 대신 엉뚱한 줄이 뜬다.
-  it('앞에 이어서 하기가 새로 끼어들어도 보던 줄에 남는다', () => {
-    const before = buildPages({ all: many(12), recent: [] })
-    const at = 2                                    // 전체 게임 3쪽째
-    const keep = { label: '전체 게임', idx: labelPosition(before, at).idx }
-    expect(keep.idx).toBe(3)
-
-    const after = buildPages({ all: many(12), recent: many(1) })
-    const found = findPageAfterRebuild(after, keep)
-    expect(found).toBe(3)                           // 한 칸 밀린 자리
-    expect(labelPosition(after, found)).toEqual({ idx: 3, of: 3 })
+  it('설명으로도 찾는다', () => {
+    expect(searchGames(list, '하늘').map(m => m.id)).toEqual(['a'])
   })
 
-  it('보던 쪽이 사라지면 같은 라벨의 첫 쪽으로 간다', () => {
-    const after = buildPages({ all: many(4), recent: [] })   // 전체 게임 1쪽뿐
-    expect(findPageAfterRebuild(after, { label: '전체 게임', idx: 3 })).toBe(0)
+  it('태그로도 찾는다', () => {
+    expect(searchGames(list, '균형').map(m => m.id)).toEqual(['b'])
   })
 
-  it('라벨 자체가 사라지면 맨 앞으로 간다', () => {
-    const after = buildPages({ all: many(4), recent: [] })   // 이어서 하기 없음
-    expect(findPageAfterRebuild(after, { label: '이어서 하기', idx: 1 })).toBe(0)
+  it('없으면 빈 목록', () => {
+    expect(searchGames(list, '없는말')).toEqual([])
   })
 
-  it('기억한 게 없으면 맨 앞', () => {
-    expect(findPageAfterRebuild(buildPages({ all: many(4) }), null)).toBe(0)
+  it('레일에도 검색이 걸린다', () => {
+    expect(buildRail({ all: list, query: '로켓' }).map(m => m.id)).toEqual(['b'])
   })
 })
 
-describe('이어서 하기 레일 쪽수', () => {
-  it('4개 이하는 한 쪽 — 화살표가 나오지 않는다', () => {
+describe('좌우 레일 쪽수', () => {
+  it('4개 이하는 한 쪽', () => {
     expect(railPageCount(many(1))).toBe(1)
     expect(railPageCount(many(4))).toBe(1)
   })

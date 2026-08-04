@@ -56,59 +56,45 @@ export function buildFeatured(manifests, max) {
     .slice(0, max)
 }
 
-// 줄 페이지 ────────────────────────────────────────────────────
+// 한 줄 목록 ──────────────────────────────────────────────────
 
-// 0페이지는 이어서 하기(기록이 있을 때만), 그다음이 전체 게임 4개씩.
+// 화면에 뿌릴 게임 한 줄을 만든다. **최근에 한 것이 앞, 나머지가 뒤.**
 //
-// 이어서 하기는 세로로 나누지 않고 한 페이지 안에서 좌우로 넘긴다. 성격이 다른
-// 목록이라 그렇다 — 전체 게임은 훑는 목록이고, 이어서 하기는 "어제 하던 거"를
-// 집는 자리다. 세로 페이지를 잡아먹으면 전체 게임까지 가는 길이 그만큼 길어진다.
-export function buildPages({ all, recent = [], filter = null, perPage = PER_PAGE }) {
+// 이전에는 '이어서 하기'와 '전체 게임'을 세로로 나눈 두 줄이었다. 그러면 줄 사이를
+// 오가는 세로 이동 수단이 필요하고, 그 버튼이 카드 줄 바로 아래 붙는 순간
+// 손 커서로는 조준이 불가능해진다 — 1.2초 겨누는 동안 손이 조금만 내려가면
+// 엉뚱한 버튼에 걸린다.
+//
+// 한 줄로 합치면 화면에서 움직이는 방향이 좌우 하나뿐이다.
+// 아이에게도 "왼쪽이 하던 거, 오른쪽이 새로운 거"로 읽힌다.
+export function buildRail({ all, recentIds = [], filter = null, query = '' }) {
+  const list = searchGames(filter ? all.filter(m => (m.tags ?? []).includes(filter)) : all, query)
+  const byId = new Map(list.map(m => [m.id, m]))
   const out = []
+  const seen = new Set()
 
-  if (recent.length) {
-    out.push({ label: '이어서 하기', kind: 'recent', items: recent.slice(0, RECENT_MAX) })
+  for (const id of recentIds) {
+    const m = byId.get(id)
+    if (m && !seen.has(id)) { out.push(m); seen.add(id) }
   }
-
-  const list = filter ? all.filter(m => (m.tags ?? []).includes(filter)) : all
-  if (!list.length) {
-    out.push({ label: '전체 게임', kind: 'all', items: [], total: 0 })
-  } else {
-    for (let i = 0; i < list.length; i += perPage) {
-      out.push({ label: '전체 게임', kind: 'all', items: list.slice(i, i + perPage), total: list.length })
-    }
-  }
+  for (const m of list) if (!seen.has(m.id)) out.push(m)
   return out
 }
 
-// 같은 라벨 안에서 "몇 쪽 중 몇 쪽"인지 — 전체 페이지 번호보다 이쪽이 읽힌다
-export function labelPosition(pages, index) {
-  const label = pages[index]?.label
-  if (label === undefined) return { idx: 0, of: 0 }
-  const of = pages.filter(p => p.label === label).length
-  const idx = pages.slice(0, index + 1).filter(p => p.label === label).length
-  return { idx, of }
-}
-
-// 페이지를 다시 만든 뒤 보던 자리를 찾는다.
+// 제목·설명·태그를 훑는 단순 부분 문자열 검색.
 //
-// 인덱스로 기억하면 안 된다 — 게임을 처음 실행하는 순간 '이어서 하기'가 0페이지로
-// 새로 끼어들면서 뒤가 통째로 한 칸 밀린다. 그러면 보던 줄 대신 엉뚱한 줄이 뜬다.
-// 라벨과 "그 라벨 안에서 몇 쪽째"로 기억하면 밀려도 제자리를 찾는다.
-export function findPageAfterRebuild(pages, before) {
-  if (!before) return 0
-  let seen = 0
-  for (let i = 0; i < pages.length; i++) {
-    if (pages[i].label !== before.label) continue
-    seen++
-    if (seen === before.idx) return i
-  }
-  // 그 쪽이 사라졌으면 같은 라벨의 첫 쪽, 그것도 없으면 맨 앞
-  const first = pages.findIndex(p => p.label === before.label)
-  return Math.max(0, first)
+// 아이는 검색을 못 한다(키보드가 필요하고 손 제스처로는 불가능). 부모·선생님이
+// "오늘 균형 게임 뭐 있더라" 할 때 쓰는 도구다. 그래서 정교할 필요가 없다.
+export function searchGames(list, query) {
+  const q = String(query ?? '').trim().toLowerCase()
+  if (!q) return list
+  return list.filter(m => {
+    const hay = [m.title, m.description, ...(m.tags ?? [])].join(' ').toLowerCase()
+    return hay.includes(q)
+  })
 }
 
-// 이어서 하기 레일이 몇 쪽인지
+// 좌우 레일이 몇 쪽인지
 export function railPageCount(items, perPage = PER_PAGE) {
   return Math.max(1, Math.ceil((items?.length ?? 0) / perPage))
 }

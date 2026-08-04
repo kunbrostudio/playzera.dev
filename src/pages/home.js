@@ -1,36 +1,28 @@
-// 허브 홈 — 고정 히어로 + 한 줄 페이징.
+// 허브 홈 — 고정 히어로 + 한 줄 좌우 레일.
 //
 // ┌──────────────────────────────────────────────────────────┐
-// │  PLAY ZERA                          [👤 제라]  [☰]       │
+// │  PLAY ZERA            [✋ 손][👤 제라][☰]                │
 // │                                                          │
-// │   4-8세 · 순발력 · 피하기        [ 선택된 게임 비주얼 ] ● │  ← 고정. 절대 스크롤되지 않는다
-// │   똥 피하기                                            ○ │
-// │   하늘에서 떨어지는 똥을 피하세요!                      ○ │
+// │   4-8세 · 순발력           [ 선택된 게임 비주얼 ]        │  ← 고정
+// │   똥 피하기                                              │
 // │   [▶ 시작하기]                                           │
 // ├──────────────────────────────────────────────────────────┤
-// │  전체 게임 20 · 2/5            [⚙ 전체 ▾]                │
-// │  ┌──────┐┌──────┐┌──────┐┌──────┐                       │  ← 한 줄(4개)만. 페이지로 넘긴다
-// ├──────────────────────────────────────────────────────────┤
-// │  ⤒ 맨 위로  │  ▲ 위로  │  ▼ 아래로  │  ⤓ 맨 아래로     │
+// │  게임 20   1/5           [⚙ 전체 ▾]  [☷ 전체 보기]      │
+// │  ◀ ┌────┐┌────┐┌────┐┌────┐ ▶                          │  ← 좌우로만 움직인다
 // └──────────────────────────────────────────────────────────┘
 //
-// 왜 자유 스크롤을 버렸나
-//   카드 클릭이 "선택"이고 실행은 히어로에서 하는데, 스크롤로 히어로가 사라지면
-//   선택의 결과가 안 보인다. 클릭만 두 번 하고 아무 일도 안 일어난 것처럼 느껴진다.
-//   히어로를 고정하면 선택 → 확인 → 시작이 한 화면에서 끝난다.
+// 왜 좌우 하나뿐인가
+//   이전에는 '이어서 하기'(좌우)와 '전체 게임'(세로 페이지) 두 축이 섞여 있었고,
+//   세로 이동 버튼이 카드 줄 **바로 아래** 붙어 있었다. 카드를 1.2초 겨누는 동안
+//   손이 조금만 내려가면 그 버튼에 걸린다. 세로로 인접한 두 타겟은 머무르기와 상극이다.
 //
-//   03 설계의 하단 4칸 바도 원래 "한 줄씩" 이동이다. 자유 스크롤이 예외였다.
-//   그리고 STEP 6에서 손 포인터 머무르기(1.2초)가 붙으면 조준하는 동안 카드가
-//   움직여서는 안 된다. 위치 고정이 사실상 전제 조건이다.
+//   한 줄로 합치고 화살표를 좌우 끝에 두면 카드와 **가로로** 떨어진다.
+//   목록 순서는 "최근에 한 것 먼저, 그다음 나머지".
 //
-// 페이지 구성
-//   0페이지  이어서 하기 (기록이 있을 때만 — 첫 방문에는 없다)
-//   1~n페이지 전체 게임 4개씩
-//
-// 남긴 것
-//   ⬜ 손 포인터 + 머무르기 → STEP 6. 지금은 클릭·터치만.
-//   ⬜ 계정(아이 선택) → 기획안 2단계. 자리만.
-//   ⬜ 히어로 영상 — manifest `heroVideo` 슬롯은 열어뒀고 에셋이 없다.
+// 게임이 많아지면
+//   좌우 레일은 개수에 약하다(20개면 5쪽, 100개면 25쪽). 그래서 [☷ 전체 보기]로
+//   격자 목록을 따로 연다. 거기에는 검색·카테고리·세로 스크롤이 있다.
+//   **검색은 부모·선생님용이다** — 아이는 키보드를 못 쓰고 손 제스처로도 불가능하다.
 
 import { navigate, onLeave } from '../core/router.js'
 import { getAll, getEntry } from '../games/registry.js'
@@ -40,23 +32,23 @@ import { handSession } from '../core/handSession.js'
 import {
   PER_PAGE, RECENT_MAX,
   isNew, playersLabel, buildCategories, buildFeatured,
-  buildPages, labelPosition, findPageAfterRebuild, railPageCount,
+  buildRail, searchGames, railPageCount,
 } from '../core/catalog.js'
 
 // 머무르기 시간 — 03 설계 §머무르기 시간
 const DWELL_CARD = 1200   // 게임 카드: 잘못 누르면 게임이 바뀐다
-const DWELL_NAV  = 500    // 페이지 이동: 되돌리기 쉽다
-const DWELL_CAT  = 600    // 카테고리: 목록이 바뀌어 놀랄 수 있다
+const DWELL_NAV  = 500    // 화살표·스크롤: 되돌리기 쉽다
+const DWELL_CAT  = 600    // 카테고리·팝업 열고 닫기
 
-const HERO_MAX = 5           // 히어로 추천 로테이션 개수
-const HERO_INTERVAL = 6000   // 자동 전환 간격(ms)
-const HERO_VIDEO_DELAY = 800 // 선택 후 이만큼 머물러야 영상을 튼다
-const WHEEL_COOLDOWN = 420   // 휠 연속 입력 제한(ms)
+const HERO_MAX = 5
+const HERO_INTERVAL = 6000
+const HERO_VIDEO_DELAY = 800
+const WHEEL_COOLDOWN = 420
 
-function cardHTML(m) {
-  const tags = (m.tags ?? []).slice(0, 2)
+function cardHTML(m, { dwell = DWELL_CARD, maxTags = 2 } = {}) {
+  const tags = (m.tags ?? []).slice(0, maxTags)
   return `
-    <button class="pz-card" data-id="${m.id}" title="${m.title}" data-pz-hit data-pz-dwell="${DWELL_CARD}">
+    <button class="pz-card" data-id="${m.id}" title="${m.title}" data-pz-hit data-pz-dwell="${dwell}">
       <div class="pz-card-thumb">
         <img src="${m.thumbnail}" alt="" />
         ${isNew(m) ? `<span class="pz-badge-new">NEW</span>` : ''}
@@ -74,36 +66,37 @@ export function homePage(app) {
   const all = getAll()
   const byId = Object.fromEntries(all.map(m => [m.id, m]))
   const categories = buildCategories(all)
-
   const featured = buildFeatured(all, HERO_MAX)
 
-  let filter = null        // 선택된 태그 (null = 전체)
-  let page = 0             // 현재 줄 페이지 (세로)
-  let pages = []           // [{ label, kind, items }]
-  let railPage = 0         // 이어서 하기 안에서의 좌우 위치
-  let heroIdx = 0          // 자동 전환 중 featured 안에서의 위치
+  // 레일에 한 번에 몇 장을 놓을지. 좁은 화면에서는 2열이라 4개를 넣으면
+  // 두 줄로 쌓여서 "좌우 한 방향" 원칙이 깨진다.
+  const perPage = () => (window.innerWidth <= 900 ? 2 : PER_PAGE)
+
+  let filter = null        // 선택된 태그 (레일·전체 목록이 함께 쓴다)
+  let query = ''           // 전체 목록의 검색어
+  let rail = []            // 지금 레일에 뿌릴 목록
+  let railPage = 0
+  let heroIdx = 0
   let heroTimer = null
-  let selectedId = null    // 목록에서 고른 게임. null이면 자동 전환 중.
+  let selectedId = null
   let videoTimer = null
   let wheelLockedUntil = 0
 
   app.innerHTML = `
     <style>
       #pz-hub, #pz-hub *, #pz-hub *::before, #pz-hub *::after,
-      #pz-cat-backdrop, #pz-cat-backdrop * { box-sizing: border-box; }
+      .pz-backdrop, .pz-backdrop * { box-sizing: border-box; }
 
-      /* 화면 전체를 세 덩어리로 나눈다. 어느 것도 스크롤하지 않는다. */
       #pz-hub {
         position: fixed; inset: 0; overflow: hidden;
         display: flex; flex-direction: column;
         font-family: var(--font-main, 'Jua', sans-serif);
         color: #fff;
         background: linear-gradient(180deg, #2b1b52 0%, #150a2e 100%);
-        touch-action: none;   /* 브라우저 기본 스크롤 대신 스와이프로 페이지를 넘긴다 */
+        touch-action: none;
       }
 
-      /* ── 헤더 (히어로 위 오버레이) ── */
-      /* 아이폰 가로 모드에서 노치가 왼쪽에 온다. safe-area만큼 안쪽으로 민다. */
+      /* ── 헤더 ── */
       #pz-head {
         position: absolute; top: 0; left: 0; right: 0; z-index: 30;
         display: flex; align-items: center; justify-content: space-between;
@@ -119,18 +112,19 @@ export function homePage(app) {
         -webkit-tap-highlight-color: transparent;
       }
       #pz-head-right { display: flex; align-items: center; gap: 10px; }
-      .pz-head-btn {
+      .pz-btn {
         display: flex; align-items: center; gap: 8px;
-        min-height: 48px; padding: 0 clamp(12px, 1.4vw, 18px);
+        min-height: 52px; padding: 0 clamp(14px, 1.6vw, 20px);
         background: rgba(21,10,46,0.55);
         border: 2px solid rgba(255,255,255,0.2); border-radius: 9999px;
         color: #fff; font: inherit; font-size: clamp(0.85rem, 1.4vw, 1rem); font-weight: 700;
         cursor: pointer; -webkit-tap-highlight-color: transparent;
-        backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px); white-space: nowrap;
         transition: background 0.12s, border-color 0.12s, transform 0.12s;
       }
-      .pz-head-btn:hover  { background: rgba(255,255,255,0.18); border-color: #ffd23e; }
-      .pz-head-btn:active { transform: scale(0.95); }
+      .pz-btn:hover  { background: rgba(255,255,255,0.18); border-color: #ffd23e; }
+      .pz-btn:active { transform: scale(0.95); }
+      .pz-btn.primary { background: rgba(255,210,62,0.9); color: #3a2205; border-color: transparent; }
 
       /* ── 히어로 (고정) ── */
       #pz-hero {
@@ -141,8 +135,6 @@ export function homePage(app) {
         position: absolute; inset: 0;
         background-position: center; background-size: cover; background-repeat: no-repeat;
       }
-      /* hero 전용 이미지가 없는 게임은 썸네일을 크게 늘려 흐리게 깔고,
-         선명한 그림은 오른쪽 포스터 카드로 따로 보여준다. */
       #pz-hero-bg.fallback { filter: blur(28px) saturate(1.25) brightness(0.8); transform: scale(1.15); }
       #pz-hero-video {
         position: absolute; inset: 0; width: 100%; height: 100%;
@@ -191,7 +183,6 @@ export function homePage(app) {
       #pz-hero-play:hover  { transform: translateY(-2px); box-shadow: 0 7px 0 #c89800, 0 14px 32px rgba(0,0,0,0.4); }
       #pz-hero-play:active { transform: translateY(3px); box-shadow: 0 2px 0 #c89800; }
 
-      /* 오른쪽 포스터 — 배경만으로는 무슨 게임인지 안 읽히는 경우가 있다 */
       #pz-hero-poster {
         position: absolute; z-index: 2;
         right: clamp(24px, 5vw, 90px); top: 50%; transform: translateY(-50%);
@@ -210,57 +201,53 @@ export function homePage(app) {
       @keyframes pzPosterIn { from { opacity: 0; transform: translateY(-50%) scale(0.94); } to { opacity: 1; transform: translateY(-50%) scale(1); } }
       .pz-poster-anim { animation: pzPosterIn 0.5s ease-out; }
 
-      /* ── 한 줄 영역 ── */
-      #pz-row-sec {
+      /* ── 레일 ── */
+      #pz-rail-sec {
         flex: none; position: relative; z-index: 5;
         background: linear-gradient(0deg, #150a2e 30%, rgba(21,10,46,0.72) 100%);
+        padding-bottom: env(safe-area-inset-bottom);
       }
-      /* 초광폭 화면에서 카드가 무한정 커지지 않게 — 커지면 히어로 자리를 뺏는다 */
-      #pz-row-in {
+      #pz-rail-in {
         max-width: 1760px; margin: 0 auto;
-        padding: 0 clamp(16px, 2.4vw, 36px) clamp(10px, 1.6vh, 18px);
+        padding: 0 clamp(16px, 2.4vw, 36px) clamp(12px, 2vh, 22px);
       }
-      #pz-row-head {
+      #pz-rail-head {
         display: flex; align-items: center; justify-content: space-between;
         gap: 12px; padding: clamp(8px, 1.4vh, 16px) 0 clamp(6px, 1vh, 12px);
       }
-      #pz-row-title {
+      #pz-rail-title {
         font-size: clamp(1rem, 1.9vw, 1.4rem); font-weight: 900;
         display: flex; align-items: baseline; gap: 10px;
         text-shadow: 0 2px 10px rgba(0,0,0,0.5);
       }
-      #pz-row-count { font-size: 0.72em; opacity: 0.55; font-weight: 700; }
+      #pz-rail-count { font-size: 0.72em; opacity: 0.55; font-weight: 700; }
+      #pz-rail-actions { display: flex; gap: 8px; }
 
-      /* 좌우 화살표 자리는 어느 페이지에서든 항상 비워둔다.
-         '이어서 하기'에서만 쓰이지만, 필요할 때만 자리를 만들면 페이지를 넘길 때
-         카드 폭이 달라져 화면이 덜컥거린다. */
-      #pz-row-wrap { display: flex; align-items: stretch; gap: clamp(8px, 1vw, 14px); }
-      .pz-rail-arrow {
-        flex: none; width: clamp(44px, 3.4vw, 62px);
-        background: rgba(255,255,255,0.07);
-        border: 2px solid rgba(255,255,255,0.14); border-radius: 18px;
-        color: #fff; font-size: 1.4rem; cursor: pointer;
+      #pz-rail-wrap { display: flex; align-items: stretch; gap: clamp(10px, 1.2vw, 16px); }
+      /* 화살표는 카드와 **가로로** 떨어져 있다. 세로 인접이 아니라 오조준이 적다.
+         손으로 겨눌 수 있어야 하므로 폭도 96px 규칙에 가깝게 잡는다. */
+      .pz-arrow {
+        flex: none; width: clamp(56px, 5vw, 88px);
+        background: rgba(255,255,255,0.08);
+        border: 2px solid rgba(255,255,255,0.16); border-radius: 20px;
+        color: #fff; font-size: 1.6rem; cursor: pointer;
         -webkit-tap-highlight-color: transparent;
         transition: background 0.12s, opacity 0.12s;
       }
-      .pz-rail-arrow:hover:not(:disabled) { background: rgba(255,255,255,0.16); }
-      .pz-rail-arrow:disabled { opacity: 0.3; cursor: default; }
-      .pz-rail-arrow.hide { visibility: hidden; }
+      .pz-arrow:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
+      .pz-arrow:disabled { opacity: 0.28; cursor: default; }
 
-      #pz-row {
+      #pz-rail-row {
         flex: 1; min-width: 0;
         display: grid; grid-template-columns: repeat(4, 1fr);
+        grid-auto-rows: max-content;   /* 전체 목록과 같은 이유 — #pz-all-grid 주석 참고 */
         gap: clamp(10px, 1.2vw, 18px);
       }
-      #pz-row-empty { grid-column: 1 / -1; opacity: 0.55; padding: 24px 0; }
+      #pz-rail-empty { grid-column: 1 / -1; opacity: 0.55; padding: 24px 0; }
 
-      /* 넘어간 방향으로 살짝 밀려 들어온다 — 세로는 페이지, 가로는 이어서 하기 레일 */
-      @keyframes pzRowUp    { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
-      @keyframes pzRowDown  { from { opacity: 0; transform: translateY(-22px); } to { opacity: 1; transform: none; } }
+
       @keyframes pzRowLeft  { from { opacity: 0; transform: translateX(34px); } to { opacity: 1; transform: none; } }
       @keyframes pzRowRight { from { opacity: 0; transform: translateX(-34px); } to { opacity: 1; transform: none; } }
-      .pz-row-up    { animation: pzRowUp 0.28s ease-out; }
-      .pz-row-down  { animation: pzRowDown 0.28s ease-out; }
       .pz-row-left  { animation: pzRowLeft 0.26s ease-out; }
       .pz-row-right { animation: pzRowRight 0.26s ease-out; }
 
@@ -272,21 +259,27 @@ export function homePage(app) {
         border: 2px solid rgba(255,255,255,0.14); border-radius: 20px;
         color: inherit; font: inherit; text-align: left; cursor: pointer;
         -webkit-tap-highlight-color: transparent;
-        backdrop-filter: blur(4px);
+        /* 무엇이 넘치든 카드 밖으로는 나가지 않는다.
+           이미지 하나가 삐져나오면 아래 카드까지 밀려 화면 전체가 어그러진다. */
+        overflow: hidden;
         transition: transform 0.12s, background 0.12s, border-color 0.12s;
       }
       .pz-card:hover  { background: rgba(255,255,255,0.14); border-color: rgba(255,210,62,0.6); transform: translateY(-3px); }
       .pz-card:active { transform: scale(0.97); }
-      /* 지금 히어로에 떠 있는 카드 */
       .pz-card.selected {
         border-color: #ffd23e; background: rgba(255,210,62,0.14);
         box-shadow: 0 0 0 3px rgba(255,210,62,0.25), 0 10px 30px rgba(0,0,0,0.45);
       }
       .pz-card.selected .pz-card-title { color: #ffd23e; }
-      /* 높이를 뷰포트에 묶는다. 비율로 두면 넓은 화면에서 줄이 세로로 커져
-         고정 히어로가 눌린다 — 이 레이아웃에서는 세로가 예산이다. */
+      /* 썸네일·제목·태그 모두 flex 축소를 막는다.
+         카드 높이가 모자랄 때 flex가 자식을 눌러버려서 제목이 반만 보였다. */
+      /* 높이는 반드시 명시한다.
+         aspect-ratio + height:auto 로 두면 안쪽 img의 height:100% 가
+         기준 없는 높이를 만나 원본 크기로 커지고, 카드 높이가 이미지 로드
+         시점에 따라 달라진다. 값을 못 박아 두면 그 흔들림이 사라진다. */
       .pz-card-thumb {
-        position: relative; width: 100%; height: clamp(104px, 17vh, 190px);
+        position: relative; flex: none; width: 100%;
+        height: clamp(96px, 16vh, 170px);
         background: rgba(0,0,0,0.3); border-radius: 14px; overflow: hidden;
       }
       .pz-card-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -300,43 +293,39 @@ export function homePage(app) {
         background: rgba(0,0,0,0.55); color: #fff;
         font-size: 0.65rem; font-weight: 700; padding: 3px 8px; border-radius: 9999px;
       }
+      /* 한 줄로 자르되 **잘라낸 티가 나게** — line-clamp는 디센더(ㅑ,ㅕ의 아래)를
+         먹어서 글자가 반만 보였다. 말줄임이 읽기에도 낫다. */
       .pz-card-title {
-        font-size: clamp(0.85rem, 1.35vw, 1.05rem); font-weight: 900; line-height: 1.25;
-        display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
+        flex: none;
+        font-size: clamp(0.85rem, 1.3vw, 1.02rem); font-weight: 900;
+        line-height: 1.35; min-height: 1.35em;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
-      .pz-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
+      .pz-card-tags { flex: none; display: flex; flex-wrap: nowrap; overflow: hidden; gap: 5px; margin-top: auto; }
       .pz-card-tags span {
         font-size: 0.68rem; font-weight: 700; opacity: 0.8;
         background: rgba(255,255,255,0.1); padding: 2px 8px; border-radius: 9999px;
       }
 
-      /* ── 하단 4칸 바 ── */
-      #pz-navbar {
-        flex: none; display: grid; grid-template-columns: repeat(4, 1fr);
-        gap: 2px; background: rgba(0,0,0,0.4);
-        border-top: 2px solid rgba(255,255,255,0.12);
-        /* 홈 인디케이터(가로 막대)에 버튼이 깔리지 않게 */
-        padding-bottom: env(safe-area-inset-bottom);
+      /* 손 포인터가 겨누고 있는 대상 */
+      .pz-hover {
+        outline: 3px solid #ffd23e !important;
+        outline-offset: 2px;
+        background: rgba(255,210,62,0.18) !important;
       }
-      /* 손 커서로 겨눌 수 있어야 한다. 03 설계의 최소 타겟 96×96을 세로로도 지킨다 —
-         화면 맨 아래는 팔을 가장 많이 내려야 닿는 자리라 얇으면 못 맞춘다. */
-      .pz-nav {
-        min-height: clamp(64px, 9vh, 96px);
-        background: none; border: none; color: #fff; font: inherit;
-        font-size: clamp(0.8rem, 1.3vw, 1rem); font-weight: 700;
-        cursor: pointer; -webkit-tap-highlight-color: transparent;
-        transition: background 0.12s, opacity 0.12s;
-      }
-      .pz-nav:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
-      .pz-nav:disabled { opacity: 0.32; cursor: default; }
 
-      /* ── 카테고리 팝업 ── */
-      #pz-cat-backdrop {
+      /* ── 팝업 공통 ── */
+      .pz-backdrop {
         position: fixed; inset: 0; z-index: 200;
-        background: rgba(8,3,20,0.68);
+        background: rgba(8,3,20,0.75); backdrop-filter: blur(4px);
         display: none; align-items: center; justify-content: center; padding: 20px;
       }
-      #pz-cat-backdrop.open { display: flex; }
+      .pz-backdrop.open { display: flex; }
+      /* 둘 다 열릴 일은 없어졌지만, 같은 z-index면 **나중에 그려진 쪽**이 위로 온다.
+         한 번 당한 함정이라 순서를 못 박아 둔다. */
+      #pz-cat-backdrop { z-index: 210; }
+
+      /* 카테고리 팝업 */
       #pz-cat {
         background: #2c1a58; border: 3px solid rgba(255,255,255,0.18);
         border-radius: 28px; padding: clamp(18px, 3vh, 30px);
@@ -358,14 +347,129 @@ export function homePage(app) {
       .pz-cat-tile.on { border-color: #ffd23e; background: rgba(255,210,62,0.16); }
       .pz-cat-tile .n { margin-left: auto; opacity: 0.6; font-size: 0.85em; }
 
-      /* ── 손 포인터 ── */
-      /* 커서가 지금 어느 버튼을 겨누고 있는지 대상 쪽에서도 보여줘야 한다.
-         커서 링만으로는 "이게 눌리는 중인가"가 안 읽힌다. */
-      .pz-hover {
-        outline: 3px solid #ffd23e !important;
-        outline-offset: 2px;
-        background: rgba(255,210,62,0.18) !important;
+      /* ── 전체 목록 팝업 ── */
+      #pz-all {
+        display: flex; flex-direction: column;
+        width: min(1400px, 100%); height: min(88vh, 100%);
+        background: #221046; border: 3px solid rgba(255,255,255,0.18);
+        border-radius: 28px; overflow: hidden;
       }
+      /* 제목과 닫기는 **항상 한 줄**. 좁은 화면에서 닫기가 아래로 떨어지면
+         "닫는 방법"을 찾느라 헤매게 된다. */
+      #pz-all-head {
+        flex: none; display: flex; align-items: center; gap: 12px;
+        padding: clamp(14px, 2vh, 22px) clamp(16px, 2vw, 28px) 8px;
+      }
+      #pz-all-title { font-size: clamp(1.05rem, 2vw, 1.4rem); font-weight: 900; margin-right: auto; }
+
+      /* 검색은 부모·선생님용이다. 제목 줄 아래로 내려 아이 동선에서 비켜둔다.
+         접힌 카테고리 버튼도 같은 줄 **오른쪽 끝**에 붙는다 — 줄을 하나 더 쓰면
+         가로로 누운 폰(세로 400px)에서 목록이 설 자리가 없어진다. */
+      #pz-all-search-row {
+        flex: none; display: flex; align-items: center; gap: 12px;
+        padding: 0 clamp(16px, 2vw, 28px) 10px;
+      }
+      #pz-search {
+        flex: 1 1 auto; min-width: 0; display: block; max-width: 420px;
+        min-height: 52px; padding: 0 18px; border-radius: 9999px;
+        background: rgba(0,0,0,0.35); border: 2px solid rgba(255,255,255,0.2);
+        color: #fff; font: inherit; font-size: 1rem;
+      }
+      #pz-search::placeholder { color: rgba(255,255,255,0.4); }
+      #pz-search:focus { outline: none; border-color: #ffd23e; }
+
+      /* 카테고리 — 넓은 화면에서는 칩을 한 줄로 늘어놓고 가로 스크롤,
+         좁은 화면에서는 버튼 하나로 접어 카테고리 팝업을 연다.
+         (칩이 여러 줄로 쌓이면 정작 게임 목록이 설 자리가 없어진다) */
+      #pz-chips {
+        flex: none; display: flex; gap: 8px;
+        overflow-x: auto; scrollbar-width: none;
+        padding: 0 clamp(16px, 2vw, 28px) 4px;   /* 나머지 8px는 그리드의 padding-top */
+      }
+      #pz-chips::-webkit-scrollbar { height: 0; }
+      #pz-chips .pz-chip { flex: none; }
+
+      /* 접힌 카테고리 = 셀렉트 박스.
+         **팝업을 또 띄우지 않는다.** 전체 보기 팝업 위에 두 번째 모달을 얹으면
+         겹침 순서·닫기 순서·손 커서 타겟이 전부 두 겹이 된다(실제로 뒤에 열려서
+         안 열린 줄 알았다). 버튼 바로 아래로 펼치는 목록이면 그럴 일이 없다. */
+      #pz-cat-select { position: relative; flex: none; margin-left: auto; display: none; }
+      #pz-chips-btn { width: 100%; }
+      #pz-chips-btn[aria-expanded="true"] { border-color: #ffd23e; }
+      #pz-chips-btn[aria-expanded="true"] #pz-chips-caret { transform: rotate(180deg); }
+      #pz-chips-caret { display: inline-block; transition: transform 0.15s; }
+      #pz-cat-drop {
+        position: absolute; top: calc(100% + 8px); right: 0; z-index: 20;
+        display: none; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+        gap: 8px; width: min(560px, calc(100vw - 56px));
+        max-height: min(340px, 52vh); overflow-y: auto; scrollbar-width: none;
+        padding: 10px; border-radius: 20px;
+        background: #2b1655; border: 2px solid rgba(255,255,255,0.22);
+        box-shadow: 0 18px 44px rgba(0,0,0,0.55);
+      }
+      #pz-cat-drop::-webkit-scrollbar { width: 0; }
+      #pz-cat-drop.open { display: grid; }
+      .pz-cat-opt {
+        display: flex; align-items: center; gap: 10px;
+        min-height: 56px; padding: 0 14px;
+        background: rgba(255,255,255,0.07);
+        border: 2px solid rgba(255,255,255,0.14); border-radius: 14px;
+        color: #fff; font: inherit; font-weight: 800; font-size: 0.95rem;
+        text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+        transition: background 0.12s, border-color 0.12s;
+      }
+      .pz-cat-opt:hover { background: rgba(255,255,255,0.16); }
+      .pz-cat-opt.on { border-color: #ffd23e; background: rgba(255,210,62,0.18); }
+      .pz-cat-opt .n { margin-left: auto; opacity: 0.6; font-size: 0.85em; }
+      .pz-chip {
+        min-height: 48px; padding: 0 16px; border-radius: 9999px;
+        background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.16);
+        color: #fff; font: inherit; font-weight: 800; font-size: 0.92rem;
+        cursor: pointer; -webkit-tap-highlight-color: transparent;
+      }
+      .pz-chip.on { border-color: #ffd23e; background: rgba(255,210,62,0.18); }
+
+      #pz-all-body { flex: 1; min-height: 0; display: flex; gap: 10px; padding: 0 clamp(16px, 2vw, 28px) clamp(14px, 2vh, 22px); }
+      #pz-all-grid {
+        flex: 1; min-width: 0; overflow-y: auto;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        /* grid-auto-rows를 반드시 못 박는다.
+           높이가 정해진(overflow:auto) 그리드 안에서 auto 행은 컨테이너 높이를
+           행 개수만큼 **똑같이 나눠 가졌다**. 카드 내용은 255px인데 행이 147px로
+           잘렸고, 카드의 overflow:hidden이 넘친 제목·태그를 그대로 먹어버렸다.
+           그래서 화면에는 썸네일만 남았다. max-content면 행이 내용만큼 자란다. */
+        grid-auto-rows: max-content;
+        gap: clamp(10px, 1.2vw, 18px); align-content: start;
+        /* hover하면 카드가 3px 떠오른다. 스크롤 컨테이너는 **패딩 박스 경계**에서
+           자르므로, 위에 여유를 안 주면 맨 윗줄만 머리가 잘려 보인다.
+           그만큼 위 요소(칩 줄)의 아래 여백을 줄여 전체 간격은 그대로 둔다. */
+        padding-top: 8px;
+        scrollbar-width: none;
+      }
+      #pz-all-grid::-webkit-scrollbar { width: 0; }
+      /* 팝업은 한 화면에 여러 줄을 보여주는 곳이다. 레일보다 썸네일을 낮게 잡아야
+         스크롤 없이 세 줄이 들어온다(손 제스처 스크롤은 느리다). */
+      #pz-all-grid .pz-card-thumb { height: clamp(92px, 12vh, 150px); }
+      #pz-all-empty { grid-column: 1 / -1; opacity: 0.55; text-align: center; padding: 40px 0; }
+
+      /* 세로 스크롤 레일 — 카드와 가로로 떨어져 있어 손으로 겨눠도 안 겹친다.
+         높이는 **고정하지 않는다.** 96px 두 개 + 간격이 본문 높이보다 크면
+         justify-content:center가 버튼을 위로 밀어내 카테고리 줄과 겹쳐 보였다
+         (가로로 누운 폰에서 실제로 그랬다). 남은 높이를 나눠 갖게 한다. */
+      #pz-all-scroll {
+        flex: none; min-height: 0; display: flex; flex-direction: column;
+        justify-content: center; gap: 12px;
+      }
+      .pz-scroll-btn {
+        flex: 1 1 0; min-height: 48px; max-height: clamp(96px, 14vh, 140px);
+        width: clamp(56px, 4.5vw, 80px);
+        background: rgba(255,255,255,0.08);
+        border: 2px solid rgba(255,255,255,0.16); border-radius: 20px;
+        color: #fff; font-size: 1.5rem; cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .pz-scroll-btn:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
+      .pz-scroll-btn:disabled { opacity: 0.28; cursor: default; }
 
       /* ── 토스트 ── */
       #pz-toast {
@@ -376,7 +480,6 @@ export function homePage(app) {
       }
       #pz-toast.on { opacity: 1; }
 
-      /* ── 좁은 화면 ── */
       @media (max-width: 1100px) {
         #pz-hero-poster { display: none; }
         #pz-hero-inner  { width: min(560px, 86%); }
@@ -387,11 +490,45 @@ export function homePage(app) {
         }
       }
       @media (max-width: 900px) {
-        #pz-row { grid-template-columns: repeat(2, 1fr); }
+        /* 레일은 **한 줄**이어야 한다. 2열로 줄이면서 4개를 넣으면 두 줄로 쌓여
+           세로 이동이 다시 생긴다 — perPage를 함께 2로 줄인다(JS). */
+        #pz-rail-row { grid-template-columns: repeat(2, 1fr); }
         #pz-cat-list { grid-template-columns: 1fr; }
+        #pz-all-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+        .pz-arrow { width: clamp(44px, 12vw, 60px); }
+      }
+
+      /* 칩 한 줄을 접는 조건은 **폭만이 아니다.**
+         가로로 누운 폰(932×400)은 폭은 넉넉한데 세로가 400px이라, 칩 한 줄이
+         목록과 ▲▼ 버튼의 자리를 통째로 먹었다. 접은 버튼은 검색창과 같은 줄
+         오른쪽 끝에 붙어서 줄을 새로 만들지 않는다. */
+      @media (max-width: 900px), (max-height: 620px) {
+        #pz-chips { display: none; }
+        #pz-cat-select { display: block; }
+      }
+
+      /* 가로로 누운 폰 — 세로가 귀하다. 머리글 여백과 썸네일을 함께 줄인다 */
+      @media (max-height: 620px) {
+        .pz-backdrop { padding: 10px; }
+        #pz-all { height: 100%; }
+        #pz-all-head { padding-top: clamp(10px, 2vh, 16px); padding-bottom: 4px; }
+        #pz-all-search-row { padding-bottom: 6px; }
+        #pz-all-grid .pz-card-thumb { height: clamp(70px, 20vh, 110px); }
+      }
+      /* 400px짜리 세로에서는 한 줄 반밖에 안 보인다. 태그를 접어 한 줄을 더 번다.
+         고르는 데 꼭 필요한 건 썸네일과 이름이고, 태그는 카테고리 버튼이 대신한다. */
+      @media (max-height: 480px) {
+        .pz-card-tags { display: none; }
+      }
+
+      /* 가로로 눕힌 폰처럼 세로가 짧으면 히어로 글자가 헤더와 겹친다 */
+      @media (max-height: 480px) {
+        #pz-hero-inner { padding-top: 68px; }
+        #pz-hero-desc { display: none; }
+        #pz-hero-title { font-size: clamp(1.2rem, 3.4vw, 1.8rem); }
       }
       @media (prefers-reduced-motion: reduce) {
-        .pz-hero-anim, .pz-bg-anim, .pz-poster-anim, .pz-row-up, .pz-row-down { animation: none; }
+        .pz-hero-anim, .pz-bg-anim, .pz-poster-anim, .pz-row-left, .pz-row-right { animation: none; }
       }
     </style>
 
@@ -399,12 +536,11 @@ export function homePage(app) {
       <header id="pz-head">
         <button id="pz-logo">PLAY ZERA</button>
         <div id="pz-head-right">
-          <button class="pz-head-btn" id="pz-hand" data-pz-hit data-pz-dwell="${DWELL_CAT}">✋ <span id="pz-hand-label">손으로 고르기</span></button>
-          <button class="pz-head-btn" id="pz-account">👤 <span>제라</span></button>
-          <button class="pz-head-btn" id="pz-menu">☰</button>
+          <button class="pz-btn" id="pz-hand" data-pz-hit data-pz-dwell="${DWELL_CAT}">✋ <span id="pz-hand-label">손으로 고르기</span></button>
+          <button class="pz-btn" id="pz-account">👤 <span>제라</span></button>
+          <button class="pz-btn" id="pz-menu">☰</button>
         </div>
       </header>
-
 
       <section id="pz-hero">
         <div id="pz-hero-bg"></div>
@@ -419,35 +555,55 @@ export function homePage(app) {
         </div>
       </section>
 
-      <section id="pz-row-sec">
-        <div id="pz-row-in">
-          <div id="pz-row-head">
-            <div id="pz-row-title">
-              <span id="pz-row-label">전체 게임</span>
-              <span id="pz-row-count"></span>
+      <section id="pz-rail-sec">
+        <div id="pz-rail-in">
+          <div id="pz-rail-head">
+            <div id="pz-rail-title">
+              <span id="pz-rail-label">게임</span>
+              <span id="pz-rail-count"></span>
             </div>
-            <button class="pz-head-btn" id="pz-filter" data-pz-hit data-pz-dwell="${DWELL_CAT}">⚙ <span id="pz-filter-label">전체</span> ▾</button>
+            <div id="pz-rail-actions">
+              <button class="pz-btn" id="pz-filter" data-pz-hit data-pz-dwell="${DWELL_CAT}">⚙ <span id="pz-filter-label">전체</span> ▾</button>
+              <button class="pz-btn" id="pz-open-all" data-pz-hit data-pz-dwell="${DWELL_CAT}">☷ 전체 보기</button>
+            </div>
           </div>
-          <div id="pz-row-wrap">
-            <button class="pz-rail-arrow hide" id="pz-rail-prev" aria-label="이전" data-pz-hit data-pz-dwell="${DWELL_NAV}">◀</button>
-            <div id="pz-row"></div>
-            <button class="pz-rail-arrow hide" id="pz-rail-next" aria-label="다음" data-pz-hit data-pz-dwell="${DWELL_NAV}">▶</button>
+          <div id="pz-rail-wrap">
+            <button class="pz-arrow" id="pz-prev" aria-label="이전" data-pz-hit data-pz-dwell="${DWELL_NAV}">◀</button>
+            <div id="pz-rail-row"></div>
+            <button class="pz-arrow" id="pz-next" aria-label="다음" data-pz-hit data-pz-dwell="${DWELL_NAV}">▶</button>
           </div>
         </div>
       </section>
-
-      <nav id="pz-navbar">
-        <button class="pz-nav" data-pz-hit data-pz-dwell="${DWELL_NAV}" data-nav="top">⤒ 맨 위로</button>
-        <button class="pz-nav" data-pz-hit data-pz-dwell="${DWELL_NAV}" data-nav="up">▲ 위로</button>
-        <button class="pz-nav" data-pz-hit data-pz-dwell="${DWELL_NAV}" data-nav="down">▼ 아래로</button>
-        <button class="pz-nav" data-pz-hit data-pz-dwell="${DWELL_NAV}" data-nav="bottom">⤓ 맨 아래로</button>
-      </nav>
     </div>
 
-    <div id="pz-cat-backdrop">
+    <div class="pz-backdrop" id="pz-cat-backdrop">
       <div id="pz-cat">
         <h2>어떤 운동을 해볼까?</h2>
         <div id="pz-cat-list"></div>
+      </div>
+    </div>
+
+    <div class="pz-backdrop" id="pz-all-backdrop">
+      <div id="pz-all">
+        <div id="pz-all-head">
+          <div id="pz-all-title">전체 게임 <span id="pz-all-count"></span></div>
+          <button class="pz-btn" id="pz-all-close" data-pz-hit data-pz-dwell="${DWELL_CAT}">✕ 닫기</button>
+        </div>
+        <div id="pz-all-search-row">
+          <input id="pz-search" type="search" placeholder="게임 이름·태그 검색" autocomplete="off" />
+          <div id="pz-cat-select">
+            <button class="pz-btn" id="pz-chips-btn" aria-haspopup="listbox" aria-expanded="false" data-pz-hit data-pz-dwell="${DWELL_CAT}">⚙ <span id="pz-chips-label">전체</span> <span id="pz-chips-caret">▾</span></button>
+            <div id="pz-cat-drop" role="listbox"></div>
+          </div>
+        </div>
+        <div id="pz-chips"></div>
+        <div id="pz-all-body">
+          <div id="pz-all-grid"></div>
+          <div id="pz-all-scroll">
+            <button class="pz-scroll-btn" id="pz-all-up" aria-label="위로" data-pz-hit data-pz-dwell="${DWELL_NAV}">▲</button>
+            <button class="pz-scroll-btn" id="pz-all-down" aria-label="아래로" data-pz-hit data-pz-dwell="${DWELL_NAV}">▼</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -456,12 +612,18 @@ export function homePage(app) {
 
   const $ = sel => app.querySelector(sel)
   const hub = $('#pz-hub')
-  const rowEl = $('#pz-row')
+  const rowEl = $('#pz-rail-row')
   const heroBg = $('#pz-hero-bg')
   const heroVideo = $('#pz-hero-video')
   const heroPoster = $('#pz-hero-poster')
   const heroPosterImg = heroPoster.querySelector('img')
   const heroInner = $('#pz-hero-inner')
+  const catBackdrop = $('#pz-cat-backdrop')
+  const allBackdrop = $('#pz-all-backdrop')
+  const allGrid = $('#pz-all-grid')
+
+  const anyPopupOpen = () =>
+    catBackdrop.classList.contains('open') || allBackdrop.classList.contains('open')
 
   // ── 토스트 ──
   const toastEl = $('#pz-toast')
@@ -473,157 +635,119 @@ export function homePage(app) {
     toastTimer = setTimeout(() => toastEl.classList.remove('on'), 1600)
   }
 
-  // ── 페이지 구성 ──
-  // 규칙 자체는 core/catalog.js에 있다 (테스트 가능하게 떼어냄).
-  // 여기서는 registry·recent를 읽어 그 함수에 넘기는 일만 한다.
-  //
-  // 중복은 recent.js가 거른다 — 같은 게임을 다시 하면 뒤 항목을 지우고 맨 앞으로 올린다.
-  const currentPages = () => buildPages({
-    all,
-    recent: getRecentIds(id => !!byId[id]).slice(0, RECENT_MAX).map(id => byId[id]),
-    filter,
-  })
-
-  // dir: 세로 페이지 이동 방향(+1 아래 / -1 위), rail: 좌우 레일 이동 방향
-  function renderRow(dir = 0, rail = 0) {
-    const p = pages[page]
-    if (!p) return
-
-    const isRecent = p.kind === 'recent'
-    const railPages = isRecent ? railPageCount(p.items) : 1
-    if (isRecent) railPage = Math.max(0, Math.min(railPage, railPages - 1))
-    else railPage = 0
-
-    const items = isRecent
-      ? p.items.slice(railPage * PER_PAGE, railPage * PER_PAGE + PER_PAGE)
-      : p.items
-
-    $('#pz-row-label').textContent = p.label
-    const { idx, of } = labelPosition(pages, page)
-    $('#pz-row-count').textContent = isRecent
-      ? (railPages > 1 ? `${railPage + 1}/${railPages}` : `${p.items.length}개`)
-      : `${p.total ?? 0}개 · ${idx}/${of}`
-
-    // 화살표는 이어서 하기가 4개를 넘을 때만 나타난다. 자리는 항상 잡혀 있다.
-    const showArrows = isRecent && railPages > 1
-    const prev = $('#pz-rail-prev')
-    const next = $('#pz-rail-next')
-    prev.classList.toggle('hide', !showArrows)
-    next.classList.toggle('hide', !showArrows)
-    prev.disabled = !showArrows || railPage <= 0
-    next.disabled = !showArrows || railPage >= railPages - 1
-
-    rowEl.innerHTML = items.length
-      ? items.map(cardHTML).join('')
-      : `<p id="pz-row-empty">이 분류에는 아직 게임이 없어요.</p>`
-
-    rowEl.querySelectorAll('.pz-card-thumb img').forEach(img => {
-      img.addEventListener('error', () => { img.style.visibility = 'hidden' })
-    })
-    rowEl.querySelectorAll('.pz-card').forEach(card => {
-      const id = card.dataset.id
-
-      // 올려놓기만 해도 히어로가 바뀐다. 마우스도 손도 같다 —
-      // "이게 무슨 게임이지"를 누르기 전에 확인할 수 있어야 한다.
-      card.addEventListener('mouseenter', () => selectGame(id))
-      card.addEventListener('pz-pointer-enter', () => selectGame(id))
-
-      // 마우스는 클릭 = 선택. 큰 화면에서 한 번 보고 시작하는 흐름이 어색하지 않다.
-      card.addEventListener('click', () => selectGame(id))
-
-      // 손은 머무르기 = 바로 실행.
-      //
-      // 손으로는 "카드에 1.2초 머물러 고르고 → 히어로로 커서를 옮겨 다시 1.2초"가
-      // 너무 멀다. 팔을 두 번 조준하는 동안 아이는 이미 지친다.
-      // 이미 카드를 1.2초 겨눴다는 것 자체가 충분히 분명한 의사표시다.
-      card.addEventListener('pz-dwell', e => {
-        e.preventDefault()   // click()으로 떨어지지 않게 — 그러면 선택만 되고 만다
-        selectGame(id)
-        openGame(id)
-      })
-    })
-    syncSelectedCards()
-
-    const cls = dir > 0 ? 'pz-row-up' : dir < 0 ? 'pz-row-down'
-      : rail > 0 ? 'pz-row-left' : rail < 0 ? 'pz-row-right' : null
-    rowEl.classList.remove('pz-row-up', 'pz-row-down', 'pz-row-left', 'pz-row-right')
-    if (cls) {
-      void rowEl.offsetWidth
-      rowEl.classList.add(cls)
-    }
-    syncNav()
-  }
-
-  function goPage(next, dir = 0) {
-    const clamped = Math.max(0, Math.min(pages.length - 1, next))
-    if (clamped === page && dir !== 0) return
-    page = clamped
-    renderRow(dir)
-  }
-
-  // 이어서 하기 안에서 좌우로 한 화면(4개)씩. 가속 없음 — 03 설계 §이어서 하기.
-  function goRail(delta) {
-    const p = pages[page]
-    if (p?.kind !== 'recent') return
-    const railPages = railPageCount(p.items)
-    const next = Math.max(0, Math.min(railPages - 1, railPage + delta))
-    if (next === railPage) return
-    railPage = next
-    renderRow(0, delta)
-  }
-
-  // 페이지를 다시 만든 뒤에도 보던 자리에 남아야 한다 (규칙은 catalog.js 참조)
-  function rebuildPages({ keepPage = true } = {}) {
-    const before = pages.length
-      ? { label: pages[page].label, idx: labelPosition(pages, page).idx }
-      : null
-    pages = currentPages()
-    page = keepPage ? findPageAfterRebuild(pages, before) : 0
-    renderRow()
-  }
-
   // ── 선택 / 실행 ──
-  //
-  // 카드 클릭은 "선택"이다. 실제 실행은 히어로의 시작 버튼 하나뿐이라
-  // 목록을 훑다가 잘못 눌러 게임이 켜지는 일이 없다.
   function selectGame(id) {
     if (!byId[id]) return
     selectedId = id
-
-    // 고른 순간 추천 자동 전환은 멈춘다. 보고 있는 게 바뀌면 곤란하다.
     clearInterval(heroTimer)
     heroTimer = null
-
     const i = featured.findIndex(f => f.id === id)
     if (i >= 0) heroIdx = i
-
     renderHero()
-    syncSelectedCards()
+    syncSelected()
   }
 
-  function syncSelectedCards() {
-    rowEl.querySelectorAll('.pz-card').forEach(card => {
+  function syncSelected() {
+    app.querySelectorAll('.pz-card').forEach(card => {
       card.classList.toggle('selected', card.dataset.id === selectedId)
     })
   }
 
   function openGame(id) {
-    // 더미 카드(개발용)는 갈 곳이 없다. 대신 최근 목록에는 넣어서
-    // 이어서 하기 페이지를 확인할 수 있게 한다.
     if (byId[id]?.placeholder) {
       markPlayed(id)
-      rebuildPages()
+      refreshRail()
       toast('아직 준비 중인 게임이에요')
       return
     }
     navigate(getEntry(id))
   }
 
-  // ── 히어로 ──
+  // 카드 한 장에 붙는 동작.
+  //
+  //   올려놓기(마우스 hover · 손 커서 진입) → 히어로 즉시 변경
+  //   손 머무르기 완료                     → 어디서든 바로 실행
+  //   마우스 클릭 — 레일에서는 선택, **전체 보기 팝업에서는 실행** (launch)
+  //
+  // 손으로 "카드에서 1.2초 → 히어로로 옮겨 다시 1.2초"는 너무 멀다.
+  // 이미 1.2초를 겨눴다는 것 자체가 충분히 분명한 의사표시다.
+  //
+  // 팝업에서만 클릭이 실행인 이유 — 그 화면에는 **히어로가 안 보인다.**
+  // 선택만 하고 팝업이 닫히면 "누른 결과"가 어디에도 안 보인 채 홈으로 돌아가고,
+  // 시작하려면 다시 시작하기를 눌러야 한다. 자유 스크롤을 폐기했던 이유와 같은
+  // 문제다(선택의 결과가 안 보인다). 게다가 손 머무르기는 이미 바로 실행이라
+  // 클릭만 다르게 두면 같은 카드가 입력 수단에 따라 다르게 동작하게 된다.
+  // 전체 보기는 '고르러 들어간' 화면이니 잘못 눌러 게임이 켜질 걱정도 적다.
+  function armCards(root, { launch = false } = {}) {
+    root.querySelectorAll('.pz-card-thumb img').forEach(img => {
+      img.addEventListener('error', () => { img.style.visibility = 'hidden' })
+    })
+    root.querySelectorAll('.pz-card').forEach(card => {
+      const id = card.dataset.id
+      card.addEventListener('mouseenter', () => selectGame(id))
+      card.addEventListener('pz-pointer-enter', () => selectGame(id))
+      card.addEventListener('click', () => {
+        selectGame(id)
+        if (launch) { closeAll(); openGame(id) }
+      })
+      card.addEventListener('pz-dwell', e => {
+        e.preventDefault()
+        selectGame(id)
+        closeAll()
+        openGame(id)
+      })
+    })
+    syncSelected()
+  }
+
+  // ── 레일 ────────────────────────────────────────────────────
+  function refreshRail({ keepPage = true } = {}) {
+    const recentIds = getRecentIds(id => !!byId[id]).slice(0, RECENT_MAX)
+    rail = buildRail({ all, recentIds, filter })
+    const pages = railPageCount(rail, perPage())
+    railPage = keepPage ? Math.min(railPage, pages - 1) : 0
+    renderRail()
+  }
+
+  function renderRail(dir = 0) {
+    const per = perPage()
+    const pages = railPageCount(rail, per)
+    railPage = Math.max(0, Math.min(railPage, pages - 1))
+    const items = rail.slice(railPage * per, railPage * per + per)
+
+    $('#pz-rail-label').textContent = filter ? `${filter} 게임` : '게임'
+    $('#pz-rail-count').textContent = rail.length ? `${rail.length}개 · ${railPage + 1}/${pages}` : ''
+    $('#pz-filter-label').textContent = filter ?? '전체'
+
+    rowEl.innerHTML = items.length
+      ? items.map(m => cardHTML(m)).join('')
+      : `<p id="pz-rail-empty">이 분류에는 아직 게임이 없어요.</p>`
+    armCards(rowEl)
+
+    $('#pz-prev').disabled = railPage <= 0
+    $('#pz-next').disabled = railPage >= pages - 1
+
+    rowEl.classList.remove('pz-row-left', 'pz-row-right')
+    if (dir !== 0) {
+      void rowEl.offsetWidth
+      rowEl.classList.add(dir > 0 ? 'pz-row-left' : 'pz-row-right')
+    }
+  }
+
+  function goRail(delta) {
+    const pages = railPageCount(rail, perPage())
+    const next = Math.max(0, Math.min(pages - 1, railPage + delta))
+    if (next === railPage) return
+    railPage = next
+    renderRail(delta)
+  }
+
+  $('#pz-prev').addEventListener('click', () => goRail(-1))
+  $('#pz-next').addEventListener('click', () => goRail(1))
+
+  // ── 히어로 ──────────────────────────────────────────────────
   const heroGame = () => (selectedId ? byId[selectedId] : featured[heroIdx])
 
-  // 영상은 선택 직후가 아니라 조금 머문 뒤에 튼다. 목록을 훑을 때마다
-  // 켜졌다 꺼지면 산만하고 디코딩도 낭비다. 에셋이 없으면 아무 일도 없다.
   function stopHeroVideo() {
     clearTimeout(videoTimer)
     videoTimer = null
@@ -637,11 +761,11 @@ export function homePage(app) {
     stopHeroVideo()
     if (!m?.heroVideo) return
     videoTimer = setTimeout(() => {
-      if (heroGame()?.id !== m.id) return   // 그새 다른 걸 골랐으면 취소
+      if (heroGame()?.id !== m.id) return
       heroVideo.src = m.heroVideo
       heroVideo.play()
         .then(() => { if (heroGame()?.id === m.id) heroVideo.classList.add('on') })
-        .catch(() => stopHeroVideo())       // 자동재생 차단 등 — 이미지 그대로 둔다
+        .catch(() => stopHeroVideo())
     }, HERO_VIDEO_DELAY)
   }
 
@@ -649,9 +773,8 @@ export function homePage(app) {
     const m = heroGame()
     if (!m) return
 
-    const wide = !!m.hero
     heroBg.style.backgroundImage = `url('${m.hero ?? m.thumbnail}')`
-    heroBg.classList.toggle('fallback', !wide)
+    heroBg.classList.toggle('fallback', !m.hero)
     heroPosterImg.src = m.thumbnail
     heroPoster.style.display = m.thumbnail ? '' : 'none'
     scheduleHeroVideo(m)
@@ -671,99 +794,139 @@ export function homePage(app) {
       void el.offsetWidth
       el.classList.add(cls)
     }
-
   }
 
-  function goHero(i) {
-    heroIdx = (i + featured.length) % featured.length
-    renderHero()
-  }
-
-  // 자동 전환은 **아직 아무것도 고르지 않았을 때만** 돈다.
   function restartHeroTimer() {
     clearInterval(heroTimer)
     heroTimer = null
     if (selectedId || featured.length < 2) return
-    heroTimer = setInterval(() => goHero(heroIdx + 1), HERO_INTERVAL)
+    heroTimer = setInterval(() => {
+      heroIdx = (heroIdx + 1) % featured.length
+      renderHero()
+    }, HERO_INTERVAL)
   }
 
   $('#pz-hero-play').addEventListener('click', () => openGame(heroGame()?.id))
-  $('#pz-rail-prev').addEventListener('click', () => goRail(-1))
-  $('#pz-rail-next').addEventListener('click', () => goRail(1))
   $('#pz-hero').addEventListener('mouseenter', () => clearInterval(heroTimer))
   $('#pz-hero').addEventListener('mouseleave', restartHeroTimer)
 
-  // ── 페이지 이동 입력 ──
+  // ── 전체 목록 팝업 ──────────────────────────────────────────
+  function renderAll() {
+    const list = buildRail({ all, recentIds: [], filter, query })
+    $('#pz-all-count').textContent = `${list.length}개`
+    allGrid.innerHTML = list.length
+      ? list.map(m => cardHTML(m)).join('')
+      : `<p id="pz-all-empty">찾는 게임이 없어요.</p>`
+    armCards(allGrid, { launch: true })
+    syncAllScrollBtns()
+  }
+
+  function renderChips() {
+    $('#pz-chips').innerHTML = categories.map(c => {
+      const on = (c.key ?? null) === filter
+      return `<button class="pz-chip ${on ? 'on' : ''}" data-key="${c.key ?? ''}" data-pz-hit data-pz-dwell="${DWELL_CAT}">
+                ${c.emoji} ${c.label} ${c.n}
+              </button>`
+    }).join('')
+    $('#pz-chips').querySelectorAll('.pz-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        filter = chip.dataset.key || null
+        renderChips()
+        renderAll()
+        renderRail()
+      })
+    })
+    $('#pz-chips-label').textContent = filter ?? '전체'
+  }
+
+  // 좁은 화면에서는 칩 대신 셀렉트 박스 — 버튼 **바로 아래로** 펼친다.
   //
-  // 바깥쪽일수록 멀리 간다 — 03 설계 §하단 4칸 바.
-  function syncNav() {
-    const atTop = page <= 0
-    const atBottom = page >= pages.length - 1
-    app.querySelectorAll('.pz-nav').forEach(btn => {
-      const d = btn.dataset.nav
-      btn.disabled = (d === 'top' || d === 'up') ? atTop : atBottom
+  // 네이티브 <select>를 쓰지 않는 이유: 열리는 목록이 **OS가 그리는 창**이라
+  // 우리 손 커서가 닿지 않는다(화면 위 요소가 아니다). 같은 이유로 커서 좌표로는
+  // 항목을 고를 수도 없다. 우리가 그리는 목록이어야 손으로 쓸 수 있다.
+  //
+  // 카테고리 팝업(모달)을 재활용하지 않는 이유: 전체 보기 팝업 위에 두 번째 모달을
+  // 얹는 꼴이 된다. 둘 다 z-index가 같아서 나중에 그려진 전체 보기가 위를 덮었고,
+  // 카테고리 목록이 **뒤에서 열려** 아무 일도 안 일어난 것처럼 보였다.
+  // z-index로 순서를 맞춰도 닫기 순서·손 커서 타겟이 두 겹으로 남는다.
+  const catDrop = $('#pz-cat-drop')
+  const catBtn = $('#pz-chips-btn')
+
+  function renderCatDrop() {
+    catDrop.innerHTML = categories.map(c => {
+      const on = (c.key ?? null) === filter
+      return `<button class="pz-cat-opt ${on ? 'on' : ''}" role="option" aria-selected="${on}"
+                      data-key="${c.key ?? ''}" data-pz-hit data-pz-dwell="${DWELL_CAT}">
+                <span>${c.emoji}</span><span>${c.label}</span><span class="n">${c.n}</span>
+              </button>`
+    }).join('')
+    catDrop.querySelectorAll('.pz-cat-opt').forEach(opt => {
+      opt.addEventListener('click', () => {
+        filter = opt.dataset.key || null
+        closeCatDrop()
+        renderChips()      // 라벨(⚙ 전체 ▾)도 여기서 갱신된다
+        renderAll()
+        refreshRail({ keepPage: false })
+      })
     })
   }
-  app.querySelectorAll('.pz-nav').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const d = btn.dataset.nav
-      if (d === 'top') goPage(0, -1)
-      else if (d === 'bottom') goPage(pages.length - 1, 1)
-      else goPage(page + (d === 'up' ? -1 : 1), d === 'up' ? -1 : 1)
-    })
+
+  const catDropOpen = () => catDrop.classList.contains('open')
+  function openCatDrop() {
+    renderCatDrop()
+    catDrop.classList.add('open')
+    catBtn.setAttribute('aria-expanded', 'true')
+    catDrop.scrollTop = 0
+  }
+  function closeCatDrop() {
+    catDrop.classList.remove('open')
+    catBtn.setAttribute('aria-expanded', 'false')
+  }
+  catBtn.addEventListener('click', e => {
+    e.stopPropagation()   // 아래 "바깥 누르면 닫기"가 곧바로 되받지 않도록
+    catDropOpen() ? closeCatDrop() : openCatDrop()
   })
+  // 바깥을 누르면 닫는다. 목록 안(카테고리 고르기)은 자기 핸들러가 처리한다.
+  allBackdrop.addEventListener('click', e => {
+    if (catDropOpen() && !catDrop.contains(e.target)) closeCatDrop()
+  })
+  // 목록이 열린 채로 스크롤하면 버튼과 따로 논다 → 그냥 닫는다
+  allGrid.addEventListener('scroll', () => { if (catDropOpen()) closeCatDrop() }, { passive: true })
 
-  // 휠 — 트랙패드는 한 번 굴려도 이벤트가 수십 개 날아온다. 쿨다운으로 한 페이지씩.
-  const onWheel = e => {
-    if ($('#pz-cat-backdrop').classList.contains('open')) return
-    e.preventDefault()
-    const now = performance.now()
-    if (now < wheelLockedUntil) return
-    if (Math.abs(e.deltaY) < 8) return
-    wheelLockedUntil = now + WHEEL_COOLDOWN
-    const dir = e.deltaY > 0 ? 1 : -1
-    goPage(page + dir, dir)
+  const rowStep = () => {
+    const card = allGrid.querySelector('.pz-card')
+    return card ? card.getBoundingClientRect().height + 18 : allGrid.clientHeight * 0.6
   }
-  hub.addEventListener('wheel', onWheel, { passive: false })
-
-  // 방향키
-  const onKey = e => {
-    if ($('#pz-cat-backdrop').classList.contains('open')) {
-      if (e.key === 'Escape') $('#pz-cat-backdrop').classList.remove('open')
-      return
-    }
-    if (e.key === 'ArrowDown')      { e.preventDefault(); goPage(page + 1, 1) }
-    else if (e.key === 'ArrowUp')   { e.preventDefault(); goPage(page - 1, -1) }
-    else if (e.key === 'ArrowRight'){ e.preventDefault(); goRail(1) }
-    else if (e.key === 'ArrowLeft') { e.preventDefault(); goRail(-1) }
-    else if (e.key === 'Home')      { e.preventDefault(); goPage(0, -1) }
-    else if (e.key === 'End')       { e.preventDefault(); goPage(pages.length - 1, 1) }
-    // 버튼에 포커스가 있으면 브라우저가 이미 click을 발생시킨다 — 여기서 또 하면 두 번이다
-    else if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
-      openGame(heroGame()?.id)
-    }
+  function syncAllScrollBtns() {
+    const atTop = allGrid.scrollTop <= 1
+    const atBottom = allGrid.scrollTop + allGrid.clientHeight >= allGrid.scrollHeight - 1
+    $('#pz-all-up').disabled = atTop
+    $('#pz-all-down').disabled = atBottom
   }
-  window.addEventListener('keydown', onKey)
+  $('#pz-all-up').addEventListener('click', () => allGrid.scrollBy({ top: -rowStep(), behavior: 'smooth' }))
+  $('#pz-all-down').addEventListener('click', () => allGrid.scrollBy({ top: rowStep(), behavior: 'smooth' }))
+  allGrid.addEventListener('scroll', syncAllScrollBtns, { passive: true })
 
-  // 터치 스와이프 — 40px 이상. 세로는 페이지, 가로는 이어서 하기 레일.
-  let touch = null
-  hub.addEventListener('touchstart', e => {
-    touch = { x: e.touches[0].clientX, y: e.touches[0].clientY }
-  }, { passive: true })
-  hub.addEventListener('touchend', e => {
-    if (!touch) return
-    const t = e.changedTouches[0]
-    const dx = touch.x - (t?.clientX ?? touch.x)
-    const dy = touch.y - (t?.clientY ?? touch.y)
-    touch = null
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 40) return
-    if (Math.abs(dx) > Math.abs(dy)) goRail(dx > 0 ? 1 : -1)
-    else goPage(page + (dy > 0 ? 1 : -1), dy > 0 ? 1 : -1)
-  }, { passive: true })
+  const searchEl = $('#pz-search')
+  searchEl.addEventListener('input', () => { query = searchEl.value; renderAll() })
 
-  // ── 카테고리 팝업 ──
+  function openAll() {
+    closeCatDrop()
+    renderChips()
+    renderAll()
+    allBackdrop.classList.add('open')
+    allGrid.scrollTop = 0
+  }
+  function closeAll() {
+    closeCatDrop()
+    allBackdrop.classList.remove('open')
+  }
+  $('#pz-open-all').addEventListener('click', openAll)
+  $('#pz-all-close').addEventListener('click', closeAll)
+  allBackdrop.addEventListener('click', e => { if (e.target === allBackdrop) closeAll() })
+
+  // ── 카테고리 팝업 ───────────────────────────────────────────
   // 닫기 버튼은 두지 않는다. "전체"가 곧 닫기이자 초기화 — 03 설계 §카테고리 팝업.
-  const backdrop = $('#pz-cat-backdrop')
   function renderCategories() {
     $('#pz-cat-list').innerHTML = categories.map(c => {
       const on = (c.key ?? null) === filter
@@ -774,32 +937,81 @@ export function homePage(app) {
     $('#pz-cat-list').querySelectorAll('.pz-cat-tile').forEach(tile => {
       tile.addEventListener('click', () => {
         filter = tile.dataset.key || null
-        $('#pz-filter-label').textContent = filter ?? '전체'
-        backdrop.classList.remove('open')
-        // 필터를 바꾸면 전체 게임 첫 쪽으로. 이어서 하기는 필터와 무관하므로 건너뛴다.
-        pages = currentPages()
-        page = Math.max(0, pages.findIndex(p => p.label === '전체 게임'))
-        renderRow(1)
+        catBackdrop.classList.remove('open')
+        refreshRail({ keepPage: false })
+        // 전체 목록이 열려 있는 채로 카테고리를 골랐다면 그쪽도 같이 바꾼다
+        if (allBackdrop.classList.contains('open')) { renderChips(); renderAll() }
       })
     })
   }
   $('#pz-filter').addEventListener('click', () => {
     renderCategories()
-    backdrop.classList.add('open')
+    catBackdrop.classList.add('open')
   })
-  backdrop.addEventListener('click', e => {
-    if (e.target === backdrop) backdrop.classList.remove('open')
+  catBackdrop.addEventListener('click', e => {
+    if (e.target === catBackdrop) catBackdrop.classList.remove('open')
   })
 
-  // ── 손 포인터 ──────────────────────────────────────────────
-  //
-  // 카메라와 커서는 `handSession`이 앱 수명 동안 들고 있다. 이 화면은 켜고 끄는
-  // 버튼과 라벨만 담당한다 — 라우팅이 바뀌어도 커서가 끊기지 않아야 해서다.
+  // ── 입력 ────────────────────────────────────────────────────
+  // 휠·방향키·스와이프 전부 좌우 한 방향이다. 세로 이동이 없어졌다.
+  const onWheel = e => {
+    if (anyPopupOpen()) return
+    e.preventDefault()
+    const now = performance.now()
+    if (now < wheelLockedUntil) return
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+    if (Math.abs(d) < 8) return
+    wheelLockedUntil = now + WHEEL_COOLDOWN
+    goRail(d > 0 ? 1 : -1)
+  }
+  hub.addEventListener('wheel', onWheel, { passive: false })
+
+  const onKey = e => {
+    if (allBackdrop.classList.contains('open')) {
+      // 안쪽부터 닫는다 — 카테고리 목록이 열려 있으면 그것부터
+      if (e.key === 'Escape') catDropOpen() ? closeCatDrop() : closeAll()
+      return
+    }
+    if (catBackdrop.classList.contains('open')) {
+      if (e.key === 'Escape') catBackdrop.classList.remove('open')
+      return
+    }
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); goRail(1) }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); goRail(-1) }
+    else if (e.key === 'Home') { e.preventDefault(); railPage = 0; renderRail(-1) }
+    else if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement)) {
+      openGame(heroGame()?.id)
+    }
+  }
+  window.addEventListener('keydown', onKey)
+
+  // 회전·창 크기 변경 시 한 줄에 놓을 개수가 달라진다
+  let resizeTimer = null
+  const onResize = () => {
+    clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => renderRail(), 150)
+  }
+  window.addEventListener('resize', onResize)
+
+  let touch = null
+  hub.addEventListener('touchstart', e => {
+    touch = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }, { passive: true })
+  hub.addEventListener('touchend', e => {
+    if (!touch || anyPopupOpen()) { touch = null; return }
+    const t = e.changedTouches[0]
+    const dx = touch.x - (t?.clientX ?? touch.x)
+    const dy = touch.y - (t?.clientY ?? touch.y)
+    touch = null
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 40) return
+    goRail((Math.abs(dx) > Math.abs(dy) ? dx : dy) > 0 ? 1 : -1)
+  }, { passive: true })
+
+  // ── 손 포인터 ───────────────────────────────────────────────
   const handLabel = $('#pz-hand-label')
   const syncHandLabel = () => {
     handLabel.textContent = handSession.enabled ? '손 끄기' : '손으로 고르기'
   }
-  // 될 수 없는 기기에서는 버튼 자체를 숨긴다. 눌러봐야 실패 안내만 나온다.
   if (!handSession.supported) {
     $('#pz-hand').style.display = 'none'
     console.info('[home] 손 포인터 미지원:', handSession.unsupportedReason)
@@ -819,10 +1031,8 @@ export function homePage(app) {
         NotReadableError: '다른 앱이 카메라를 쓰고 있어요',
         OverconstrainedError: '카메라가 이 화질을 지원하지 않아요',
         SecurityError:    'HTTPS에서만 쓸 수 있어요',
-        PoseUnsupportedError: err?.message,   // 기기가 못 하는 경우 — 이유가 이미 문장이다
+        PoseUnsupportedError: err?.message,
       }
-      // 아는 이유가 아니면 원문을 그대로 보여준다. "카메라를 열 수 없어요"만 뜨면
-      // 콘솔을 열기 전까지 아무것도 알 수 없다 — 실제로 그 상태로 한참 헤맸다.
       toast(byName[err?.name] ?? `카메라 오류: ${err?.name || ''} ${err?.message || ''}`.trim())
     }
     syncHandLabel()
@@ -833,14 +1043,12 @@ export function homePage(app) {
     else turnHandOn()
   })
 
-  // ── 헤더 ──
-  // 계정(아이 선택)은 기획안 2단계, 햄버거 메뉴는 STEP 7. 자리만 잡아둔다.
-  $('#pz-logo').addEventListener('click', () => goPage(0, -1))
+  // ── 헤더 ────────────────────────────────────────────────────
+  $('#pz-logo').addEventListener('click', () => { railPage = 0; renderRail(-1) })
   $('#pz-account').addEventListener('click', () => toast('아이 선택은 준비 중이에요'))
   $('#pz-menu').addEventListener('click', () => toast('설정 메뉴는 준비 중이에요'))
 
-  // ── 정리 ──
-  // 홈을 떠난 뒤에도 타이머가 살아 있으면 이미 사라진 DOM을 6초마다 건드린다.
+  // ── 정리 ────────────────────────────────────────────────────
   const onVisibility = () => {
     if (document.visibilityState === 'hidden') { clearInterval(heroTimer); stopHeroVideo() }
     else restartHeroTimer()
@@ -851,19 +1059,16 @@ export function homePage(app) {
     clearTimeout(toastTimer)
     stopHeroVideo()
     offHandChange()
-    // 카메라는 놓지 않는다. 다음 화면(인트로)도 같은 스트림을 쓰기 때문에
-    // 여기서 끄면 커서가 한 번 끊기고 곧바로 다시 열게 된다.
+    clearTimeout(resizeTimer)
     document.removeEventListener('visibilitychange', onVisibility)
     window.removeEventListener('keydown', onKey)
+    window.removeEventListener('resize', onResize)
   })
 
-  rebuildPages({ keepPage: false })
+  refreshRail({ keepPage: false })
   renderHero()
   restartHeroTimer()
-
-  // 허브에서는 커서가 보여야 한다 (게임 플레이 화면에서는 끈다)
   handSession.setPointerActive(true)
   syncHandLabel()
-  // 지난번에 켜뒀다면 조용히 다시 켠다
   handSession.resumeIfPreferred().then(syncHandLabel)
 }
