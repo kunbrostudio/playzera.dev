@@ -38,6 +38,8 @@ export default class PoopDodgeGame {
     this.stars      = []
     this.dodgeCount = 0
     this.hitCount   = 0
+    this.sideSteps  = 0     // 실제로 자리를 옮긴 횟수 = 운동량
+    this._activeMs  = 0     // 실제 플레이 시간(배너·카운트다운 제외)
 
     this._combo       = 0
     this._shakeAmount = 0
@@ -94,7 +96,15 @@ export default class PoopDodgeGame {
 
   // ── 공개 API ────────────────────────────────────────────────
 
-  setPlayerZone(zone) { this.playerZone = zone }
+  // 칸을 옮길 때마다 **몸 이동 1회**로 센다.
+  //
+  // 이 게임의 dodgeCount는 "피한 똥 개수"라 운동량이 아니다. 가만히 서 있어도
+  // 다른 칸에 떨어지면 올라간다. 운동 데이터로 쓸 수 있는 건 실제로 자리를
+  // 옮긴 횟수뿐이다. (웜업의 countSideStep과 같은 기준)
+  setPlayerZone(zone) {
+    if (zone !== this.playerZone) this.sideSteps++
+    this.playerZone = zone
+  }
 
   async startRound(roundNumber) {
     this.round      = roundNumber
@@ -150,6 +160,9 @@ export default class PoopDodgeGame {
 
     this._roundTimer -= dt
     this._spawnTimer -= dt
+    // 실제로 똥이 떨어지는 동안만 센다. 라운드 배너·카운트다운은 운동 시간이 아니다.
+    // (웜업에서 duration_sec에 메뉴 시간이 섞여 있던 것과 같은 실수를 피한다)
+    this._activeMs += dt
     this._warnZones.clear()
 
     if (this._shakeAmount > 0) {
@@ -281,6 +294,9 @@ export default class PoopDodgeGame {
       roundsCleared: this.round,
       dodgeCount:    this.dodgeCount,
       hitCount:      this.hitCount,
+      sideSteps:     this.sideSteps,
+      activeSec:     Math.round(this._activeMs / 1000),
+      cleared,
     })
   }
 

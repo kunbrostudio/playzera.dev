@@ -474,10 +474,29 @@ async function showSoloGame(app, gameId, entry) {
         try {
           // session_id는 여러 대를 묶던 값이다. 한 대로 도는 지금은 넣을 것이 없다.
           // (002 마이그레이션에서 nullable로 완화해둬서 null로 저장된다.)
+          //
+          // ⚠️ `exercise` 키가 없으면 `exercise_summary` 뷰의 `WHERE extra_data ? 'exercise'`에
+          // 걸려 **운동 통계에서 통째로 빠진다.** 실제로 그래서 똥 피하기 기록이
+          // 한 건도 집계되지 않고 있었다. 웜업과 같은 모양으로 맞춘다.
           await saveResult({
             sessionId: null, gameId, playerName,
             score: stats.score, roundsCleared: stats.roundsCleared,
-            extraData: { dodge_count: stats.dodgeCount, hit_count: stats.hitCount, reaction_avg_ms: null },
+            extraData: {
+              source:     gameId,
+              // 카메라로 몸을 움직였는지 키보드였는지. exercise_summary가 이 값으로 거른다.
+              input_mode: poseEngine.isRunning ? 'motion' : 'keyboard',
+              active_sec: stats.activeSec ?? 0,
+              completed:  !!stats.cleared,
+              exercise: {
+                side_steps: stats.sideSteps ?? 0,   // 실제로 자리를 옮긴 횟수
+                jumps:      0,                       // 이 게임에는 점프·앉기가 없다
+                squats:     0,
+                pose_holds: [],
+              },
+              dodge_count: stats.dodgeCount,
+              hit_count:   stats.hitCount,
+              reaction_avg_ms: null,
+            },
           })
         } catch (e) { console.error('[game] 결과 저장 실패:', e) }
       },

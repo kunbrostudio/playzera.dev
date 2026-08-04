@@ -22,11 +22,21 @@ const DWELL_DECAY = 0.6         // 벗어났을 때 줄어드는 속도 배율
 // 좁으면 손을 조금만 움직여도 커서가 화면 끝까지 튀고, 넓으면 팔을 크게 휘둘러야 한다.
 const BOX_HALF_W = 1.5   // 어깨 중심에서 좌우로 어깨너비 × 1.5
 const BOX_TOP    = 1.7   // 어깨선 위로 어깨너비 × 1.7
-const BOX_BOTTOM = 0.5   // 어깨선 아래로 어깨너비 × 0.5
+const BOX_BOTTOM = 0.45  // 어깨선 아래로 어깨너비 × 0.45
 
-// 손을 "들었다"고 볼 기준. 내릴 때는 조금 더 내려야 꺼진다(깜빡임 방지).
+// 손을 "들었다"고 볼 기준. 내릴 때는 더 내려야 꺼진다(깜빡임 방지).
+//
+// ⚠️ **RAISE_OFF는 BOX_BOTTOM보다 충분히 커야 한다.**
+//
+// 처음에는 BOX_BOTTOM 0.5 / RAISE_OFF 0.30이었다. 박스 아래쪽에 닿으려면 손을
+// 어깨 아래 0.5까지 내려야 하는데 0.30에서 이미 커서가 꺼진다. 결과적으로
+// **화면 아래 9%가 사각지대**가 됐고, 하필 하단 4칸 바가 정확히 거기 있었다.
+// 손으로는 영원히 누를 수 없는 버튼이었다.
+//
+// 팔을 완전히 내리면 lift는 -1.4 근처까지 간다. 0.85로 올려도 "쉬는 자세"와는
+// 충분히 구분된다.
 const RAISE_ON  = 0.02
-const RAISE_OFF = 0.30
+const RAISE_OFF = 0.85
 
 // ── One Euro Filter ─────────────────────────────────────────────
 //
@@ -209,7 +219,12 @@ export function createHandPointer({ hitAttr = 'data-pz-hit', dwellMs = DEFAULT_D
       target?.classList.remove('pz-hover')
       target = next
       dwell = 0
-      target?.classList.add('pz-hover')
+      if (target) {
+        target.classList.add('pz-hover')
+        // 겨눈 순간 알린다. 화면이 미리보기를 바꿀 수 있게 —
+        // 마우스의 mouseenter에 해당한다.
+        target.dispatchEvent(new CustomEvent('pz-pointer-enter', { bubbles: true }))
+      }
     }
 
     if (!target) { setRing(0); cursor.classList.remove('armed'); return }
@@ -225,8 +240,14 @@ export function createHandPointer({ hitAttr = 'data-pz-hit', dwellMs = DEFAULT_D
       cooldownUntil = now + RELEASE_COOLDOWN
       clearTarget()
       fx.reset(); fy.reset()
-      if (onActivate) onActivate(el)
-      else el.click()
+      if (onActivate) { onActivate(el); return }
+
+      // 머무르기가 끝났음을 먼저 알린다. 화면이 이 이벤트를 가로채면(preventDefault)
+      // 클릭은 보내지 않는다 — 손일 때만 다르게 반응해야 하는 곳이 있다.
+      // (게임 카드: 마우스 클릭 = 선택 / 손 머무르기 = 바로 실행)
+      const ev = new CustomEvent('pz-dwell', { bubbles: true, cancelable: true })
+      const notHandled = el.dispatchEvent(ev)
+      if (notHandled) el.click()
     }
   }
 

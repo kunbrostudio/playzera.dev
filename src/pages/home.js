@@ -318,8 +318,10 @@ export function homePage(app) {
         /* 홈 인디케이터(가로 막대)에 버튼이 깔리지 않게 */
         padding-bottom: env(safe-area-inset-bottom);
       }
+      /* 손 커서로 겨눌 수 있어야 한다. 03 설계의 최소 타겟 96×96을 세로로도 지킨다 —
+         화면 맨 아래는 팔을 가장 많이 내려야 닿는 자리라 얇으면 못 맞춘다. */
       .pz-nav {
-        min-height: clamp(52px, 7vh, 76px);
+        min-height: clamp(64px, 9vh, 96px);
         background: none; border: none; color: #fff; font: inherit;
         font-size: clamp(0.8rem, 1.3vw, 1rem); font-weight: 700;
         cursor: pointer; -webkit-tap-highlight-color: transparent;
@@ -519,7 +521,26 @@ export function homePage(app) {
       img.addEventListener('error', () => { img.style.visibility = 'hidden' })
     })
     rowEl.querySelectorAll('.pz-card').forEach(card => {
-      card.addEventListener('click', () => selectGame(card.dataset.id))
+      const id = card.dataset.id
+
+      // 올려놓기만 해도 히어로가 바뀐다. 마우스도 손도 같다 —
+      // "이게 무슨 게임이지"를 누르기 전에 확인할 수 있어야 한다.
+      card.addEventListener('mouseenter', () => selectGame(id))
+      card.addEventListener('pz-pointer-enter', () => selectGame(id))
+
+      // 마우스는 클릭 = 선택. 큰 화면에서 한 번 보고 시작하는 흐름이 어색하지 않다.
+      card.addEventListener('click', () => selectGame(id))
+
+      // 손은 머무르기 = 바로 실행.
+      //
+      // 손으로는 "카드에 1.2초 머물러 고르고 → 히어로로 커서를 옮겨 다시 1.2초"가
+      // 너무 멀다. 팔을 두 번 조준하는 동안 아이는 이미 지친다.
+      // 이미 카드를 1.2초 겨눴다는 것 자체가 충분히 분명한 의사표시다.
+      card.addEventListener('pz-dwell', e => {
+        e.preventDefault()   // click()으로 떨어지지 않게 — 그러면 선택만 되고 만다
+        selectGame(id)
+        openGame(id)
+      })
     })
     syncSelectedCards()
 
