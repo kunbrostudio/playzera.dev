@@ -1,15 +1,15 @@
-import { navigate, onLeave } from '../core/router.js'
-import { poseEngine } from '../core/pose/index.js'
-import { createPipOverlay } from '../core/pose/pipOverlay.js'
-import { isArmsUpCircle, isArmsUpCross, GestureHold } from '../core/pose/gesture.js'
-import { GESTURE } from '../core/pose/tuning.js'
-import { saveResult } from '../core/gameResult.js'
-import { getCurrentPlayerName } from '../core/player.js'
-import { handSession } from '../core/handSession.js'
-import { bindHandButton } from '../core/handControl.js'
-import { GAME_REGISTRY } from '../games/registry.js'
-import * as sound from '../core/sound.js'
-import * as bgm   from '../core/bgm.js'
+import { navigate, onLeave } from '../../core/router.js'
+import { poseEngine } from '../../core/pose/index.js'
+import { createPipOverlay } from '../../core/pose/pipOverlay.js'
+import { isArmsUpCircle, isArmsUpCross, GestureHold } from '../../core/pose/gesture.js'
+import { GESTURE } from '../../core/pose/tuning.js'
+import { saveResult } from '../../core/gameResult.js'
+import { getCurrentPlayerName } from '../../core/player.js'
+import { handSession } from '../../core/handSession.js'
+import { bindHandButton } from '../../core/handControl.js'
+import { getManifest, getEntry } from '../registry.js'
+import * as sound from '../../core/sound.js'
+import * as bgm   from '../../core/bgm.js'
 
 // STEP 3 — 멀티디바이스(여러 대 연결) 제거됨.
 //
@@ -29,14 +29,14 @@ function _isMobile() {
 // ═══════════════════════════════════════════════════════════════
 // ENTRY POINT
 // ═══════════════════════════════════════════════════════════════
-export async function gamePage(app, query) {
-  const gameId = query.id ?? 'poop-dodge'
-  const entry  = GAME_REGISTRY[gameId]
-  if (!entry) { navigate('/'); return }
+export default async function poopDodgePlay(app, query) {
+  const gameId   = query.id ?? 'poop-dodge'
+  const manifest = getManifest(gameId)
+  if (!manifest) { navigate('/'); return }
 
   // 뒤로 나갈 곳은 허브가 아니라 이 게임의 인트로다. 한 단계씩 되짚어야
   // "잘못 눌렀다" 싶을 때 되돌아가는 비용이 작다.
-  const backTo = entry.entry ?? '/'
+  const backTo = getEntry(gameId)
 
   // 플레이 중에는 손 커서를 숨긴다. 몸으로 조종하는 화면이라 커서가 계속 따라다니면
   // 시야를 가리고, 버튼 위를 스쳐 머무르기가 걸릴 수도 있다. 종료는 O/X로 한다.
@@ -52,7 +52,7 @@ export async function gamePage(app, query) {
     if (!ok) { navigate(backTo); return }
   }
 
-  await showSoloGame(app, gameId, entry)
+  await showSoloGame(app, gameId, manifest)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -183,9 +183,8 @@ function showOrientationCoach(app) {
 // ═══════════════════════════════════════════════════════════════
 // 1대 모드 (솔로)
 // ═══════════════════════════════════════════════════════════════
-async function showSoloGame(app, gameId, entry) {
-  const { manifest } = entry
-  const backTo = entry.entry ?? '/'   // 이 게임의 인트로
+async function showSoloGame(app, gameId, manifest) {
+  const backTo = getEntry(gameId)   // 이 게임의 인트로
 
   // 이름 입력 화면은 뺐다 — 웜업도 물어보지 않는다.
   // 시작 버튼과 게임 사이에 키보드 입력을 끼워 넣으면 4~8세에게는 그게 벽이다.
@@ -465,7 +464,7 @@ async function showSoloGame(app, gameId, entry) {
   }
 
   // ── 게임 빌드 ─────────────────────────────────────────────
-  const { default: GameClass } = await entry.load()
+  const { default: GameClass } = await import('./game.js')
   let game = null
 
   function buildGame() {

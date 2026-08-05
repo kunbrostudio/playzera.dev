@@ -25,15 +25,33 @@ src/core/
   catalog.js      홈의 페이지·배지·카테고리 규칙 (순수 함수)
   recent.js       이어서 하기 (localStorage)
   player.js       현재 아이 — 계정 전 임시
+  handControl.js  손 컨트롤 켜기 + 카메라 오류 문구 (화면들이 같이 쓴다)
+  tutorialSeen.js 게임별 "튜토리얼 봤나" 기억
   pose/
     poseEngine.js tasks-vision 래퍼. 카메라 스트림을 참조 카운팅으로 공유
     gesture.js    O/X 판정
     tuning.js     제스처 튜닝값 (현장 검증됨 — 함부로 바꾸지 말 것)
     pipOverlay.js 스켈레톤·3분할 오버레이
-src/pages/        home · intro · game(똥 피하기) · warmup
-src/games/        poop-dodge · warmup-obstacle · placeholders(개발용 더미)
+src/pages/        home · intro · tutorial · play   ← 전부 디스패처다
+src/games/
+  registry.js     게임팩 목록. 게임을 추가할 때 손대는 유일한 파일
+  poop-dodge/     intro.js · tutorial.js · play.js · game.js
+  warmup-obstacle/play.js · main.js · …
+  placeholders.js 개발용 더미
 test/             Vitest — 순수 로직만
 ```
+
+**화면은 게임팩이 소유한다.** `src/pages/`의 넷은 내용이 없다 — `?id=`로 registry를
+찾아 게임팩이 등록한 로더를 부를 뿐이다. 라우터도 허브도 게임 이름을 모른다.
+
+```
+/              허브
+/intro?id=     게임팩 스플래시   (없으면 건너뜀)
+/tutorial?id=  게임팩 튜토리얼   (없으면 건너뜀)
+/play?id=      게임팩 플레이
+```
+
+게임팩이 등록하는 화면 모듈은 **default export가 렌더 함수**여야 한다.
 
 ## 규칙
 

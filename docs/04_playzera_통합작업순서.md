@@ -847,6 +847,37 @@ poseEngine.onLandmarks(lms => detectors.forEach(d => d.update(lms)))
 
 ## STEP 5 — 게임팩화
 
+### 5-0. 화면 소유권 분리 ✅ (2026-08-04)
+
+**라우터가 게임 이름을 아는 구조를 걷어냈다.**
+
+문제는 `/tutorial`을 만들면서 드러났다. 라우터가 `games/poop-dodge/tutorial.js`를 직접 import하고 있었다. 게임을 하나 더 넣으면 import를 또 더해야 하고, 그러면 **홈 화면 하나 여는 데 모든 게임 코드가 번들에 딸려 온다.** 게임이 20개가 되면 첫 로딩이 그만큼 느려진다.
+
+```
+이전                              이후
+/game?id=   똥 피하기 전용        /play?id=      전부 여기로
+/warmup     웜업 전용             /intro?id=     게임팩이 있으면
+/tutorial   라우터가 직접 import  /tutorial?id=  게임팩이 있으면
+```
+
+`src/pages/`의 넷(`home`·`intro`·`tutorial`·`play`)은 이제 **디스패처**다. `?id=`로 registry를 찾아 게임팩이 등록한 로더를 부르고 `#app`을 넘길 뿐, 내용은 모른다.
+
+| 옮긴 것 | 어디로 |
+|---|---|
+| `src/pages/game.js` (똥 피하기 전용이었다) | `src/games/poop-dodge/play.js` |
+| `src/pages/warmup.js` | `src/games/warmup-obstacle/play.js` |
+| 라우터의 튜토리얼 import | `registry.tutorial` 로더 |
+
+**규약은 default export 하나다.** 이름으로 찾으면(`Object.values(mod)[0]` 같은 식) 모듈이 상수를 export하는 순간 엉뚱한 값을 부른다 — 실제로 튜토리얼이 `TUTORIAL_TIMING`을 export하면서 그럴 뻔했다.
+
+`registry.entry` 문자열도 없앴다. 게임마다 진입 경로를 손으로 적어두면 라우트를 바꿀 때 registry와 라우터 두 곳을 맞춰야 한다. 이제 `getEntry(id)`가 **인트로가 있으면 인트로, 없으면 플레이**로 만들어 준다.
+
+> 옛 경로(`/game`·`/warmup`)는 라우터가 새 경로로 넘겨준다. 북마크나 기록에 남은 링크가 깨지면 "왜 안 되지"부터 시작해야 한다. 게임 모듈 import는 아니고 문자열 매핑이라 번들에는 영향이 없다.
+
+**검증** — 홈 → 인트로 → 튜토리얼 → 플레이 경로, 웜업 `/play?id=warmup-obstacle` 진입, 옛 경로 리다이렉트 둘 다 브라우저에서 확인. 콘솔 에러 0건.
+
+남은 것은 아래 5-1(공용 화면 이관)과 5-2(게임팩 클래스 규격)다.
+
 ### 5-1. 웜업 게임 정리
 
 `main.js`(22KB)와 `screens.js`(23KB)에서 **허브가 담당할 화면을 덜어낸다.**
@@ -1485,7 +1516,7 @@ v3에서 **"폰이 본체"**로 방향을 잡았다. 아이폰 사용자에게�
 | **4** | **포즈 엔진 통합** | 🔶 4-0 완료 |
 | 4-0 | MediaPipe·좌표계 통일 (tasks-vision + 거울) | ✅ 크롬 검증 완료 |
 | 4-1/2 | detector 재배치 (lane/duck 분리, poseMatch 래핑) | ⬜ |
-| 5 | 게임팩화 | ⬜ |
+| **5** | **게임팩화** | 🔶 5-0 화면 소유권 분리 완료 (8/4) / 공용 화면·클래스 규격 남음 |
 | **6** | **손 포인터** | ✅ 크롬 검증 완료 |
 | 7 | 홈 화면 | 🔶 레일+팝업 구조 아이폰 검증 완료 (8/4) / 계정 남음 |
 | 8 | 똥 피하기 개조 | 🔶 조준 낙하·O/X·PIP 선반영 / **입력 체계 결정 시급** — 운동량이 안 잡힌다 |

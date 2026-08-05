@@ -16,6 +16,7 @@ import { poseEngineCore } from '../../core/pose/poseEngine.js'
 import { isArmsUpCircle, isArmsUpCross, GestureHold } from '../../core/pose/gesture.js'
 import { GESTURE } from '../../core/pose/tuning.js'
 import { markTutorialSeen } from '../../core/tutorialSeen.js'
+import { getPlayRoute } from '../registry.js'
 
 const GAME_ID = 'poop-dodge'
 
@@ -53,7 +54,7 @@ const { CYCLE_MS, FALL_MS, MOVE_AT, MOVE_MS } = TUTORIAL_TIMING
 // 한 방향으로만 가면 "오른쪽으로 가는 게임"으로 오해한다.
 export const LANES = [1, 2, 1, 0]
 
-export function tutorialPage(app) {
+export default function tutorialPage(app) {
   app.innerHTML = `
     <style>
       #tut-root, #tut-root * { box-sizing: border-box; }
@@ -264,7 +265,7 @@ export function tutorialPage(app) {
     done = true
     markTutorialSeen(GAME_ID)   // 봤으면 다음부터는 안 뜬다
     sound.activate()
-    navigate(`/game?id=${GAME_ID}`)
+    navigate(getPlayRoute(GAME_ID))
   }
   // **허브가 아니라 인트로로 돌아간다.**
   // 튜토리얼에 오는 길은 둘뿐이고(첫 플레이 · 인트로의 '어떻게 해?') 둘 다 인트로에서

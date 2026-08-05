@@ -1,33 +1,36 @@
 // 라우터 경로 구조
 //
-// 현재 (STEP 3 — 멀티디바이스 제거 후):
-//   /            → home.js    (게임 목록 허브)
-//   /intro?id=   → intro.js   (게임별 스플래시)
-//   /tutorial?id=→ 게임별 튜토리얼 (처음 한 번 · 인트로에서 다시 보기 가능)
-//   /game?id=    → game.js    (똥 피하기 — 플레이)
-//   /warmup      → warmup.js  (웜업 게임팩)
+//   /              → 허브 (게임 목록)
+//   /intro?id=     → 게임팩 스플래시   (게임팩이 없으면 건너뛴다)
+//   /tutorial?id=  → 게임팩 튜토리얼   (게임팩이 없으면 건너뛴다)
+//   /play?id=      → 게임팩 플레이 화면
 //
-// ⚠️ `/tutorial`은 지금 똥 피하기 것만 가리킨다. STEP 5(게임팩화)에서
-//    게임팩이 자기 튜토리얼을 들고 오는 구조로 바꾼다 — 게임이 늘 때마다
-//    여기에 import를 하나씩 더하는 건 오래 못 간다.
+// **라우터는 게임 이름을 모른다.** 화면 셋 다 `?id=`로 registry를 찾아 게임팩이
+// 등록한 로더를 부를 뿐이다. 게임을 추가할 때 이 파일은 건드리지 않는다.
 //
-// `/control`·`/camera`는 여러 대를 연결하던 시절의 경로다. STEP 3에서 삭제했다.
+// 이전에는 `/game`이 똥 피하기 전용이었고, `/warmup`이 웜업 전용이었고,
+// `/tutorial`은 라우터가 똥 피하기 튜토리얼을 직접 import했다. 게임이 늘 때마다
+// 라우트와 import가 같이 늘었고, 홈 화면 하나 여는 데 모든 게임 코드가 번들에 딸려 왔다.
 //
-// STEP 5(게임팩화) 이후:
-//   /play?id=... 하나로 합쳐지고 /intro·/warmup은 사라진다.
+// 옛 경로(`/game`·`/warmup`)는 당분간 새 경로로 넘겨준다 —
+// 기록에 남은 링크나 북마크가 깨지면 "왜 안 되지"부터 시작해야 한다.
 
 import { homePage } from '../pages/home.js'
 import { introPage } from '../pages/intro.js'
-import { gamePage } from '../pages/game.js'
-import { warmupPage } from '../pages/warmup.js'
-import { tutorialPage } from '../games/poop-dodge/tutorial.js'
+import { tutorialPage } from '../pages/tutorial.js'
+import { playPage } from '../pages/play.js'
 
 const routes = {
   '/': homePage,
   '/intro': introPage,
-  '/game': gamePage,
   '/tutorial': tutorialPage,
-  '/warmup': warmupPage,
+  '/play': playPage,
+}
+
+// 옛 경로 → 새 경로. 값이 함수면 query를 받아 목적지를 만든다.
+const LEGACY = {
+  '/game':   q => `/play?id=${q.id ?? 'poop-dodge'}`,
+  '/warmup': () => '/play?id=warmup-obstacle',
 }
 
 // ── 페이지 정리 훅 ────────────────────────────────────────────
@@ -49,6 +52,10 @@ function parseHash() {
 
 function render() {
   const { path, query } = parseHash()
+
+  const legacy = LEGACY[path]
+  if (legacy) { window.location.replace(`#${legacy(query)}`); return }
+
   const page = routes[path] ?? routes['/']
   const app = document.getElementById('app')
 
@@ -64,11 +71,6 @@ function render() {
 
 export function navigate(path) {
   window.location.hash = path
-}
-
-// 현재 해시와 같은 경로로 재진입해야 할 때 강제 재렌더링
-export function reload() {
-  render()
 }
 
 window.addEventListener('hashchange', render)

@@ -11,6 +11,7 @@ import { markPlayed } from '../../core/recent.js'
 import { handSession } from '../../core/handSession.js'
 import { bindHandButton } from '../../core/handControl.js'
 import { hasSeenTutorial } from '../../core/tutorialSeen.js'
+import { getPlayRoute } from '../registry.js'
 import { poseEngineCore } from '../../core/pose/poseEngine.js'
 import { isArmsUpCircle, isArmsUpCross, GestureHold } from '../../core/pose/gesture.js'
 import { GESTURE } from '../../core/pose/tuning.js'
@@ -244,7 +245,7 @@ export function poopDodgeIntro(app) {
   // 하나뿐이라(옆으로 비킨다) 한 번만 보면 되고, 두 번째부터는 바로 게임이다.
   // 다시 보고 싶으면 좌상단 '어떻게 해?' 버튼으로 언제든 갈 수 있다.
   function startGame() {
-    if (hasSeenTutorial(GAME_ID)) navigate(`/game?id=${GAME_ID}`)
+    if (hasSeenTutorial(GAME_ID)) navigate(getPlayRoute(GAME_ID))
     else                          navigate(`/tutorial?id=${GAME_ID}`)
   }
 
