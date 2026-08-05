@@ -1,5 +1,7 @@
 // Web Audio API 합성음 엔진 (외부 파일 없음)
 // load(gameId) 로 게임별 SFX 파일 캐시 → 없으면 합성음 fallback
+
+import { audioFileExists } from './audioProbe.js'
 let _ctx   = null
 let _muted = false
 
@@ -29,17 +31,14 @@ export async function load(gameId) {
   const base = `/assets/audio/${gameId}/sfx`
   await Promise.all(SFX_NAMES.map(async (name) => {
     const url = `${base}/${name}.mp3`
-    try {
-      const res = await fetch(url, { method: 'HEAD' })
-      if (res.ok) {
-        const a    = new Audio(url)
-        a.preload  = 'auto'
-        a.volume   = 0.75
-        _sfxCache[name] = a
-      } else {
-        delete _sfxCache[name]
-      }
-    } catch (_) {
+    // 없는 파일을 캐시에 넣으면 **합성음 폴백이 막힌다** — _playOrSynth가
+    // 캐시가 있다고 보고 그걸 재생하려다 조용히 실패한다.
+    if (await audioFileExists(url)) {
+      const a    = new Audio(url)
+      a.preload  = 'auto'
+      a.volume   = 0.75
+      _sfxCache[name] = a
+    } else {
       delete _sfxCache[name]
     }
   }))

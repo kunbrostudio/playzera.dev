@@ -112,6 +112,21 @@ export function poopDodgeIntro(app) {
       #home-back-btn:active, #intro-hand-btn:active, #intro-howto-btn:active { transform: scale(0.94); }
       #intro-hand-btn[aria-pressed="true"] { background: #ffd23e; color: #4a2a00; }
 
+      /* 세로로 든 폰 — 위쪽 가로 공간이 없다.
+         버튼 셋이 글자를 달고 있으면 서로 겹치고 화면 밖으로 밀려난다.
+         **글자를 접고 아이콘만 남긴다.** 뜻은 아이콘이 이미 전달한다
+         (← 나가기 · ✋ 손 · ❔ 도움말). 읽어주는 기기를 위해 aria-label은 남긴다. */
+      @media (max-width: 620px) {
+        #intro-topleft, #intro-topright { gap: 6px; }
+        #home-back-btn, #intro-hand-btn, #intro-howto-btn {
+          padding: 0; width: 46px; height: 46px;
+          display: inline-flex; align-items: center; justify-content: center;
+          font-size: 1.25rem; line-height: 1;
+        }
+        .btn-label { display: none; }
+        #home-menu-btn img { width: 46px; }
+      }
+
       /* 안내 토스트 — 카메라 오류 문구가 여기 뜬다 */
       #intro-toast {
         position: fixed; left: 50%; top: clamp(70px, 11vh, 110px); transform: translateX(-50%);
@@ -209,7 +224,7 @@ export function poopDodgeIntro(app) {
 
     <!-- 좌상단 — 나가는 길 -->
     <div id="intro-topleft">
-      <button id="home-back-btn" data-pz-hit data-pz-dwell="800">← 게임 목록</button>
+      <button id="home-back-btn" data-pz-hit data-pz-dwell="800" aria-label="게임 목록">← <span class="btn-label">게임 목록</span></button>
     </div>
 
     <div id="intro-toast"></div>
@@ -222,8 +237,8 @@ export function poopDodgeIntro(app) {
 
     <!-- 우상단 — 손 컨트롤 · 튜토리얼 · 메뉴 -->
     <div id="intro-topright">
-      <button id="intro-hand-btn" data-pz-hit data-pz-dwell="800">✋ <span id="intro-hand-label">손 컨트롤 모드</span></button>
-      <button id="intro-howto-btn" data-pz-hit data-pz-dwell="800">❔ 어떻게 해?</button>
+      <button id="intro-hand-btn" data-pz-hit data-pz-dwell="800" aria-label="손 컨트롤 모드">✋ <span id="intro-hand-label" class="btn-label">손 컨트롤 모드</span></button>
+      <button id="intro-howto-btn" data-pz-hit data-pz-dwell="800" aria-label="어떻게 해?">❔ <span class="btn-label">어떻게 해?</span></button>
       <button id="home-menu-btn" aria-label="메뉴">
         <img id="home-menu-ico" src="${IMG.menuOpen}" alt="메뉴" />
       </button>

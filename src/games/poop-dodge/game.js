@@ -23,11 +23,14 @@ export const ROUNDS = [
 // 한 판 총 시간(초). 테스트가 이 값을 지킨다.
 export const TOTAL_SECONDS = ROUNDS.reduce((s, r) => s + r.duration, 0)
 
-const MAX_LIVES     = 3
+// 목숨 5개. 라운드가 53초 → 150초로 3배 길어졌는데 목숨이 그대로면
+// 끝까지 가는 아이가 거의 없다. 실패는 배우는 과정이지 벽이 아니어야 한다.
+export const MAX_LIVES = 5
 const WARN_PX       = 80
 const BASE_W        = 1280
 const MAX_PARTICLES = 80
-const FLOOR_H       = 110  // 하단 버튼 영역 높이
+// 하단 버튼 영역의 **기준** 높이. 실제 값은 _floorH가 화면에 맞춰 줄인다.
+const FLOOR_H_BASE  = 110
 
 // ── 플레이어 캐릭터 ──────────────────────────────────────────────
 const CHAR_H        = 210   // 기준 높이(px). _scale이 곱해진다
@@ -171,6 +174,13 @@ export default class PoopDodgeGame {
   get lh() { return this.canvas.offsetHeight || this.canvas.height }
   get _scale() { return Math.min(2.2, Math.max(0.6, this.lw / BASE_W)) }
 
+  // 하단 버튼 영역 높이 — **화면 세로에 따라 줄인다.**
+  //
+  // 110px 고정이었다. 가로로 누운 폰(세로 400px)에서는 그게 화면의 27%다.
+  // 그만큼 똥이 떨어질 거리가 짧아져 피할 시간이 없다. 세로의 16%를 넘지 않게 하면
+  // 캐릭터와 버튼이 아래로 붙고 낙하 거리가 그만큼 길어진다.
+  get _floorH() { return Math.min(FLOOR_H_BASE, this.lh * 0.16) }
+
   init() {
     this._fitCanvas()
     window.addEventListener('resize', this._onResize)
@@ -252,7 +262,7 @@ export default class PoopDodgeGame {
   update(dt) {
     const cfg   = ROUNDS[this.round - 1]
     const h     = this.lh
-    const floor = h - FLOOR_H
+    const floor = h - this._floorH
 
     this._roundTimer -= dt
     this._spawnTimer -= dt
@@ -384,7 +394,7 @@ export default class PoopDodgeGame {
     this._setCharPose('scared', CHAR_SCARED_MS)
     sound.playHit()
     this._shakeAmount = 14
-    this._spawnParticles('hit', poop.x, this.lh - FLOOR_H, 12)
+    this._spawnParticles('hit', poop.x, this.lh - this._floorH, 12)
 
     if (this.lives <= 0) {
       this._running = false
@@ -518,7 +528,14 @@ export default class PoopDodgeGame {
 
     // 배경 이미지 (캔디랜드)
     if (this._img.bg) {
-      ctx.drawImage(this._img.bg, 0, 0, w, h)
+      // **늘리지 않고 덮는다(cover).** 0,0,w,h로 그리면 세로로 든 폰에서
+      // 가로로 긴 배경이 짓눌려 찌그러진다. 잘리는 건 괜찮아도 비율이 깨지면
+      // 캔디랜드가 아니라 뭉개진 그림이 된다.
+      const iw = this._img.bg.naturalWidth  || w
+      const ih = this._img.bg.naturalHeight || h
+      const k  = Math.max(w / iw, h / ih)
+      const dw = iw * k, dh = ih * k
+      ctx.drawImage(this._img.bg, (w - dw) / 2, (h - dh) / 2, dw, dh)
     } else {
       // 폴백 그라디언트
       const bg = ctx.createLinearGradient(0, 0, 0, h)
@@ -579,7 +596,7 @@ export default class PoopDodgeGame {
   _drawZones(w, h) {
     const ctx   = this.ctx
     const zw    = w / 3
-    const floor = h - FLOOR_H
+    const floor = h - this._floorH
     const now   = Date.now()
 
     // 활성 존 컬러 오버레이 (반투명)
@@ -606,13 +623,9 @@ export default class PoopDodgeGame {
       ctx.fillRect(x - bw / 2, 0, bw, floor)
     }
 
-    // 바닥 경계선
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'
-    ctx.lineWidth   = 2
-    ctx.beginPath()
-    ctx.moveTo(0, floor)
-    ctx.lineTo(w, floor)
-    ctx.stroke()
+    // 바닥 경계선은 지웠다.
+    // 캐릭터가 버튼을 밟고 서 있는 지금은 "여기가 바닥"이 이미 읽힌다.
+    // 배경 위를 가로지르는 흰 선만 남아서 화면을 잘라 보이게 했다.
 
     // 활성 존 에너지 라인 — 포인트 그린 + 흐르는 펄스
     const GR = 90, GG = 255, GB = 145   // 포인트 그린 RGB
@@ -699,7 +712,7 @@ export default class PoopDodgeGame {
   // 둘이 따로 계산하면 화면 크기가 바뀔 때 한쪽만 움직여서 어긋난다.
   _footing(h) {
     const artH = BTN_ART_H * this._scale
-    const cy   = h - FLOOR_H * 0.52
+    const cy   = h - this._floorH * 0.52
     return { artH, cy, top: cy - artH / 2 }
   }
 
@@ -735,7 +748,7 @@ export default class PoopDodgeGame {
       } else {
         // 폴백: 컬러 알약 버튼
         const btnW = Math.min(zw - 24, zw * 0.82)
-        const btnH = Math.min(FLOOR_H - 20, 60 * sc)
+        const btnH = Math.min(this._floorH - 20, 60 * sc)
         ctx.beginPath()
         ctx.roundRect(cx - btnW / 2, cy - btnH / 2, btnW, btnH, btnH / 2)
         ctx.fillStyle   = isActive ? fallbackColors[i] : `${fallbackColors[i]}99`

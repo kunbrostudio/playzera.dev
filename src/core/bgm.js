@@ -1,5 +1,7 @@
 // BGM 관리 모듈 — 게임별 배경음악 자동 로드 + 재생/정지
 
+import { audioFileExists } from './audioProbe.js'
+
 const COMMON_BGM = '/assets/audio/common/Kingdom.mp3'
 const BGM_VOLUME = 0.45
 const FADE_MS    = 500
@@ -55,11 +57,9 @@ function _registerAutoplayFallback(audio) {
 // gameId 기반으로 BGM 소스 결정: 게임별 → 공통 fallback
 export async function load(gameId) {
   const gameSrc = `/assets/audio/${gameId}/bgm/bgm.mp3`
-  let newSrc    = COMMON_BGM
-  try {
-    const res = await fetch(gameSrc, { method: 'HEAD' })
-    if (res.ok) newSrc = gameSrc
-  } catch (_) {}
+  // 게임 전용 곡이 **실제로** 있을 때만 쓴다. 없으면 공통곡.
+  // (상태 코드만 보면 없는 파일도 200 → HTML을 오디오로 물었다. audioProbe 참고)
+  const newSrc = (await audioFileExists(gameSrc)) ? gameSrc : COMMON_BGM
 
   if (newSrc === _currentSrc) return   // 변경 없으면 스킵
 

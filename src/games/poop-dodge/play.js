@@ -7,6 +7,8 @@ import { saveResult } from '../../core/gameResult.js'
 import { getCurrentPlayerName } from '../../core/player.js'
 import { handSession } from '../../core/handSession.js'
 import { bindHandButton } from '../../core/handControl.js'
+import { showReadyScreen } from '../../core/readyScreen.js'
+import { MAX_LIVES } from './game.js'
 import { getManifest, getEntry } from '../registry.js'
 import * as sound from '../../core/sound.js'
 import * as bgm   from '../../core/bgm.js'
@@ -52,7 +54,16 @@ export default async function poopDodgePlay(app, query) {
     if (!ok) { navigate(backTo); return }
   }
 
-  await showSoloGame(app, gameId, manifest)
+  // 카메라 준비 화면 — **전 게임 공용**(core/readyScreen.js).
+  //
+  // 이전에는 이 화면이 없었다. 곧장 게임을 띄우고 카메라가 안 되면 조용히
+  // 키보드로 떨어졌는데, 아이는 왜 몸이 안 먹히는지 알 수 없었다. 화면에 너무
+  // 가까이 서 있어서 전신이 안 잡히는 경우가 특히 그랬다 — 고칠 수 있는 문제인데
+  // 고칠 방법을 알려주지 않았다.
+  const ready = await showReadyScreen(app, { title: '카메라 준비', showZones: true })
+  if (ready.mode === 'back') { ready.release(); navigate(backTo); return }
+
+  await showSoloGame(app, gameId, manifest, ready)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -183,7 +194,7 @@ function showOrientationCoach(app) {
 // ═══════════════════════════════════════════════════════════════
 // 1대 모드 (솔로)
 // ═══════════════════════════════════════════════════════════════
-async function showSoloGame(app, gameId, manifest) {
+async function showSoloGame(app, gameId, manifest, ready) {
   const backTo = getEntry(gameId)   // 이 게임의 인트로
 
   // 이름 입력 화면은 뺐다 — 웜업도 물어보지 않는다.
@@ -192,6 +203,9 @@ async function showSoloGame(app, gameId, manifest) {
   const playerName = getCurrentPlayerName()
 
   const rounds = manifest.rounds ?? 5
+  // 하트 칸 수는 게임이 정한 목숨 수를 따라간다. 화면에 숫자를 따로 박아두면
+  // 게임 쪽 MAX_LIVES를 바꿨을 때 조용히 어긋난다.
+  const maxLives = MAX_LIVES
 
   app.innerHTML = `
     <style>
@@ -202,17 +216,18 @@ async function showSoloGame(app, gameId, manifest) {
         padding: clamp(8px,1.4vh,12px) clamp(12px,2vw,20px);
         font-family: var(--font-main);
       }
+      /* 진행 단계 — 예전에는 동그라미 5개였는데 "이게 목숨인가 레벨인가"가
+         안 읽혔다. 하트(목숨)와 모양이 겹쳐서 더 헷갈렸다. 숫자로 적는다. */
       #hud-rounds {
-        display: flex; gap: 7px; align-items: center;
+        display: flex; gap: 6px; align-items: baseline;
         background: rgba(10,6,22,0.65); backdrop-filter: blur(10px);
-        border-radius: 50px; padding: 7px 14px;
+        border-radius: 50px; padding: 5px 16px;
+        color: #fff; font-weight: 900; font-size: clamp(0.8rem,1.5vw,1.05rem);
+        letter-spacing: 0.04em; white-space: nowrap;
       }
-      .hud-pip {
-        width: clamp(10px,1.4vw,15px); height: clamp(10px,1.4vw,15px);
-        border-radius: 50%; background: rgba(255,255,255,0.18);
-        flex-shrink: 0; transition: background 0.3s, box-shadow 0.3s;
-      }
-      .hud-pip.done { background: #7c3aed; box-shadow: 0 0 7px rgba(124,58,237,0.75); }
+      #hud-rounds .lv-now { color: #ffd23e; font-size: 1.25em; }
+      #hud-rounds .lv-total { opacity: 0.5; }
+      #hud-rounds .lv-word-s { display: none; }
       #hud-timer {
         background: linear-gradient(180deg,#ffe94d,#f0c000);
         color: #5a3c00; font-size: clamp(1rem,2.4vw,1.4rem); font-weight: 900;
@@ -232,7 +247,34 @@ async function showSoloGame(app, gameId, manifest) {
       #hud-lives {
         background: rgba(10,6,22,0.65); backdrop-filter: blur(10px);
         border-radius: 50px; padding: 6px 12px;
-        display: flex; gap: clamp(2px,0.5vw,6px); font-size: clamp(1.1rem,2.6vw,1.5rem);
+        display: flex; align-items: center; gap: clamp(2px,0.5vw,6px);
+        font-size: clamp(1.1rem,2.6vw,1.5rem);
+      }
+      /* 세로로 든 폰에서는 하트 5개가 가로를 다 먹어 햄버거를 밀어냈다.
+         하트 하나 + 숫자로 접는다 — 같은 정보를 5분의 1 폭에 담는다.
+         두 표현을 다 그려두고 **CSS가 고른다.** 폭을 JS로 재면 회전할 때마다
+         다시 그려야 하고, 그리는 시점과 회전 시점이 어긋나면 잘못된 쪽이 남는다. */
+      #hud-lives .lives-compact { display: none; align-items: baseline; gap: 3px; }
+      #hud-lives .lives-compact b { color: #ff6b8a; font-size: 1.05em; }
+      #hud-lives .lives-compact .of { opacity: 0.5; font-size: 0.8em; }
+      @media (max-width: 620px) {
+        #hud-lives .lives-icons   { display: none; }
+        #hud-lives .lives-compact { display: inline-flex; }
+      }
+
+      /* 더 좁은 폰(≤480px) — 여기서는 한 칸이라도 아껴야 **햄버거가 화면 안에 남는다.**
+         실제로 300px 폭에서 메뉴 버튼이 오른쪽으로 밀려 나갔다.
+         글자를 줄이고(LEVEL→LV) 여백을 조인다. 순서상 마지막인 햄버거가
+         가장 먼저 밀려나는데, 그건 게임을 빠져나갈 유일한 길이라 잃으면 안 된다. */
+      @media (max-width: 480px) {
+        #solo-hud { padding: 6px 8px; gap: 4px; }
+        #hud-rounds { padding: 4px 9px; font-size: 0.72rem; letter-spacing: 0; gap: 3px; }
+        #hud-rounds .lv-word   { display: none; }
+        #hud-rounds .lv-word-s { display: inline; }
+        #hud-timer { padding: 2px 8px; min-width: 30px; font-size: 0.95rem; }
+        #hud-score-wrap { padding: 3px 9px; font-size: 0.68rem; gap: 3px; }
+        #hud-lives { padding: 4px 8px; font-size: 1rem; }
+        .hud-icon-btn img { width: 30px; }
       }
       .hud-icon-btn {
         background: none; border: none; padding: 0;
@@ -241,6 +283,16 @@ async function showSoloGame(app, gameId, manifest) {
         transition: transform 0.12s; line-height: 1;
       }
       .hud-icon-btn img { display: block; width: clamp(36px, 4.5vw, 54px); height: auto; }
+
+      /* 소리·음악을 **어디에 둘지는 화면 폭이 정한다.**
+         넓으면 HUD 아이콘(늘 보이니 빠르다), 좁으면 일시정지 메뉴(자리가 없다).
+         상태는 한 곳(sound/bgm 모듈)이고 그리는 자리만 둘이라 어긋나지 않는다.
+         세로로 든 폰에서는 아이콘 셋이 하트를 밀어내 햄버거까지 화면 밖으로 나갔다. */
+      .narrow-only { display: none; }
+      @media (max-width: 620px) {
+        #btn-bgm, #btn-mute { display: none; }
+        .narrow-only { display: block; }
+      }
       .hud-icon-btn:hover  { transform: scale(1.12); }
       .hud-icon-btn:active { transform: scale(0.90); }
       /* ── 메뉴 카드 ── */
@@ -322,7 +374,10 @@ async function showSoloGame(app, gameId, manifest) {
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <div id="hud-lives"></div>
-          <button id="btn-mute" class="hud-icon-btn">
+          <button id="btn-bgm" class="hud-icon-btn" aria-label="음악">
+            <img id="hud-bgm-img" src="/assets/image/btn_main_music.png" alt="음악" />
+          </button>
+          <button id="btn-mute" class="hud-icon-btn" aria-label="효과음">
             <img id="hud-mute-img" src="/assets/image/btn_main_audio.png" alt="소리" />
           </button>
           <button id="btn-menu" class="hud-icon-btn">
@@ -390,10 +445,9 @@ async function showSoloGame(app, gameId, manifest) {
         <div id="menu-card">
           <div id="menu-title">⏸ 일시정지</div>
           <button id="btn-resume"    class="menu-btn green"  data-pz-hit data-pz-dwell="900">▶ 계속하기</button>
-          <button id="btn-restart"   class="menu-btn gray"   data-pz-hit data-pz-dwell="1200">⏹ 다시 시작</button>
           <button id="menu-btn-hand" class="menu-btn gray"   data-pz-hit data-pz-dwell="900">✋ <span id="menu-hand-label">손 컨트롤 모드</span></button>
-          <button id="menu-btn-bgm"  class="menu-btn gray"   data-pz-hit data-pz-dwell="900">🎵 음악 켜짐</button>
-          <button id="menu-btn-mute" class="menu-btn gray"   data-pz-hit data-pz-dwell="900">🔊 소리 켜짐</button>
+          <button id="menu-btn-bgm"  class="menu-btn gray narrow-only" data-pz-hit data-pz-dwell="900">🎵 <span id="menu-bgm-label">음악 켜짐</span></button>
+          <button id="menu-btn-mute" class="menu-btn gray narrow-only" data-pz-hit data-pz-dwell="900">🔊 <span id="menu-mute-label">소리 켜짐</span></button>
           <button id="btn-menu-exit" class="menu-btn danger" data-pz-hit data-pz-dwell="1400">🚪 게임 나가기</button>
           <button id="btn-menu-hub"  class="menu-btn gray"   data-pz-hit data-pz-dwell="1400">🏠 게임 목록으로</button>
         </div>
@@ -429,14 +483,18 @@ async function showSoloGame(app, gameId, manifest) {
   // ── HUD ──────────────────────────────────────────────────
   const updateRoundPips = round =>
     (app.querySelector('#hud-rounds').innerHTML =
-      Array.from({ length: rounds }, (_, i) =>
-        `<span class="hud-pip${i < round ? ' done' : ''}"></span>`
-      ).join(''))
+      `<span class="lv-word">LEVEL</span><span class="lv-word-s">LV</span>` +
+      `<span class="lv-now">${Math.max(1, round)}</span><span class="lv-total">/${rounds}</span>`)
+  // 하트는 **최대 목숨 수만큼** 그린다. 3으로 박아두면 목숨을 5로 늘려도
+  // 화면에는 3칸만 나와서 두 개가 조용히 사라진 것처럼 보인다.
   const updateLives = n =>
     (app.querySelector('#hud-lives').innerHTML =
-      Array.from({ length: 3 }, (_, i) =>
-        `<span style="opacity:${i < n ? 1 : 0.18};transition:opacity 0.2s;">❤️</span>`
-      ).join(''))
+      `<span class="lives-icons">${
+        Array.from({ length: maxLives }, (_, i) =>
+          `<span style="opacity:${i < n ? 1 : 0.18};transition:opacity 0.2s;">❤️</span>`
+        ).join('')
+      }</span>` +
+      `<span class="lives-compact">❤️<b>${n}</b><span class="of">/${maxLives}</span></span>`)
   const updateScore = s => { app.querySelector('#score-val').textContent = s }
   const updateTimer = ms => {
     const el  = app.querySelector('#hud-timer')
@@ -447,7 +505,7 @@ async function showSoloGame(app, gameId, manifest) {
     el.style.color      = sec <= 3 ? '#fff' : '#5a3c00'
   }
   const resetHUD = () => {
-    updateLives(3); updateScore(0); updateRoundPips(0)
+    updateLives(maxLives); updateScore(0); updateRoundPips(1)
     const el = app.querySelector('#hud-timer')
     el.textContent = ''; el.style.background = 'linear-gradient(180deg,#ffe94d,#f0c000)'
     el.style.boxShadow = '0 3px 0 #b88e00'; el.style.color = '#5a3c00'
@@ -569,7 +627,10 @@ async function showSoloGame(app, gameId, manifest) {
   }
 
   function openMenu() {
-    if (!game || !game._running) return
+    // `_running`까지 요구하면 **라운드 배너·카운트다운 동안 메뉴가 안 열린다.**
+    // 시작하자마자 그만두고 싶은 경우가 실제로 있는데(카메라가 이상하다든지)
+    // 3초를 기다렸다가 눌러야 했다. 게임이 만들어져 있으면 언제든 연다.
+    if (!game) return
     game.pause()
     menuPanel.style.display = 'flex'
     // 손 커서가 꺼져 있으면 손 PIP도 안 뜬다 — 그럴 땐 게임 PIP를 그대로 둔다.
@@ -586,19 +647,31 @@ async function showSoloGame(app, gameId, manifest) {
   }
 
   // ── 음소거 동기화 ─────────────────────────────────────────
+  // 소리·음악은 **HUD 아이콘 두 개**가 전부다.
+  // 일시정지 메뉴에도 같은 항목을 두면 상태가 두 곳에 그려지고, 한쪽만 고치면
+  // 서로 다른 말을 한다. 아이콘은 늘 보이니 메뉴에 또 둘 이유가 없다.
   function syncMute() {
     const muted = sound.isMuted()
-    const hudImg = app.querySelector('#hud-mute-img')
-    if (hudImg) hudImg.src = muted ? '/assets/image/btn_main_audio_off.png' : '/assets/image/btn_main_audio.png'
-    app.querySelector('#menu-btn-mute').textContent = muted ? '🔇 소리 꺼짐' : '🔊 소리 켜짐'
+    const img = app.querySelector('#hud-mute-img')
+    if (img) img.src = muted
+      ? '/assets/image/btn_main_audio_off.png' : '/assets/image/btn_main_audio.png'
+    const lb = app.querySelector('#menu-mute-label')
+    if (lb) lb.textContent = muted ? '소리 꺼짐' : '소리 켜짐'
   }
   function syncBgmBtn() {
-    const el = app.querySelector('#menu-btn-bgm')
-    if (el) el.textContent = bgm.isMuted() ? '🎵 음악 꺼짐' : '🎵 음악 켜짐'
+    const muted = bgm.isMuted()
+    const img = app.querySelector('#hud-bgm-img')
+    if (img) img.src = muted
+      ? '/assets/image/btn_main_music_off.png' : '/assets/image/btn_main_music.png'
+    const lb = app.querySelector('#menu-bgm-label')
+    if (lb) lb.textContent = muted ? '음악 꺼짐' : '음악 켜짐'
   }
-  app.querySelector('#btn-mute').addEventListener('click', () => { sound.toggle(); syncMute() })
-  app.querySelector('#menu-btn-mute').addEventListener('click', () => { sound.toggle(); syncMute() })
-  app.querySelector('#menu-btn-bgm').addEventListener('click', () => { bgm.toggleMute(); syncBgmBtn() })
+  const toggleSfx = () => { sound.toggle(); syncMute() }
+  const toggleBgm = () => { bgm.toggleMute(); syncBgmBtn() }
+  app.querySelector('#btn-mute').addEventListener('click', toggleSfx)
+  app.querySelector('#btn-bgm').addEventListener('click', toggleBgm)
+  app.querySelector('#menu-btn-mute').addEventListener('click', toggleSfx)
+  app.querySelector('#menu-btn-bgm').addEventListener('click', toggleBgm)
   syncMute()
   syncBgmBtn()
 
@@ -616,10 +689,6 @@ async function showSoloGame(app, gameId, manifest) {
 
   app.querySelector('#btn-menu').addEventListener('click', openMenu)
   app.querySelector('#btn-resume').addEventListener('click', closeMenu)
-  app.querySelector('#btn-restart').addEventListener('click', () => {
-    menuPanel.style.display = 'none'
-    startGame()
-  })
   // 정리는 onLeave가 맡는다 — 여기서는 나가기만 하면 된다.
   //
   // 나가는 곳이 두 군데다.
@@ -637,7 +706,13 @@ async function showSoloGame(app, gameId, manifest) {
 
   let lastLandmarks = null
 
-  poseEngine.init(pipVideo, {
+  // 아이가 "키보드로 하기"를 골랐으면 **카메라를 열지 않는다.**
+  // 지금까지는 준비 화면이 없어서 무조건 열었는데, 이제는 고를 수 있게 물어봤다.
+  // 물어봐 놓고 무시하면 물어본 의미가 없고, 카메라를 켜둔 만큼 발열도 는다.
+  if (ready?.mode === 'keyboard') {
+    ready.release()
+    updateSourceBadge('keyboard')
+  } else poseEngine.init(pipVideo, {
     onZoneChange: zone => {
       camZone = zone
       game?.setPlayerZone(zone)
@@ -648,12 +723,17 @@ async function showSoloGame(app, gameId, manifest) {
       overlay.draw(landmarks, camZone)
     },
   }).then(() => {
+    // 준비 화면이 들고 있던 카메라 참조를 **여기서** 놓는다.
+    // 게임이 먼저 acquire()한 뒤라 참조가 1 → 2 → 1로 흘러 카메라가 끊기지 않는다.
+    // 먼저 놓으면 0이 되어 껐다 켜지고 첫 라운드가 버벅인다.
+    ready?.release()
     if (poseEngine.isRunning) {
       pipWrap.style.display = 'block'
       updateSourceBadge('local')
       startGestureLoop()
     }
   }).catch(err => {
+    ready?.release()
     // 카메라가 안 열려도 게임은 키보드로 계속 돌아간다. 다만 왜 안 열렸는지는 알려준다 —
     // 이유마다 할 일이 다르고(권한/다른 앱이 점유/HTTPS), 뭉뚱그리면 매번 콘솔을 봐야 한다.
     console.warn('[game] 카메라 시작 실패:', err?.name, err?.message)
@@ -768,11 +848,17 @@ async function showSoloGame(app, gameId, manifest) {
   }
 
   // ── 키보드 폴백 ───────────────────────────────────────────
+  // 방향키는 **한 칸씩** 움직인다.
+  //
+  // 이전에는 왼쪽=0번칸, 오른쪽=2번칸으로 절대 위치를 찍었다. 그래서 방향키로는
+  // 가운데(1번)에 갈 방법이 없었다 — 스페이스를 눌러야 했는데 아무도 모른다.
+  // 몸으로 할 때는 옆으로 한 걸음씩 옮기는 게임이니 키보드도 같아야 한다.
   const onKey = e => {
     if (!game) return
-    if (e.key === 'ArrowLeft')  game.setPlayerZone(0)
-    if (e.key === ' ')          game.setPlayerZone(1)
-    if (e.key === 'ArrowRight') game.setPlayerZone(2)
+    const step = d => game.setPlayerZone(Math.max(0, Math.min(2, game.playerZone + d)))
+    if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1) }
+    if (e.key === 'ArrowRight') { e.preventDefault(); step(1) }
+    if (e.key === ' ')          { e.preventDefault(); game.setPlayerZone(1) }   // 가운데로 한 번에
     if (e.key === 'Escape') {
       if (menuPanel.style.display === 'flex') closeMenu()
       else openMenu()
