@@ -9,6 +9,8 @@ import * as bgm   from '../../core/bgm.js'
 import * as sound from '../../core/sound.js'
 import { markPlayed } from '../../core/recent.js'
 import { handSession } from '../../core/handSession.js'
+import { bindHandButton } from '../../core/handControl.js'
+import { hasSeenTutorial } from '../../core/tutorialSeen.js'
 import { poseEngineCore } from '../../core/pose/poseEngine.js'
 import { isArmsUpCircle, isArmsUpCross, GestureHold } from '../../core/pose/gesture.js'
 import { GESTURE } from '../../core/pose/tuning.js'
@@ -83,10 +85,20 @@ export function poopDodgeIntro(app) {
         z-index: 3; position: relative;
       }
 
-      /* ── 허브 복귀 (좌상단) ── */
-      #home-back-btn {
+      /* ── 상단 줄 ──
+         왼쪽은 나가는 길(← 게임 목록), 오른쪽은 이 게임의 설정이다.
+         손 컨트롤·튜토리얼은 메뉴(햄버거)와 같은 성격이라 오른쪽에 모은다.
+         **가로로** 늘어놓는다 — 세로로 붙이면 손 커서로 1.2초 겨누는 동안
+         손이 조금만 내려가도 아래 버튼에 걸린다(허브 하단 바에서 겪은 문제). */
+      #intro-topleft {
         position: fixed; top: clamp(12px, 2vw, 24px); left: clamp(12px, 2vw, 24px);
-        z-index: 100;
+        z-index: 100; display: flex; align-items: center; gap: 10px;
+      }
+      #intro-topright {
+        position: fixed; top: clamp(12px, 2vw, 24px); right: clamp(12px, 2vw, 24px);
+        z-index: 100; display: flex; align-items: center; gap: 10px;
+      }
+      #home-back-btn, #intro-hand-btn, #intro-howto-btn {
         background: rgba(255,255,255,0.92); border: none;
         border-radius: 9999px; padding: clamp(8px, 1.2vw, 12px) clamp(16px, 2.2vw, 24px);
         font-family: inherit; font-size: clamp(0.9rem, 1.6vw, 1.15rem); font-weight: 900;
@@ -95,8 +107,20 @@ export function poopDodgeIntro(app) {
         -webkit-tap-highlight-color: transparent;
         transition: transform 0.12s;
       }
-      #home-back-btn:hover  { transform: scale(1.06); }
-      #home-back-btn:active { transform: scale(0.94); }
+      #home-back-btn:hover,  #intro-hand-btn:hover,  #intro-howto-btn:hover  { transform: scale(1.06); }
+      #home-back-btn:active, #intro-hand-btn:active, #intro-howto-btn:active { transform: scale(0.94); }
+      #intro-hand-btn[aria-pressed="true"] { background: #ffd23e; color: #4a2a00; }
+
+      /* 안내 토스트 — 카메라 오류 문구가 여기 뜬다 */
+      #intro-toast {
+        position: fixed; left: 50%; top: clamp(70px, 11vh, 110px); transform: translateX(-50%);
+        z-index: 120; max-width: min(90vw, 460px); text-align: center;
+        padding: 10px 20px; border-radius: 9999px;
+        background: rgba(10,6,22,0.86); color: #fff;
+        font-size: clamp(0.82rem, 1.5vw, 0.98rem); font-weight: 700;
+        opacity: 0; pointer-events: none; transition: opacity 0.2s;
+      }
+      #intro-toast.on { opacity: 1; }
 
       /* ── 손동작 안내 ── */
       #intro-gesture-hint {
@@ -115,8 +139,7 @@ export function poopDodgeIntro(app) {
 
       /* ── 메뉴 버튼 (우상단) ── */
       #home-menu-btn {
-        position: fixed; top: clamp(12px, 2vw, 24px); right: clamp(12px, 2vw, 24px);
-        z-index: 100; background: none; border: none; padding: 0;
+        background: none; border: none; padding: 0; line-height: 0;
         cursor: pointer; -webkit-tap-highlight-color: transparent;
       }
       #home-menu-btn img {
@@ -183,8 +206,12 @@ export function poopDodgeIntro(app) {
       </div>
     </div>
 
-    <!-- 좌상단 허브 복귀 -->
-    <button id="home-back-btn" data-pz-hit data-pz-dwell="800">← 게임 목록</button>
+    <!-- 좌상단 — 나가는 길 -->
+    <div id="intro-topleft">
+      <button id="home-back-btn" data-pz-hit data-pz-dwell="800">← 게임 목록</button>
+    </div>
+
+    <div id="intro-toast"></div>
 
     <!-- 손동작 안내 (카메라가 켜져 있을 때만) -->
     <div id="intro-gesture-hint">
@@ -192,10 +219,14 @@ export function poopDodgeIntro(app) {
       <div class="gauge"><div id="intro-gauge"></div></div>
     </div>
 
-    <!-- 우상단 메뉴 -->
-    <button id="home-menu-btn" aria-label="메뉴">
-      <img id="home-menu-ico" src="${IMG.menuOpen}" alt="메뉴" />
-    </button>
+    <!-- 우상단 — 손 컨트롤 · 튜토리얼 · 메뉴 -->
+    <div id="intro-topright">
+      <button id="intro-hand-btn" data-pz-hit data-pz-dwell="800">✋ <span id="intro-hand-label">손 컨트롤 모드</span></button>
+      <button id="intro-howto-btn" data-pz-hit data-pz-dwell="800">❔ 어떻게 해?</button>
+      <button id="home-menu-btn" aria-label="메뉴">
+        <img id="home-menu-ico" src="${IMG.menuOpen}" alt="메뉴" />
+      </button>
+    </div>
     <div id="home-menu-panel">
       <button class="home-menu-item" id="menu-item-music" aria-label="BGM">
         <img id="menu-music-img" src="${IMG.musicOn}" alt="BGM" />
@@ -206,6 +237,16 @@ export function poopDodgeIntro(app) {
       <!-- 향후 메뉴 항목 추가 자리 -->
     </div>
   `
+
+  // 시작 지점은 하나다 — START 버튼도, 머리 위 O도 여기로 온다.
+  //
+  // **처음 하는 아이에게는 튜토리얼을 한 번 거치게 한다.** 이 게임은 규칙이
+  // 하나뿐이라(옆으로 비킨다) 한 번만 보면 되고, 두 번째부터는 바로 게임이다.
+  // 다시 보고 싶으면 좌상단 '어떻게 해?' 버튼으로 언제든 갈 수 있다.
+  function startGame() {
+    if (hasSeenTutorial(GAME_ID)) navigate(`/game?id=${GAME_ID}`)
+    else                          navigate(`/tutorial?id=${GAME_ID}`)
+  }
 
   // ── 이미지 에러 처리 ──────────────────────────────────────
   const startImg = app.querySelector('#home-start-img')
@@ -237,7 +278,7 @@ export function poopDodgeIntro(app) {
     startCss.classList.remove('pressed')
     if (!fire || launched) return
     launched = true   // mouseup과 click이 연달아 오므로 한 번만 나간다
-    navigate(`/game?id=${GAME_ID}`)
+    startGame()
   }
   ;[startImg, startCss].forEach(el => {
     el.addEventListener('mousedown',  () => onPressStart())
@@ -249,6 +290,11 @@ export function poopDodgeIntro(app) {
     // 듣고 있어서 그대로면 커서로는 눌리지 않는다. (버튼마다 다르게 반응하는 걸
     // 포인터가 알 필요는 없으니, 표준 click을 받아주는 쪽이 맞다.)
     el.addEventListener('click', () => onPressEnd(true))
+  })
+
+  // 튜토리얼 다시 보기 — 한 번 보고 나면 자동으로는 안 뜬다
+  app.querySelector('#intro-howto-btn').addEventListener('click', () => {
+    navigate(`/tutorial?id=${GAME_ID}`)
   })
 
   // ── 허브 복귀 ─────────────────────────────────────────────
@@ -313,6 +359,22 @@ export function poopDodgeIntro(app) {
   // 웜업 타이틀이 O로 시작하니 감각을 맞춘다.
   handSession.setPointerActive(true)
 
+  // 손 컨트롤이 꺼진 채로 들어오면 여기서 켤 수 있어야 한다.
+  // 이 버튼이 없어서 "인트로에서는 손이 안 된다"고 보였다.
+  const toastEl = app.querySelector('#intro-toast')
+  let toastTimer = null
+  const toast = msg => {
+    toastEl.textContent = msg
+    toastEl.classList.add('on')
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => toastEl.classList.remove('on'), 2600)
+  }
+  const unbindHand = bindHandButton({
+    el: app.querySelector('#intro-hand-btn'),
+    labelEl: app.querySelector('#intro-hand-label'),
+    onToast: toast,
+  })
+
   const hintEl = app.querySelector('#intro-gesture-hint')
   const gaugeEl = app.querySelector('#intro-gauge')
   const oHold = new GestureHold(lms => isArmsUpCircle(lms, GESTURE), GESTURE.confirmHoldSec)
@@ -338,13 +400,15 @@ export function poopDodgeIntro(app) {
     const xDone = xHold.update(dt, lastLms)
     gaugeEl.style.width = `${Math.round(Math.max(oHold.progress, xHold.progress) * 100)}%`
 
-    if (oDone)      { done = true; sound.activate(); navigate(`/game?id=${GAME_ID}`) }
+    if (oDone)      { done = true; sound.activate(); startGame() }
     else if (xDone) { done = true; navigate('/') }
   }
   raf = requestAnimationFrame(tick)
 
   onLeave(() => {
     unsub()
+    unbindHand()
+    clearTimeout(toastTimer)
     if (raf) cancelAnimationFrame(raf)
   })
 }

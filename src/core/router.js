@@ -3,8 +3,13 @@
 // 현재 (STEP 3 — 멀티디바이스 제거 후):
 //   /            → home.js    (게임 목록 허브)
 //   /intro?id=   → intro.js   (게임별 스플래시)
-//   /game?id=    → game.js    (똥 피하기 — 이름 입력 → 플레이)
+//   /tutorial?id=→ 게임별 튜토리얼 (처음 한 번 · 인트로에서 다시 보기 가능)
+//   /game?id=    → game.js    (똥 피하기 — 플레이)
 //   /warmup      → warmup.js  (웜업 게임팩)
+//
+// ⚠️ `/tutorial`은 지금 똥 피하기 것만 가리킨다. STEP 5(게임팩화)에서
+//    게임팩이 자기 튜토리얼을 들고 오는 구조로 바꾼다 — 게임이 늘 때마다
+//    여기에 import를 하나씩 더하는 건 오래 못 간다.
 //
 // `/control`·`/camera`는 여러 대를 연결하던 시절의 경로다. STEP 3에서 삭제했다.
 //
@@ -15,11 +20,13 @@ import { homePage } from '../pages/home.js'
 import { introPage } from '../pages/intro.js'
 import { gamePage } from '../pages/game.js'
 import { warmupPage } from '../pages/warmup.js'
+import { tutorialPage } from '../games/poop-dodge/tutorial.js'
 
 const routes = {
   '/': homePage,
   '/intro': introPage,
   '/game': gamePage,
+  '/tutorial': tutorialPage,
   '/warmup': warmupPage,
 }
 

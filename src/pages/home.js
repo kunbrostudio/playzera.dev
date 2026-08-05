@@ -29,6 +29,7 @@ import { getAll, getEntry } from '../games/registry.js'
 import { getRecentIds, markPlayed } from '../core/recent.js'
 import * as bgm from '../core/bgm.js'
 import { handSession } from '../core/handSession.js'
+import { bindHandButton } from '../core/handControl.js'
 import {
   PER_PAGE, RECENT_MAX,
   isNew, playersLabel, buildCategories, buildFeatured,
@@ -1008,39 +1009,12 @@ export function homePage(app) {
   }, { passive: true })
 
   // ── 손 포인터 ───────────────────────────────────────────────
-  const handLabel = $('#pz-hand-label')
-  const syncHandLabel = () => {
-    handLabel.textContent = handSession.enabled ? '손 끄기' : '손으로 고르기'
-  }
-  if (!handSession.supported) {
-    $('#pz-hand').style.display = 'none'
-    console.info('[home] 손 포인터 미지원:', handSession.unsupportedReason)
-  }
-  const offHandChange = handSession.onChange(syncHandLabel)
-
-  async function turnHandOn() {
-    handLabel.textContent = '켜는 중…'
-    try {
-      await handSession.enable()
-      toast('손을 어깨 위로 들면 커서가 나와요')
-    } catch (err) {
-      console.warn('[home] 손 포인터 시작 실패:', err?.name, err?.message)
-      const byName = {
-        NotAllowedError:  '카메라 권한을 허용해 주세요',
-        NotFoundError:    '카메라를 찾지 못했어요',
-        NotReadableError: '다른 앱이 카메라를 쓰고 있어요',
-        OverconstrainedError: '카메라가 이 화질을 지원하지 않아요',
-        SecurityError:    'HTTPS에서만 쓸 수 있어요',
-        PoseUnsupportedError: err?.message,
-      }
-      toast(byName[err?.name] ?? `카메라 오류: ${err?.name || ''} ${err?.message || ''}`.trim())
-    }
-    syncHandLabel()
-  }
-
-  $('#pz-hand').addEventListener('click', () => {
-    if (handSession.enabled) handSession.disable()
-    else turnHandOn()
+  // 켜고 끄는 판단과 오류 문구는 core/handControl.js가 가진다.
+  // 인트로·튜토리얼도 같은 것을 쓴다 — 화면마다 다른 안내가 뜨면 안 된다.
+  const offHandChange = bindHandButton({
+    el: $('#pz-hand'),
+    labelEl: $('#pz-hand-label'),
+    onToast: toast,
   })
 
   // ── 헤더 ────────────────────────────────────────────────────
@@ -1069,6 +1043,6 @@ export function homePage(app) {
   renderHero()
   restartHeroTimer()
   handSession.setPointerActive(true)
-  syncHandLabel()
-  handSession.resumeIfPreferred().then(syncHandLabel)
+  // 라벨 동기화는 bindHandButton이 handSession.onChange로 걸어뒀다
+  handSession.resumeIfPreferred()
 }

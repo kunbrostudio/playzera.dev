@@ -1,18 +1,88 @@
 import * as sound from '../../core/sound.js'
 
-const ROUNDS = [
-  { duration: 12, speed: 180, spawnMs: 3000 },
-  { duration: 11, speed: 260, spawnMs: 2400 },
-  { duration: 10, speed: 340, spawnMs: 2000 },
-  { duration: 10, speed: 420, spawnMs: 1600 },
-  { duration: 10, speed: 500, spawnMs: 1200 },
+// 라운드 구성 — **한 판이 2분 반은 가야 한다.**
+//
+// 이전에는 12/11/10/10/10 = 53초였다. 5레벨을 다 깨도 1분이 안 됐다.
+// 운동이 목적인 게임에서 53초는 준비운동도 안 되는 시간이고, 실제로 첫 모션
+// 기록이 활동 18초 · 좌우 이동 2회로 남았다(STEP 9 참조).
+//
+// 늘린 방식 — **똥 밀도(초당 낙하 수)는 그대로 두고 시간만 늘렸다.**
+// 밀도를 같이 올리면 난이도가 딴 게임이 된다. duration을 늘리고 spawnMs를
+// 그에 맞춰 미세 조정해 초당 0.4~0.5개를 유지한다.
+//
+// 최고 속도는 500 → 420으로 낮췄다. 10초를 버티는 것과 35초를 버티는 것은
+// 다른 일이다. 같은 속도로 3배를 끌면 목숨 3개로는 끝까지 못 간다.
+export const ROUNDS = [
+  { duration: 25, speed: 180, spawnMs: 2600 },   // 배우는 구간 — 길고 느리게
+  { duration: 28, speed: 230, spawnMs: 2200 },
+  { duration: 30, speed: 290, spawnMs: 1900 },
+  { duration: 32, speed: 350, spawnMs: 1600 },
+  { duration: 35, speed: 420, spawnMs: 1400 },   // 마지막 — 빠르지만 감당 가능하게
 ]
+
+// 한 판 총 시간(초). 테스트가 이 값을 지킨다.
+export const TOTAL_SECONDS = ROUNDS.reduce((s, r) => s + r.duration, 0)
 
 const MAX_LIVES     = 3
 const WARN_PX       = 80
 const BASE_W        = 1280
 const MAX_PARTICLES = 80
 const FLOOR_H       = 110  // 하단 버튼 영역 높이
+
+// ── 플레이어 캐릭터 ──────────────────────────────────────────────
+const CHAR_H        = 210   // 기준 높이(px). _scale이 곱해진다
+const CHAR_RATIO    = 1070 / 1450   // 원본 가로/세로
+// 캐릭터 발이 버튼의 윗부분 어디에 닿는가(버튼 그림 높이 대비).
+// **캐릭터가 버튼 위에 올라선 것처럼 보여야 한다.** 그래서 발 위치를 화면 높이가
+// 아니라 **버튼 그림 위치에 묶는다** — 따로 두면 화면 크기가 바뀔 때 한쪽만 움직여
+// 캐릭터가 버튼 위에 떠 있거나 파묻힌다.
+const CHAR_FOOT_ON_BTN = 0.26
+
+// 버튼 그림의 기준 높이(px, _scale이 곱해진다). 여백 뺀 **보이는 그림** 기준이다.
+const BTN_ART_H     = 68
+const CHAR_MOVE_MS  = 190   // 한 칸을 건너는 데 걸리는 시간
+const CHAR_SCARED_MS = 700  // 맞았을 때 놀란 표정을 유지하는 시간
+const CHAR_HOP_PX   = 10    // 이동 중 위아래로 통통 튀는 폭
+
+// PNG에서 **실제로 그림이 있는 사각형**을 찾는다(알파 > 12인 픽셀의 경계).
+//
+// 투명 여백을 포함한 박스로 배치하면 보이는 크기가 에셋마다 제멋대로다.
+// 실패하면(캔버스 오염 등) null을 돌려주고 호출부가 전체 이미지로 폴백한다.
+function measureArtBox(img) {
+  try {
+    const w = img.naturalWidth, h = img.naturalHeight
+    if (!w || !h) return null
+    const c = document.createElement('canvas')
+    c.width = w; c.height = h
+    const cx = c.getContext('2d', { willReadFrequently: true })
+    cx.drawImage(img, 0, 0)
+    const d = cx.getImageData(0, 0, w, h).data
+    let minX = w, minY = h, maxX = -1, maxY = -1
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (d[(y * w + x) * 4 + 3] > 12) {
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+      }
+    }
+    return maxX < 0 ? null : { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 }
+  } catch {
+    return null
+  }
+}
+
+// 목표까지 한 걸음. 넘어가면 목표에 딱 붙인다.
+//
+// 캔버스 없이 검증할 수 있도록 따로 뺐다 — 이 게임에서 순수 함수로 떨어지는
+// 몇 안 되는 조각이고, "덜컥거리며 지나친다" 같은 버그가 나는 자리다.
+export function stepToward(current, target, maxStep) {
+  const dx = target - current
+  if (Math.abs(dx) <= maxStep) return target
+  return current + Math.sign(dx) * maxStep
+}
 
 // 존별 테마 색상 (왼쪽=분홍, 가운데=파랑, 오른쪽=보라)
 const ZONE_COLORS = [
@@ -53,26 +123,47 @@ export default class PoopDodgeGame {
     this._warnZones   = new Set()
     this._overlayLock = false
 
+    // 캐릭터 — 위치는 칸이 아니라 **픽셀**로 들고 있는다.
+    // 칸만 들고 있으면 칸을 바꾸는 순간 순간이동한다. 아이가 자기 몸을
+    // 옆으로 옮겼는데 화면 속 캐릭터가 텔레포트하면 "따라오는" 느낌이 안 난다.
+    this._charX      = null    // null이면 첫 프레임에 목표 위치로 스냅
+    this._charPose   = 'idle'  // idle | left | right | scared | cheer
+    this._charPoseMs = 0       // 임시 표정(놀람·환호)이 남은 시간
+    this._charHopMs  = 0
+
     // 이미지 에셋
     this._img = {}
     this._loadImages()
   }
 
   _loadImages() {
-    const load = (key, src) => {
+    const load = (key, src, measure = false) => {
       const img = new Image()
-      img.onload  = () => { this._img[key] = img }
+      img.onload  = () => {
+        // 버튼 PNG는 여백이 크다 — 800×800인데 실제 그림은 570×359다(세로 45%).
+        // 박스 크기로 배치하면 "왜 이렇게 작지?"가 되고, 여백 비율을 상수로 박아두면
+        // 에셋이 바뀔 때 조용히 어긋난다. **불투명 영역을 직접 재서** 그 부분만 그린다.
+        if (measure) img._artBox = measureArtBox(img)
+        this._img[key] = img
+      }
       img.onerror = () => {}
       img.src = src
     }
     load('bg',   '/assets/image/poop_game_bg.jpg')
     load('poop', '/assets/image/poop01_default.png')
-    load('btnL', '/assets/image/btn_left_default.png')
-    load('btnC', '/assets/image/btn_center_default.png')
-    load('btnR', '/assets/image/btn_right_default.png')
-    load('btnLP', '/assets/image/btn_left_pressed.png')
-    load('btnCP', '/assets/image/btn_center_pressed.png')
-    load('btnRP', '/assets/image/btn_right_pressed.png')
+    load('btnL', '/assets/image/btn_left_default.png',    true)
+    load('btnC', '/assets/image/btn_center_default.png',  true)
+    load('btnR', '/assets/image/btn_right_default.png',   true)
+    load('btnLP', '/assets/image/btn_left_pressed.png',   true)
+    load('btnCP', '/assets/image/btn_center_pressed.png', true)
+    load('btnRP', '/assets/image/btn_right_pressed.png',  true)
+
+    // 플레이어 캐릭터. 하나라도 없으면 그 표정만 idle로 떨어진다(게임은 계속된다).
+    load('charIdle',   '/assets/characters/char_idle.png')
+    load('charLeft',   '/assets/characters/char_move_left.png')
+    load('charRight',  '/assets/characters/char_move_right.png')
+    load('charScared', '/assets/characters/char_scared.png')
+    load('charCheer',  '/assets/characters/char_cheer.png')
   }
 
   // ── 논리 픽셀 ────────────────────────────────────────────────
@@ -92,7 +183,9 @@ export default class PoopDodgeGame {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
 
-  _onResize = () => { this._fitCanvas() }
+  // 화면 크기가 바뀌면 칸 폭이 달라진다. 캐릭터 위치는 픽셀이라
+  // 그대로 두면 엉뚱한 칸에 서 있게 된다 — 다음 프레임에 다시 맞춘다.
+  _onResize = () => { this._fitCanvas(); this._charX = null }
 
   // ── 공개 API ────────────────────────────────────────────────
 
@@ -113,6 +206,9 @@ export default class PoopDodgeGame {
     this._combo     = 0
     this._warnZones.clear()
     this._paused = false
+    // 지난 라운드의 환호가 새 라운드 시작까지 남지 않도록
+    this._charPose   = 'idle'
+    this._charPoseMs = 0
 
     const cfg = ROUNDS[roundNumber - 1]
     this._roundTimer = cfg.duration * 1000
@@ -201,11 +297,47 @@ export default class PoopDodgeGame {
     this.poops = survived
 
     this._updateParticles(dt)
+    this._updateCharacter(dt)
 
     if (this._roundTimer <= 0) {
       this._running = false
       this._endRound()
     }
+  }
+
+  // 캐릭터를 플레이어가 선 칸으로 **끌고 간다.**
+  //
+  // 아이가 옆으로 비키면 캐릭터도 같은 방향으로 달려간다. 목표에 도착하기 전에
+  // 아이가 또 움직이면 가던 방향에서 그대로 방향만 바꾼다 — 그래서 목표를
+  // 매 프레임 다시 읽는다.
+  _updateCharacter(dt) {
+    const zw     = this.lw / 3
+    const target = zw * this.playerZone + zw / 2
+
+    if (this._charX === null) { this._charX = target }   // 첫 프레임
+
+    const before = this._charX
+    this._charX  = stepToward(this._charX, target, (zw / CHAR_MOVE_MS) * dt)
+    const moved  = this._charX - before
+
+    // 임시 표정(놀람·환호)이 남아 있으면 그게 우선이다
+    if (this._charPoseMs > 0) {
+      this._charPoseMs -= dt
+      if (this._charPoseMs > 0) return
+    }
+
+    if (Math.abs(moved) < 0.01) {
+      this._charPose  = 'idle'
+      this._charHopMs = 0
+    } else {
+      this._charPose   = moved > 0 ? 'right' : 'left'
+      this._charHopMs += dt
+    }
+  }
+
+  _setCharPose(pose, ms) {
+    this._charPose   = pose
+    this._charPoseMs = ms
   }
 
   // 떨어질 칸을 고른다 — **기본은 플레이어가 서 있는 칸이다.**
@@ -249,6 +381,7 @@ export default class PoopDodgeGame {
     this.lives--
     this.onLifeUpdate(this.lives)
     this._showJudge(false)
+    this._setCharPose('scared', CHAR_SCARED_MS)
     sound.playHit()
     this._shakeAmount = 14
     this._spawnParticles('hit', poop.x, this.lh - FLOOR_H, 12)
@@ -266,6 +399,7 @@ export default class PoopDodgeGame {
     this.onScoreUpdate(this.score)
 
     sound.playRoundClear()
+    this._setCharPose('cheer', 2400)   // 클리어 오버레이가 떠 있는 동안 계속 환호
     this._spawnCelebration()
 
     await this._showOverlay(
@@ -394,12 +528,52 @@ export default class PoopDodgeGame {
       ctx.fillRect(0, 0, w, h)
     }
 
+    // 그리는 순서가 곧 앞뒤 관계다.
+    //   존 → 버튼 → 캐릭터 → 똥 → 파티클
+    // 캐릭터는 버튼보다 **뒤에** 그려 앞으로 나오게 하고,
+    // 똥보다는 **먼저** 그려 바닥에 닿는 똥이 캐릭터를 덮게 한다("맞았다"가 읽힌다).
     this._drawZones(w, h)
-    this._drawPoops()
     this._drawMarkers(w, h)
+    this._drawCharacter(w, h)
+    this._drawPoops()
     this._renderParticles()
 
     ctx.restore()
+  }
+
+  _drawCharacter(w, h) {
+    const ctx  = this.ctx
+    // 발은 버튼 그림 윗부분에 딛는다 — 버튼을 발판처럼 밟고 선 모양이 된다
+    const ft   = this._footing(h)
+    const floor = ft.top + ft.artH * CHAR_FOOT_ON_BTN
+    if (this._charX === null) this._charX = (w / 3) * this.playerZone + w / 6
+
+    const img =
+      this._img[{ left: 'charLeft', right: 'charRight', scared: 'charScared', cheer: 'charCheer' }[this._charPose]]
+      ?? this._img.charIdle
+    if (!img) return
+
+    const ch = CHAR_H * this._scale
+    const cw = ch * CHAR_RATIO
+
+    // 달릴 때만 통통 튄다. 서 있을 때 흔들리면 산만하다.
+    const hop = this._charPose === 'left' || this._charPose === 'right'
+      ? Math.abs(Math.sin(this._charHopMs * 0.018)) * CHAR_HOP_PX * this._scale
+      : 0
+
+    const x = this._charX - cw / 2
+    const y = floor - ch + hop * 0.35 - hop   // 발이 바닥선에 닿는다
+
+    // 발밑 그림자 — 없으면 캐릭터가 공중에 뜬 것처럼 보인다
+    ctx.save()
+    ctx.globalAlpha = 0.28
+    ctx.fillStyle = '#000'
+    ctx.beginPath()
+    ctx.ellipse(this._charX, floor - 4, cw * 0.30, ch * 0.055, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+
+    ctx.drawImage(img, x, y, cw, ch)
   }
 
   _drawZones(w, h) {
@@ -521,11 +695,18 @@ export default class PoopDodgeGame {
     }
   }
 
+  // 발판 기하 — 버튼과 캐릭터가 **같은 값**을 본다.
+  // 둘이 따로 계산하면 화면 크기가 바뀔 때 한쪽만 움직여서 어긋난다.
+  _footing(h) {
+    const artH = BTN_ART_H * this._scale
+    const cy   = h - FLOOR_H * 0.52
+    return { artH, cy, top: cy - artH / 2 }
+  }
+
   _drawMarkers(w, h) {
     const ctx  = this.ctx
-    const sc   = this._scale
     const zw   = w / 3
-    const cy   = h - FLOOR_H / 2
+    const { cy } = this._footing(h)
 
     // default / pressed 이미지 쌍
     const defaultImgs = [this._img.btnL,  this._img.btnC,  this._img.btnR]
@@ -540,10 +721,17 @@ export default class PoopDodgeGame {
       const img      = isActive ? (pressedImgs[i] ?? defaultImgs[i]) : defaultImgs[i]
 
       if (img) {
-        // 원본 비율 유지: 존 너비의 82%를 기준으로 높이 계산
-        const drawW = Math.min(zw - 32, zw * 0.66)
-        const drawH = drawW * (img.naturalHeight / img.naturalWidth)
-        ctx.drawImage(img, cx - drawW / 2, cy - drawH / 2, drawW, drawH)
+        // **여백을 뺀 그림 부분만** 그린다. 크기 기준도 그림 높이다.
+        // 존 너비의 몇 %로 잡던 때는 큰 모니터에서 화면 절반을 버튼이 먹었고,
+        // 박스 높이로 잡았더니 여백 때문에 손톱만 해졌다.
+        const box = img._artBox ?? { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight }
+        const ar  = box.w / box.h
+        let drawH = this._footing(h).artH
+        let drawW = drawH * ar
+        const maxW = zw * 0.62
+        if (drawW > maxW) { drawW = maxW; drawH = drawW / ar }
+        ctx.drawImage(img, box.x, box.y, box.w, box.h,
+                      cx - drawW / 2, cy - drawH / 2, drawW, drawH)
       } else {
         // 폴백: 컬러 알약 버튼
         const btnW = Math.min(zw - 24, zw * 0.82)

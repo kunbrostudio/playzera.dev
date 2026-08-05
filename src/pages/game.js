@@ -6,6 +6,7 @@ import { GESTURE } from '../core/pose/tuning.js'
 import { saveResult } from '../core/gameResult.js'
 import { getCurrentPlayerName } from '../core/player.js'
 import { handSession } from '../core/handSession.js'
+import { bindHandButton } from '../core/handControl.js'
 import { GAME_REGISTRY } from '../games/registry.js'
 import * as sound from '../core/sound.js'
 import * as bgm   from '../core/bgm.js'
@@ -355,9 +356,10 @@ async function showSoloGame(app, gameId, entry) {
 
       <!-- 손동작 안내 + 게이지.
            일시정지 메뉴(z-index 20)와 게임오버 위에도 떠야 하므로 z-index를 더 높게 둔다.
-           화면마다 따로 만들지 않고 문구만 바꿔 하나로 쓴다. -->
+           화면마다 따로 만들지 않고 문구만 바꿔 하나로 쓴다.
+           **위에 둔다** — 아래에 두면 가운데 칸 버튼을 가린다(실제로 가렸다). -->
       <div id="gesture-hint" style="
-        position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:30;
+        position:absolute;left:50%;top:76px;transform:translateX(-50%);z-index:30;
         display:none;flex-direction:column;align-items:center;gap:6px;
         background:rgba(10,6,22,0.78);backdrop-filter:blur(8px);
         padding:8px 18px;border-radius:50px;border:1px solid rgba(196,168,245,0.25);
@@ -388,12 +390,13 @@ async function showSoloGame(app, gameId, entry) {
       ">
         <div id="menu-card">
           <div id="menu-title">⏸ 일시정지</div>
-          <button id="btn-resume"    class="menu-btn green">▶ 계속하기</button>
-          <button id="btn-restart"   class="menu-btn gray">⏹ 다시 시작</button>
-          <button id="menu-btn-bgm"  class="menu-btn gray">🎵 음악 켜짐</button>
-          <button id="menu-btn-mute" class="menu-btn gray">🔊 소리 켜짐</button>
-          <button id="btn-menu-exit" class="menu-btn danger">🚪 게임 나가기</button>
-          <button id="btn-menu-hub"  class="menu-btn gray">🏠 게임 목록으로</button>
+          <button id="btn-resume"    class="menu-btn green"  data-pz-hit data-pz-dwell="900">▶ 계속하기</button>
+          <button id="btn-restart"   class="menu-btn gray"   data-pz-hit data-pz-dwell="1200">⏹ 다시 시작</button>
+          <button id="menu-btn-hand" class="menu-btn gray"   data-pz-hit data-pz-dwell="900">✋ <span id="menu-hand-label">손 컨트롤 모드</span></button>
+          <button id="menu-btn-bgm"  class="menu-btn gray"   data-pz-hit data-pz-dwell="900">🎵 음악 켜짐</button>
+          <button id="menu-btn-mute" class="menu-btn gray"   data-pz-hit data-pz-dwell="900">🔊 소리 켜짐</button>
+          <button id="btn-menu-exit" class="menu-btn danger" data-pz-hit data-pz-dwell="1400">🚪 게임 나가기</button>
+          <button id="btn-menu-hub"  class="menu-btn gray"   data-pz-hit data-pz-dwell="1400">🏠 게임 목록으로</button>
         </div>
       </div>
 
@@ -411,8 +414,8 @@ async function showSoloGame(app, gameId, entry) {
             <div id="go-title-solo"></div>
             <div id="go-stats-solo"></div>
             <div class="go-btn-row-solo">
-              <button id="btn-retry">다시 하기</button>
-              <button id="btn-home-go">그만하기</button>
+              <button id="btn-retry"   data-pz-hit data-pz-dwell="1200">다시 하기</button>
+              <button id="btn-home-go" data-pz-hit data-pz-dwell="1200">그만하기</button>
             </div>
           </div>
         </div>
@@ -510,6 +513,7 @@ async function showSoloGame(app, gameId, entry) {
 
   function startGame() {
     app.querySelector('#gameover-overlay').style.display = 'none'
+    handSession.setPointerActive(false)   // 다시 플레이 — 커서는 방해다
     resetHUD()
     buildGame()
     game.startRound(1)
@@ -526,18 +530,59 @@ async function showSoloGame(app, gameId, entry) {
       `클리어 라운드: ${stats.roundsCleared} / ${rounds}<br>` +
       `회피: ${stats.dodgeCount}회 · 피격: ${stats.hitCount}회`
     app.querySelector('#gameover-overlay').style.display = 'flex'
+    showHandCursor()   // 멈춘 화면 = 손으로 고르는 화면
   }
 
   // ── 햄버거 메뉴 ───────────────────────────────────────────
   const menuPanel = app.querySelector('#menu-panel')
 
+  // 게임이 **멈춰 있는 동안에만** 손 커서를 보여준다.
+  //
+  // 플레이 중에는 커서가 방해다 — 이 게임은 몸 위치로 조종하므로 손을 들 일이
+  // 없고, 커서가 떠 있으면 화면에 노란 원이 계속 따라다닌다. 그래서 진입할 때
+  // setPointerActive(false)로 꺼둔다.
+  //
+  // 그런데 그 상태로는 **일시정지 메뉴를 손으로 고를 수 없다.** X로 메뉴를 열고
+  // 나면 거기서부터는 마우스가 필요했다. 멈춘 동안만 켜면 둘 다 해결된다.
+  // 멈춘 화면에서 손으로 고를 수 있게 커서를 띄운다.
+  //
+  // ⚠️ `setPointerActive(true)` 하나로는 아무 일도 안 일어난다.
+  //    이 페이지는 **자기 poseEngine으로 카메라를 직접 연다.** handSession과는
+  //    별개라서, 몸으로만 놀던 아이는 handSession이 꺼진 채고 커서도 없다.
+  //    (handSession은 `enabled && pointerActive`일 때만 커서를 그린다)
+  //
+  // 카메라는 이미 열려 있으므로 여기서 붙이는 건 공짜다 — 권한 팝업도, 재시작도
+  // 없다(poseEngineCore가 참조 카운팅으로 같은 스트림을 나눠 준다).
+  //
+  // `remember: false` — 아이가 손 컨트롤을 **고른 게 아니라** 멈춤 화면이 필요해서
+  // 켠 것이다. 취향으로 저장하면 다음 방문에 허브가 멋대로 카메라를 켠다.
+  let gamePipWasOn = false
+
+  function showHandCursor() {
+    handSession.setPointerActive(true)
+    if (handSession.enabled || !poseEngine.isRunning) return
+    handSession.enable({ remember: false })
+      .then(() => {
+        // 켜지고 나면 손 PIP가 뜬다 — 게임 PIP와 겹치므로 하나만 남긴다
+        if (pipWrap.style.display === 'block') { gamePipWasOn = true; pipWrap.style.display = 'none' }
+      })
+      .catch(err => console.warn('[game] 멈춤 화면 손 커서 실패:', err?.name, err?.message))
+  }
+
   function openMenu() {
     if (!game || !game._running) return
     game.pause()
     menuPanel.style.display = 'flex'
+    // 손 커서가 꺼져 있으면 손 PIP도 안 뜬다 — 그럴 땐 게임 PIP를 그대로 둔다.
+    // 무조건 숨기면 멈춘 동안 카메라 화면이 아무것도 없이 사라진다.
+    gamePipWasOn = handSession.enabled && pipWrap.style.display === 'block'
+    if (gamePipWasOn) pipWrap.style.display = 'none'
+    showHandCursor()
   }
   function closeMenu() {
     menuPanel.style.display = 'none'
+    handSession.setPointerActive(false)
+    if (gamePipWasOn) { pipWrap.style.display = 'block'; gamePipWasOn = false }
     game?.resume()
   }
 
@@ -557,6 +602,18 @@ async function showSoloGame(app, gameId, entry) {
   app.querySelector('#menu-btn-bgm').addEventListener('click', () => { bgm.toggleMute(); syncBgmBtn() })
   syncMute()
   syncBgmBtn()
+
+  // 손 컨트롤 — 일시정지 메뉴 안에 둔다.
+  //
+  // 플레이 중에는 손 커서를 쓰지 않는다(몸 위치로 조종하는 게임이다). 그런데도
+  // 여기 필요한 이유는, 카메라가 안 켜진 채 키보드로 들어온 아이가 **게임을 나가지
+  // 않고** 카메라를 켤 수 있어야 하기 때문이다. 지금까지는 허브까지 돌아가야 했다.
+  // 카메라는 앱 전체가 하나를 공유하므로, 여기서 켜면 칸 인식도 같이 살아난다.
+  const unbindHandBtn = bindHandButton({
+    el: app.querySelector('#menu-btn-hand'),
+    labelEl: app.querySelector('#menu-hand-label'),
+    onToast: msg => { sourceBadge.textContent = msg; sourceBadge.style.color = '#ff9f43' },
+  })
 
   app.querySelector('#btn-menu').addEventListener('click', openMenu)
   app.querySelector('#btn-resume').addEventListener('click', closeMenu)
@@ -731,6 +788,7 @@ async function showSoloGame(app, gameId, entry) {
   // 카메라 표시등이 켜진 채로 남는다. 라우터가 렌더 직전에 부르면 순서가 확실하다.
   const cleanup = () => {
     window.removeEventListener('keydown', onKey)
+    unbindHandBtn()
     stopGestureLoop()
     poseEngine.destroy()
     overlay.destroy()

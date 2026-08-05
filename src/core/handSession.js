@@ -96,7 +96,10 @@ export const handSession = {
   get supported() { return isPoseSupported() },
   get unsupportedReason() { return poseUnsupportedReason() },
 
-  async enable() {
+  // remember: false — 이번 화면에서만 쓰고 취향으로는 기억하지 않는다.
+  // 게임 일시정지처럼 **아이가 손 컨트롤을 고른 게 아니라** 화면이 필요해서 켜는
+  // 경우가 있다. 그걸 취향으로 저장하면 다음 방문에 허브가 멋대로 카메라를 켠다.
+  async enable({ remember = true } = {}) {
     if (enabled || starting) return
     // 될 수 없는 기기라면 권한 팝업을 띄우기 전에 멈춘다.
     // 허락을 받아놓고 모델 로드에서 실패하는 건 사용자에게 두 번 실망을 준다.
@@ -114,11 +117,12 @@ export const handSession = {
       unsub = poseEngineCore.onLandmarks(lms => overlay.draw(lms))
       pointer = createHandPointer()
       enabled = true
-      writePref(true)
+      if (remember) writePref(true)
       syncVisibility()
       notify()
     } catch (e) {
-      // 안 되는 걸 화면에 들어올 때마다 시도하면 매번 에러 안내를 본다
+      // 안 되는 걸 화면에 들어올 때마다 시도하면 매번 에러 안내를 본다.
+      // (기억하지 않기로 한 경우에도 '안 된다'는 사실은 남긴다)
       writePref(false)
       throw e
     } finally {
