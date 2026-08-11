@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <!-- 임시 썸네일. 그림이 나오면 이 파일만 갈아 끼운다 (manifest는 그대로) -->
+  <defs>
+    <linearGradient id="sky2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1e3a6b"/>
+      <stop offset="100%" stop-color="#0e1730"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4f96ff" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#4f96ff" stop-opacity="0.08"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="320" height="200" fill="url(#sky2)"/>
+  <rect x="0" y="128" width="320" height="72" fill="url(#water)"/>
+
+  <!-- 돌 -->
+  <g fill="#4b3a77" stroke="rgba(255,255,255,0.16)" stroke-width="3">
+    <ellipse cx="52"  cy="140" rx="26" ry="15"/>
+    <ellipse cx="270" cy="140" rx="26" ry="15"/>
+  </g>
+  <ellipse cx="160" cy="132" rx="30" ry="17" fill="#ffd23e" stroke="rgba(255,255,255,0.25)" stroke-width="3"/>
+
+  <!-- 한 발로 선 아이 (도형) -->
+  <circle cx="160" cy="62" r="16" fill="#ffd7a8"/>
+  <rect x="148" y="80" width="24" height="34" rx="10" fill="#7ec8ff"/>
+  <rect x="153" y="112" width="9" height="20" rx="4" fill="#4b3a77"/>      <!-- 딛는 다리 -->
+  <path d="M170 114 q16 6 16 -12" stroke="#4b3a77" stroke-width="9" stroke-linecap="round" fill="none"/> <!-- 든 다리 -->
+  <path d="M140 92 q-14 -10 -6 -24" stroke="#7ec8ff" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <path d="M180 92 q14 -10 6 -24" stroke="#7ec8ff" stroke-width="8" stroke-linecap="round" fill="none"/>
+
+  <!-- 버티기 고리 -->
+  <circle cx="160" cy="96" r="62" fill="none" stroke="rgba(126,231,135,0.25)" stroke-width="7"/>
+  <path d="M160 34 a62 62 0 0 1 54 31" fill="none" stroke="#7ee787" stroke-width="7" stroke-linecap="round"/>
+</svg>

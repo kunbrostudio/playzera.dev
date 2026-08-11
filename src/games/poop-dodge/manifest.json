@@ -22,8 +22,8 @@
     "피하기"
   ],
   "metrics": [
-    "dodges",
-    "hits"
+    "side_steps",
+    "active_sec"
   ],
   "status": "active",
   "createdAt": "2026-07-01",

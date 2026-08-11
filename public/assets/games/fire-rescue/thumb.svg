@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200" width="320" height="200">
+  <!-- 임시 썸네일. 그림이 나오면 이 파일만 갈아 끼운다 (manifest는 그대로) -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b2170"/>
+      <stop offset="100%" stop-color="#1a0d38"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#ff5c3d"/>
+      <stop offset="60%" stop-color="#ff9d2e"/>
+      <stop offset="100%" stop-color="#ffe14d"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="320" height="200" fill="url(#sky)"/>
+
+  <!-- 집 -->
+  <rect x="176" y="96" width="104" height="76" rx="8" fill="#5b4a8f"/>
+  <path d="M168 98 L228 56 L288 98 Z" fill="#7a63c0"/>
+  <rect x="204" y="126" width="30" height="46" rx="4" fill="#2b1b52"/>
+
+  <!-- 불 -->
+  <path d="M228 40 C242 56 252 66 252 80 C252 94 241 104 228 104 C215 104 204 94 204 80 C204 66 214 56 228 40 Z" fill="url(#flame)"/>
+
+  <!-- 소방관(도형) -->
+  <circle cx="70" cy="86" r="16" fill="#ffd7a8"/>
+  <path d="M52 78 h36 v-6 a18 18 0 0 0 -36 0 Z" fill="#ff5c8a"/>
+  <rect x="56" y="104" width="28" height="40" rx="10" fill="#ffd23e"/>
+  <rect x="60" y="144" width="9" height="26" rx="4" fill="#4b3a77"/>
+  <rect x="72" y="140" width="9" height="30" rx="4" fill="#4b3a77"/>
+
+  <!-- 물줄기 -->
+  <g fill="#7ec8ff">
+    <circle cx="100" cy="112" r="6"/>
+    <circle cx="124" cy="106" r="5"/>
+    <circle cx="146" cy="100" r="4"/>
+    <circle cx="164" cy="94" r="3"/>
+  </g>
+</svg>

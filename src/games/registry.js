@@ -14,6 +14,8 @@
 // entry: 허브 목록에서 이 게임을 고를 때 갈 곳. 인트로가 있으면 인트로부터.
 import poopDodgeManifest from './poop-dodge/manifest.json'
 import warmupManifest from './warmup-obstacle/manifest.json'
+import fireRescueManifest from './fire-rescue/manifest.json'
+import stoneBridgeManifest from './stone-bridge/manifest.json'
 import { getPlaceholderManifests } from './placeholders.js'
 
 export const GAME_REGISTRY = {
@@ -22,6 +24,18 @@ export const GAME_REGISTRY = {
     intro:    () => import('./poop-dodge/intro.js'),
     tutorial: () => import('./poop-dodge/tutorial.js'),
     play:     () => import('./poop-dodge/play.js'),
+  },
+  'fire-rescue': {
+    manifest: fireRescueManifest,
+    // 인트로·튜토리얼이 없다. 규칙이 한 줄("달리면 물이 나온다")이라
+    // 설명 화면을 하나 더 두는 것보다 곧장 몸을 쓰게 하는 편이 빠르다.
+    play:     () => import('./fire-rescue/play.js'),
+  },
+  'stone-bridge': {
+    manifest: stoneBridgeManifest,
+    // 규칙이 한 줄이라 인트로·튜토리얼을 따로 두지 않는다.
+    // 플레이 화면 안의 안내가 동작을 먼저 보여준다 (불 끄기와 같은 방식).
+    play:     () => import('./stone-bridge/play.js'),
   },
   'warmup-obstacle': {
     manifest: warmupManifest,
@@ -57,4 +71,19 @@ export const getEntry = id => {
   const g = GAME_REGISTRY[id]
   if (!g) return '/'
   return g.intro ? `/intro?id=${id}` : getPlayRoute(id)
+}
+
+/**
+ * 플레이 화면에서 **나갈 곳.**
+ *
+ * `getEntry`를 그대로 쓰면 안 된다. 인트로가 없는 게임은 entry가 플레이 화면 자신이라
+ * `navigate()`가 같은 해시를 다시 넣고, hashchange가 안 나서 **아무 일도 안 일어난다.**
+ * 실제로 불 끄기 소방관의 [그만하기]가 안 먹혔다.
+ *
+ * 인트로가 있으면 한 단계씩 되짚고(잘못 눌렀을 때 되돌아가는 비용이 작다),
+ * 없으면 허브로 간다.
+ */
+export const getBackTo = id => {
+  const g = GAME_REGISTRY[id]
+  return g?.intro ? `/intro?id=${id}` : '/'
 }
