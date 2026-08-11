@@ -4,6 +4,7 @@
 //   /intro?id=     → 게임팩 스플래시   (게임팩이 없으면 건너뛴다)
 //   /tutorial?id=  → 게임팩 튜토리얼   (게임팩이 없으면 건너뛴다)
 //   /play?id=      → 게임팩 플레이 화면
+//   /start         → 첫 실행 (프로필·알 고르기)
 //
 // **라우터는 게임 이름을 모른다.** 화면 셋 다 `?id=`로 registry를 찾아 게임팩이
 // 등록한 로더를 부를 뿐이다. 게임을 추가할 때 이 파일은 건드리지 않는다.
@@ -19,13 +20,43 @@ import { homePage } from '../pages/home.js'
 import { introPage } from '../pages/intro.js'
 import { tutorialPage } from '../pages/tutorial.js'
 import { playPage } from '../pages/play.js'
+import { startPage } from '../pages/start.js'
+import { buddyPage } from '../pages/buddy.js'
+import { mePage } from '../pages/me.js'
+import * as bgm from './bgm.js'
 
 const routes = {
   '/': homePage,
   '/intro': introPage,
   '/tutorial': tutorialPage,
   '/play': playPage,
+  '/start': startPage,   // 첫 실행 — 프로필·알 고르기
+  '/buddy': buddyPage,   // 내 친구 (아이 화면)
+  '/me': mePage,         // 마이페이지 (부모 화면 — 손 커서를 붙이지 않는다)
 }
+
+// 개발용 화면. 개발용 더미 게임과 같은 규칙으로 **DEV에서만** 열린다.
+// /lab — 감지기가 웹캠으로 실제로 세는지 눈으로 보는 자리
+// 들어갈 때 불러온다. 최상위 await를 쓰면 이 모듈이 통째로 비동기가 되어
+// 아래 load 리스너 등록이 늦어진다 — 첫 화면이 안 그려질 수 있다.
+if (import.meta.env?.DEV) {
+  routes['/lab'] = (app, q) => import('../pages/lab.js').then(m => m.labPage(app, q))
+}
+
+// ── 소리가 나도 되는 경로 ────────────────────────────────────
+//
+// **BGM은 게임 안에서만 난다.** 허브·시작·내 친구·마이페이지는 조용해야 한다.
+//
+// 예전에는 허브 화면이 자기가 그려질 때 stop()을 불렀다. 그런데 소리를 켜는 건
+// `main.js`(앱 시작)와 게임팩 둘이었고, 끄는 건 허브 하나였다. 켜는 쪽이 나중에
+// 돌면 그대로 새어 나온다 — 실제로 허브에서 음악이 계속 났다.
+//
+// 그래서 **화면이 아니라 라우터가 판단한다.** 화면이 늘어도 규칙은 그대로다.
+// 게임 경로끼리 옮길 때(인트로 → 튜토리얼 → 플레이)는 끄지 않는다.
+// 거기서 끊으면 같은 곡이 화면마다 처음부터 다시 시작한다.
+//
+// 라우터가 게임 *이름*을 아는 게 아니라 **경로의 종류**를 아는 것이다.
+const GAME_ROUTES = new Set(['/intro', '/tutorial', '/play'])
 
 // 옛 경로 → 새 경로. 값이 함수면 query를 받아 목적지를 만든다.
 const LEGACY = {
@@ -64,6 +95,10 @@ function render() {
     _cleanup = null
     try { fn() } catch (e) { console.warn('[router] 페이지 정리 중 오류:', e) }
   }
+
+  // 게임 밖으로 나왔으면 소리를 끈다. 화면을 그리기 **전에** 끈다 —
+  // 그려진 뒤에 끄면 게임팩이 켠 소리와 순서가 엉킨다.
+  if (!GAME_ROUTES.has(path)) bgm.stop()
 
   app.innerHTML = ''
   page(app, query)
