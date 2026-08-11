@@ -1,0 +1,32 @@
+{
+  "id": "dino",
+  "name": "아기 공룡",
+  "species": "다이노",
+  "description": "용감하고 호기심 많은 다이노 친구예요.\n함께 모험을 떠나요!",
+  "stages": [
+    {
+      "id": "egg",
+      "label": "알",
+      "image": "egg.png",
+      "unlockLevel": 0
+    },
+    {
+      "id": "hatch",
+      "label": "아기",
+      "image": "hatch.png",
+      "unlockLevel": 1
+    },
+    {
+      "id": "grow",
+      "label": "친구",
+      "image": "grow.png",
+      "unlockLevel": 5
+    },
+    {
+      "id": "hero",
+      "label": "히어로",
+      "image": "hero.png",
+      "unlockLevel": 12
+    }
+  ]
+}

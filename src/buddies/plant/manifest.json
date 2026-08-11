@@ -1,0 +1,32 @@
+{
+  "id": "plant",
+  "name": "새싹 친구",
+  "species": "잎사귀",
+  "description": "조용하고 다정한 새싹 친구예요.\n같이 쑥쑥 자라요!",
+  "stages": [
+    {
+      "id": "egg",
+      "label": "알",
+      "image": "egg.png",
+      "unlockLevel": 0
+    },
+    {
+      "id": "hatch",
+      "label": "아기",
+      "image": "hatch.png",
+      "unlockLevel": 1
+    },
+    {
+      "id": "grow",
+      "label": "친구",
+      "image": "grow.png",
+      "unlockLevel": 5
+    },
+    {
+      "id": "hero",
+      "label": "히어로",
+      "image": "hero.png",
+      "unlockLevel": 12
+    }
+  ]
+}

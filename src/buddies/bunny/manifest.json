@@ -1,0 +1,32 @@
+{
+  "id": "bunny",
+  "name": "구름 토끼",
+  "species": "포근이",
+  "description": "폭신폭신 구름을 타고 온 친구예요.\n반짝이는 마법을 좋아해요!",
+  "stages": [
+    {
+      "id": "egg",
+      "label": "알",
+      "image": "egg.png",
+      "unlockLevel": 0
+    },
+    {
+      "id": "hatch",
+      "label": "아기",
+      "image": "hatch.png",
+      "unlockLevel": 1
+    },
+    {
+      "id": "grow",
+      "label": "친구",
+      "image": "grow.png",
+      "unlockLevel": 5
+    },
+    {
+      "id": "hero",
+      "label": "히어로",
+      "image": "hero.png",
+      "unlockLevel": 12
+    }
+  ]
+}
