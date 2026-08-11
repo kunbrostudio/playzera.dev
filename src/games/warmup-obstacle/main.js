@@ -22,6 +22,7 @@ import {
 import { PoseEngine } from './input/poseEngine.js';
 import { MotionDetector } from './input/motionDetector.js';
 import { matchPose } from './input/poseMatcher.js';
+import { isPoseDebugOn, createPoseDebug } from './input/poseDebug.js';
 import { isArmsUpCircle, isArmsUpCross, GestureHold } from './input/gestureRecognizer.js';
 import { World } from './game/world.js';
 import { Character } from './game/character.js';
@@ -63,6 +64,7 @@ let detector = null;
 let run = null;              // 현재 레벨 ObstacleRun
 let currentLevel = 0;
 let inputMode = 'keyboard';  // 'motion' | 'keyboard'
+let poseDebug = null;        // ?debug=pose 일 때만 — 관절별 점수 오버레이
 let lastLandmarks = null;
 let playing = false;
 let paused = false;          // 종료 확인 모달 등으로 일시정지
@@ -210,9 +212,8 @@ function frame(now) {
     character.update(dt);
 
     if (run && playing) {
-      const activePose = run.activePoseType;
-      run.setPoseScore(activePose ? getPoseScore(activePose) : 0);
-      run.update(dt);
+      run.update(dt);   // 점수는 run이 poseScoreFn으로 직접 물어본다
+      poseDebug?.update(lastLandmarks, run.activePoseType, CONFIG.pose.matchThreshold);
     }
 
     // 게임 진행 중 손동작으로 종료 확인창 열기(모션 모드 전용)
@@ -393,6 +394,7 @@ async function gameFlow() {
       stats.levelReached = currentLevel + 1;
       const course = buildCourse(currentLevel);
       run = new ObstacleRun(course, stats, character, { keyboardMode: inputMode === 'keyboard' });
+      run.poseScoreFn = getPoseScore;
       run.onMissionGate = () => { missionDone = true; };
       run.onMiss = () => {
         lives = Math.max(0, lives - 1);
@@ -441,6 +443,10 @@ export async function boot() {
   running = true;
   ac = new AbortController();
   const { signal } = ac;
+
+  // 포즈 판정 진단 — `#/play?id=warmup-obstacle?debug=pose` 로 켠다.
+  // 평소에는 만들지도 않으니 화면에도 번들에도 영향이 없다.
+  if (isPoseDebugOn()) poseDebug = createPoseDebug();
 
   // ── DOM 참조 ──
   canvas = document.getElementById('game-canvas');
@@ -669,6 +675,8 @@ export function destroy() {
   if (rafId) cancelAnimationFrame(rafId);
   rafId = null;
   stopConfirmGestureLoop();
+  poseDebug?.destroy();
+  poseDebug = null;
 
   for (const id of timers) clearInterval(id);
   timers.clear();

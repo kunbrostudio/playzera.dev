@@ -80,7 +80,9 @@ export async function play() {
   a.volume = BGM_VOLUME
   try {
     await a.play()
-  } catch (_) {
+  } catch (e) {
+    // 조용히 삼키면 "소리가 왜 안 나지"를 눈으로 찾게 된다. 이유를 남긴다.
+    console.info('[bgm] 자동재생이 막혔다 — 첫 클릭에서 다시 시도한다:', e?.name ?? e)
     _registerAutoplayFallback(a)
   }
 }
@@ -93,6 +95,10 @@ export function stop() {
 }
 
 export function isMuted() { return _muted }
+
+// 소리가 나고 있나. Audio 객체는 DOM에 없어서 밖에서 들여다볼 방법이 이것뿐이다 —
+// "허브에서 음악이 난다" 같은 문제를 확인하려면 눈이 아니라 값이 있어야 한다.
+export function isPlaying() { return !!_audio && !_audio.paused }
 
 export function toggleMute() {
   _muted = !_muted

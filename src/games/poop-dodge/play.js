@@ -8,6 +8,8 @@ import { getCurrentPlayerName } from '../../core/player.js'
 import { handSession } from '../../core/handSession.js'
 import { bindHandButton } from '../../core/handControl.js'
 import { showReadyScreen } from '../../core/readyScreen.js'
+import { recordSession } from '../../progress/state.js'
+import { mountReward, hasReward } from '../../progress/rewardView.js'
 import { MAX_LIVES } from './game.js'
 import { getManifest, getEntry } from '../registry.js'
 import * as sound from '../../core/sound.js'
@@ -465,6 +467,7 @@ async function showSoloGame(app, gameId, manifest, ready) {
           <div id="go-card-solo">
             <div id="go-emoji-solo">💩</div>
             <div id="go-title-solo"></div>
+            <div id="go-reward"></div>
             <div id="go-stats-solo"></div>
             <div class="go-btn-row-solo">
               <button id="btn-retry"   data-pz-hit data-pz-dwell="1200">다시 하기</button>
@@ -569,11 +572,34 @@ async function showSoloGame(app, gameId, manifest, ready) {
   }
 
   function startGame() {
+    recorded = false   // 새 판이다 — 이 판의 운동량은 따로 센다
     app.querySelector('#gameover-overlay').style.display = 'none'
     handSession.setPointerActive(false)   // 다시 플레이 — 커서는 방해다
     resetHUD()
     buildGame()
     game.startRound(1)
+  }
+
+  // 운동 기록을 성장 시스템에 넘긴다.
+  //
+  // ⚠️ **끝까지 못 깨도 기록한다.** 40초를 뛰었으면 40초만큼 자란다.
+  // 이전에는 게임을 다 끝내야만 저장돼서, 중간에 그만두면 아무것도 안 남았다.
+  // "잘해야 보상"이 아니라 "움직이면 보상"이어야 매일 하게 된다.
+  //
+  // 두 번 세지 않게 한 번만 기록한다 — 정상 종료 뒤에 onLeave가 또 부른다.
+  let recorded = false
+  function recordProgress(stats) {
+    if (recorded || !stats) return null
+    recorded = true
+    return recordSession({
+      gameId,
+      exercise: {
+        active_sec: stats.activeSec ?? 0,
+        side_steps: stats.sideSteps ?? 0,
+        // 이 게임에는 점프·앉기·포즈가 없다. dodgeCount는 **운동이 아니라** 안 넘긴다
+        // (가만히 서 있어도 오른다 — docs/05 4-1)
+      },
+    })
   }
 
   function showGameOver(stats) {
@@ -586,6 +612,12 @@ async function showSoloGame(app, gameId, manifest, ready) {
       `최종 점수: <strong>${stats.score}점</strong><br>` +
       `클리어 라운드: ${stats.roundsCleared} / ${rounds}<br>` +
       `회피: ${stats.dodgeCount}회 · 피격: ${stats.hitCount}회`
+    // 보상은 점수보다 먼저 눈에 들어와야 한다 — 카드 위쪽에 그린다
+    const reward = recordProgress(stats)
+    const rewardHost = app.querySelector('#go-reward')
+    if (hasReward(reward)) mountReward(rewardHost, reward)
+    else rewardHost.innerHTML = ''
+
     app.querySelector('#gameover-overlay').style.display = 'flex'
     showHandCursor()   // 멈춘 화면 = 손으로 고르는 화면
   }
@@ -872,6 +904,11 @@ async function showSoloGame(app, gameId, manifest, ready) {
   // 걸려 있어서 이미 #app을 비운 뒤에 정리가 돈다. 웹캠을 늦게 끊으면 다음 화면에서
   // 카메라 표시등이 켜진 채로 남는다. 라우터가 렌더 직전에 부르면 순서가 확실하다.
   const cleanup = () => {
+    // 중간에 나가도 **움직인 만큼은 남긴다.**
+    // 다만 시작하자마자 나간 경우까지 쌓으면 쓰레기 기록이 는다 — 최소 기준을 둔다.
+    const s = game?.snapshot?.()
+    if (s && (s.activeSec >= 10 || s.sideSteps > 0)) recordProgress(s)
+
     window.removeEventListener('keydown', onKey)
     unbindHandBtn()
     stopGestureLoop()

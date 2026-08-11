@@ -27,9 +27,11 @@
 import { navigate, onLeave } from '../core/router.js'
 import { getAll, getEntry } from '../games/registry.js'
 import { getRecentIds, markPlayed } from '../core/recent.js'
-import * as bgm from '../core/bgm.js'
 import { handSession } from '../core/handSession.js'
 import { bindHandButton } from '../core/handControl.js'
+import { getProgress, hasStarted, buddyNews } from '../progress/state.js'
+import { levelFromTotals } from '../progress/level.js'
+import { buddyImage, currentStage } from '../buddies/registry.js'
 import {
   PER_PAGE, RECENT_MAX,
   isNew, playersLabel, buildCategories, buildFeatured,
@@ -61,8 +63,8 @@ function cardHTML(m, { dwell = DWELL_CARD, maxTags = 2 } = {}) {
 }
 
 export function homePage(app) {
-  // 허브는 무음이다. BGM은 게임에 들어가야 나온다.
-  bgm.stop()
+  // 허브는 무음이다. **끄는 건 라우터가 한다**(core/router.js의 GAME_ROUTES) —
+  // 화면마다 각자 끄면 켜는 쪽과 순서가 엉킨다.
 
   const all = getAll()
   const byId = Object.fromEntries(all.map(m => [m.id, m]))
@@ -194,6 +196,53 @@ export function homePage(app) {
         background: rgba(0,0,0,0.35);
       }
       #pz-hero-poster img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+      /* ── 버디 자리 (docs/06 §7) ──
+         홈을 크게 바꾸지 않는다. **한쪽에 작게** 둔다 — 여기 주인공은 게임 고르기다.
+         자리는 **포스터 왼쪽 옆.** 처음엔 히어로 오른쪽 아래 구석에 뒀는데,
+         바로 밑 35px에 [☷ 전체 보기]가 있었다. 세로로 인접한 두 머무르기 타겟은
+         이 프로젝트가 이미 한 번 밟은 지뢰다(파일 머리말 "왜 좌우 하나뿐인가").
+         1.2초 겨누는 동안 손이 조금만 올라가면 버디로 튄다.
+         포스터와는 **가로로** 이웃하고, 위아래로는 헤더·레일에서 멀다.
+         오프셋이 포스터의 크기 식을 그대로 쓰는 이유 — 포스터가 커지면 같이 비켜야 한다. */
+      #pz-buddy {
+        position: absolute; z-index: 3;
+        right: calc(clamp(24px, 5vw, 90px) + clamp(180px, 22vw, 300px) + clamp(14px, 1.6vw, 26px));
+        top: 50%; transform: translateY(-50%);
+        display: none;                       /* 알을 고른 아이에게만 보인다 */
+        flex-direction: column; align-items: center; gap: 4px;
+        width: clamp(86px, 9vw, 118px); padding: 8px 10px 10px;
+        background: rgba(21,10,46,0.55); backdrop-filter: blur(6px);
+        border: 2px solid rgba(255,255,255,0.2); border-radius: 22px;
+        color: #fff; font: inherit; cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: transform 0.14s, border-color 0.14s, background 0.14s;
+      }
+      #pz-buddy.on { display: flex; }
+      /* 자리를 translateY(-50%)로 잡았으니 hover/active도 그걸 이어서 써야 한다.
+         transform은 덮어쓰기라 scale만 적으면 카드가 아래로 반쯤 내려간다. */
+      #pz-buddy:hover { background: rgba(255,255,255,0.18); border-color: #ffd23e; transform: translateY(-50%) scale(1.05); }
+      #pz-buddy:active { transform: translateY(-50%) scale(0.96); }
+      #pz-buddy-art {
+        position: relative; width: 100%; aspect-ratio: 1;
+        display: flex; align-items: center; justify-content: center; font-size: 2rem;
+      }
+      #pz-buddy-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      #pz-buddy-lv { font-size: clamp(0.72rem, 1.1vw, 0.88rem); font-weight: 900; color: #ffd23e; }
+      /* 빨간 점 — **글자를 못 읽는 아이에게 "가볼 데가 생겼다"를 알리는 유일한 수단.**
+         레벨이 오르거나 배지가 늘면 켜지고, /buddy에 들어가면 꺼진다. */
+      #pz-buddy-dot {
+        position: absolute; top: 4px; right: 6px; width: 14px; height: 14px;
+        border-radius: 50%; background: #ff4d4d; border: 2px solid #150a2e;
+        display: none;
+      }
+      #pz-buddy.news #pz-buddy-dot { display: block; }
+
+      /* 좁거나 낮은 화면에서는 숨긴다. 게임 고르기가 먼저다 —
+         포스터가 사라지는 지점과 같은 조건으로 맞춘다. */
+      @media (max-width: 900px), (max-height: 620px) {
+        #pz-buddy { display: none !important; }
+      }
 
       @keyframes pzHeroIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
       .pz-hero-anim { animation: pzHeroIn 0.45s ease-out; }
@@ -554,6 +603,11 @@ export function homePage(app) {
           <p id="pz-hero-desc"></p>
           <button id="pz-hero-play" data-pz-hit data-pz-dwell="${DWELL_CARD}">▶ 시작하기</button>
         </div>
+        <button id="pz-buddy" data-pz-hit data-pz-dwell="${DWELL_CAT}">
+          <span id="pz-buddy-dot"></span>
+          <span id="pz-buddy-art"></span>
+          <span id="pz-buddy-lv"></span>
+        </button>
       </section>
 
       <section id="pz-rail-sec">
@@ -1017,9 +1071,36 @@ export function homePage(app) {
     onToast: toast,
   })
 
+  // ── 버디 자리 ───────────────────────────────────────────────
+  // 홈은 버디를 **모른다.** 상태를 물어보고 그림 하나를 그릴 뿐이라
+  // 버디가 3종이든 30종이든, 단계가 넷이든 여덟이든 여기 코드는 그대로다.
+  function renderBuddy() {
+    const el = $('#pz-buddy')
+    if (!hasStarted()) return           // 아직 알을 안 골랐다 — 자리를 만들지 않는다
+
+    const s = getProgress()
+    const lv = levelFromTotals(s.totals)
+    const stage = currentStage(s.buddyId, lv.level, s.buddyStage)
+    const src = stage ? buddyImage(s.buddyId, stage.image) : null
+
+    // 그림이 아직 없는 버디가 있다. **빈 칸이 되면 안 된다** — 이모지가 받친다.
+    $('#pz-buddy-art').innerHTML = `
+      <span>${stage?.id === 'egg' ? '🥚' : '🐣'}</span>
+      ${src ? `<img src="${src}" alt="" onload="this.previousElementSibling?.remove()" onerror="this.remove()" />` : ''}`
+    $('#pz-buddy-lv').textContent = `LV.${lv.level}`
+    el.classList.toggle('news', buddyNews(s))
+    el.classList.add('on')
+  }
+  renderBuddy()
+
+  const goBuddy = () => navigate('/buddy')
+  $('#pz-buddy').addEventListener('click', goBuddy)
+  $('#pz-buddy').addEventListener('pz-dwell', e => { e.preventDefault(); goBuddy() })
+
   // ── 헤더 ────────────────────────────────────────────────────
   $('#pz-logo').addEventListener('click', () => { railPage = 0; renderRail(-1) })
-  $('#pz-account').addEventListener('click', () => toast('아이 선택은 준비 중이에요'))
+  // 👤 제라 = **부모 화면 입구**(docs/06 §5). 아이 선택(계정)은 그 뒤에 붙는다.
+  $('#pz-account').addEventListener('click', () => navigate('/me'))
   $('#pz-menu').addEventListener('click', () => toast('설정 메뉴는 준비 중이에요'))
 
   // ── 정리 ────────────────────────────────────────────────────

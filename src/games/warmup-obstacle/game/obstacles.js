@@ -37,6 +37,10 @@ export class ObstacleRun {
     // 포즈 사인판은 일반 장애물보다 훨씬 오래 접근하게 해서(운동 시간 확보) 화면을 멈추지 않고도 여유를 줌
     this.poseWindow = Math.max(course.approachSec * 1.8, 5.5);
     this.poseScore = 0;           // 외부(모션/키보드)에서 매 프레임 주입
+    // 어떤 포즈가 활성인지는 **update 안에서** 정해진다. 그래서 점수도 그때 물어야 한다.
+    // 밖에서 미리 넣어주면 포즈 구간에 막 들어선 프레임에는 아직 활성 포즈를 모르는
+    // 상태라 0이 들어가고, 그 프레임의 holdProgress가 깎인다.
+    this.poseScoreFn = null;      // (poseType) => 0~1
     this.activePoseEvent = null;  // 현재 유지 시도 중인 포즈 이벤트
     this.popups = [];             // 화면에 떠 있는 Great!/Miss 팝업들
 
@@ -93,6 +97,7 @@ export class ObstacleRun {
     // 포즈 유지 진행 추적 (게임/트랙은 계속 진행 — 더 이상 멈추지 않음)
     if (candidate) {
       this.activePoseEvent = candidate;
+      if (this.poseScoreFn) this.poseScore = this.poseScoreFn(candidate.pose);
       const matched = this.poseScore >= CONFIG.pose.matchThreshold;
       candidate.holdProgress = matched
         ? candidate.holdProgress + dt

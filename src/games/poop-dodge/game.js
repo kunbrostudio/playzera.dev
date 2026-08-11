@@ -428,20 +428,26 @@ export default class PoopDodgeGame {
     }
   }
 
-  _endGame() {
-    cancelAnimationFrame(this._rafId)
-    const cleared = this.lives > 0
-    if (cleared) sound.playGameClear()
-    else         sound.playGameOver()
-    this.onGameEnd({
+  // 지금까지의 성적. **끝났을 때와 중간에 그만둘 때가 같은 값을 쓴다.**
+  // 두 곳에서 따로 만들면 한쪽만 고쳐져서 기록이 어긋난다.
+  snapshot() {
+    return {
       score:         this.score,
       roundsCleared: this.round,
       dodgeCount:    this.dodgeCount,
       hitCount:      this.hitCount,
       sideSteps:     this.sideSteps,
       activeSec:     Math.round(this._activeMs / 1000),
-      cleared,
-    })
+      cleared:       this.lives > 0,
+    }
+  }
+
+  _endGame() {
+    cancelAnimationFrame(this._rafId)
+    const stats = this.snapshot()
+    if (stats.cleared) sound.playGameClear()
+    else               sound.playGameOver()
+    this.onGameEnd(stats)
   }
 
   // ── 파티클 ────────────────────────────────────────────────────

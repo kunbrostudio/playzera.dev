@@ -156,6 +156,18 @@ class PoseEngineCore {
 
   isRunning() { return this._running }
 
+  // 프레임 가로/세로 비율.
+  //
+  // 랜드마크의 x는 **가로 폭**으로, y는 **세로 높이**로 각각 0~1 정규화된다.
+  // 그래서 정규화 좌표에서 잰 각도는 프레임 비율만큼 찌그러져 있다 —
+  // 16:9에서 실제 45° 팔이 계산상 29°로 나온다. 각도로 자세를 채점하려면
+  // x에 이 값을 곱해 실제 비율로 되돌려야 한다. (poseMatcher가 쓴다)
+  get frameAspect() {
+    const t = this._stream?.getVideoTracks?.()[0]
+    const st = t?.getSettings?.()
+    return st?.width && st?.height ? st.width / st.height : 16 / 9
+  }
+
   // ── 스트림 공유 ────────────────────────────────────────────
   //
   // 카메라를 화면마다 열고 닫으면 허브 → 인트로 → 게임 사이에 세 번 재시작한다.
