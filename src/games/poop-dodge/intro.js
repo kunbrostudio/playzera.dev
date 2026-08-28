@@ -4,6 +4,7 @@
 // 허브 홈 → (목록에서 똥 피하기 선택) → 이 인트로 → /game 순서.
 // 뒤로가기로 허브에 돌아올 수 있어야 해서 좌상단 홈 버튼을 추가했다.
 
+import { icon } from '../../core/icons.js'
 import { navigate, onLeave } from '../../core/router.js'
 import * as bgm   from '../../core/bgm.js'
 import * as sound from '../../core/sound.js'
@@ -16,14 +17,18 @@ import { poseEngineCore } from '../../core/pose/poseEngine.js'
 import { isArmsUpCircle, isArmsUpCross, GestureHold } from '../../core/pose/gesture.js'
 import { GESTURE } from '../../core/pose/tuning.js'
 
+import { UI } from '../../core/uiAssets.js'
+
 const GAME_ID = 'poop-dodge'
 
 const IMG = {
   bg:        '/assets/image/poop_game_bg.jpg',
   logo:      '/assets/image/poop_game_tit.png',
+  // 타이틀의 주인공은 **똥 캐릭터**다. 아이 캐릭터를 얹어 봤는데 로고 위에서
+  // 주인공이 둘이 됐다 — 이 화면의 얼굴은 게임 이름과 똥이다.
   character: '/assets/image/poop_main_character.png',
-  startDef:  '/assets/image/btn_start_default.png',
-  startPrs:  '/assets/image/btn_start_pressed.png',
+  startDef:  UI.startButton,        // 앱 전체 공용 — src/core/uiAssets.js
+  startPrs:  UI.startButtonPressed,
   menuOpen:  '/assets/image/ico_menu.png',
   menuClose: '/assets/image/ico_menu_close.png',
   musicOn:   '/assets/image/btn_main_music.png',
@@ -100,6 +105,7 @@ export function poopDodgeIntro(app) {
         z-index: 100; display: flex; align-items: center; gap: 10px;
       }
       #home-back-btn, #intro-hand-btn, #intro-howto-btn {
+        display: inline-flex; align-items: center; gap: 7px;
         background: rgba(255,255,255,0.92); border: none;
         border-radius: 9999px; padding: clamp(8px, 1.2vw, 12px) clamp(16px, 2.2vw, 24px);
         font-family: inherit; font-size: clamp(0.9rem, 1.6vw, 1.15rem); font-weight: 900;
@@ -115,10 +121,11 @@ export function poopDodgeIntro(app) {
       /* 세로로 든 폰 — 위쪽 가로 공간이 없다.
          버튼 셋이 글자를 달고 있으면 서로 겹치고 화면 밖으로 밀려난다.
          **글자를 접고 아이콘만 남긴다.** 뜻은 아이콘이 이미 전달한다
-         (← 나가기 · ✋ 손 · ❔ 도움말). 읽어주는 기기를 위해 aria-label은 남긴다. */
+         (나가기 · 손 · 도움말). 읽어주는 기기를 위해 aria-label은 남긴다. */
       @media (max-width: 620px) {
         #intro-topleft, #intro-topright { gap: 6px; }
         #home-back-btn, #intro-hand-btn, #intro-howto-btn {
+        display: inline-flex; align-items: center; gap: 7px;
           padding: 0; width: 46px; height: 46px;
           display: inline-flex; align-items: center; justify-content: center;
           font-size: 1.25rem; line-height: 1;
@@ -224,21 +231,21 @@ export function poopDodgeIntro(app) {
 
     <!-- 좌상단 — 나가는 길 -->
     <div id="intro-topleft">
-      <button id="home-back-btn" data-pz-hit data-pz-dwell="800" aria-label="게임 목록">← <span class="btn-label">게임 목록</span></button>
+      <button id="home-back-btn" data-pz-hit data-pz-dwell="800" aria-label="Home">${icon('back')} <span class="btn-label">Home</span></button>
     </div>
 
     <div id="intro-toast"></div>
 
     <!-- 손동작 안내 (카메라가 켜져 있을 때만) -->
     <div id="intro-gesture-hint">
-      <div>✋ 머리 위 <b>O</b> = 시작 · 팔로 <b>X</b> = 게임 목록</div>
+      <div>${icon('hand')} 머리 위 <b>O</b> = 시작 · 팔로 <b>X</b> = Home</div>
       <div class="gauge"><div id="intro-gauge"></div></div>
     </div>
 
     <!-- 우상단 — 손 컨트롤 · 튜토리얼 · 메뉴 -->
     <div id="intro-topright">
-      <button id="intro-hand-btn" data-pz-hit data-pz-dwell="800" aria-label="손 컨트롤 모드">✋ <span id="intro-hand-label" class="btn-label">손 컨트롤 모드</span></button>
-      <button id="intro-howto-btn" data-pz-hit data-pz-dwell="800" aria-label="어떻게 해?">❔ <span class="btn-label">어떻게 해?</span></button>
+      <button id="intro-hand-btn" data-pz-hit data-pz-dwell="800" aria-label="손 컨트롤 모드">${icon('hand')} <span id="intro-hand-label" class="btn-label">손 컨트롤 모드</span></button>
+      <button id="intro-howto-btn" data-pz-hit data-pz-dwell="800" aria-label="어떻게 해?">${icon('help')} <span class="btn-label">어떻게 해?</span></button>
       <button id="home-menu-btn" aria-label="메뉴">
         <img id="home-menu-ico" src="${IMG.menuOpen}" alt="메뉴" />
       </button>

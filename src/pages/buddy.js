@@ -11,6 +11,7 @@
 // 쌓인 걸 확인하는 자리이지 보상이 도착하는 자리가 아니다. 축하는 게임 결과에서
 // 이미 했다(progress/rewardView.js). 여기는 **다시 보러 오는 곳**이다.
 
+import { icon } from '../core/icons.js'
 import { navigate, onLeave } from '../core/router.js'
 import { handSession } from '../core/handSession.js'
 import { bindHandButton } from '../core/handControl.js'
@@ -18,13 +19,14 @@ import { getBuddy, buddyImage, unlockedStages, currentStage } from '../buddies/r
 import { mountBuddy } from '../progress/buddyView.js'
 import { BADGES, badgeIcon } from '../progress/badges.js'
 import { levelFromTotals } from '../progress/level.js'
-import { getProgress, markBuddySeen, wearStage, hasStarted } from '../progress/state.js'
+import { getProgress, markBuddySeen, wearStage, hasStarted, setProfile } from '../progress/state.js'
+import { PROFILES, getProfile, profileImage } from '../profiles/registry.js'
 
 export function buddyPage(app) {
   // 아직 알을 안 골랐으면 여기 볼 게 없다
   if (!hasStarted()) { navigate('/start'); return }
 
-  const s = getProgress()
+  let s = getProgress()   // 캐릭터를 바꾸면 다시 담는다
   const buddy = getBuddy(s.buddyId)
   const lv = levelFromTotals(s.totals)
   const open = unlockedStages(s.buddyId, lv.level)
@@ -72,9 +74,12 @@ export function buddyPage(app) {
       #bd-view .pz-bd { --pz-bd-min: 160px; }
 
       /* ── 버튼 둘 ── */
-      #bd-foot { flex: none; display: flex; gap: clamp(10px, 2vw, 20px); }
+      /* 셋으로 늘었다. 좁은 화면에서 줄바꿈되면 **머무르기 타겟이 세로로 인접**해서
+         1.1초 겨누는 동안 손이 조금만 흔들려도 옆 버튼이 눌린다 — 하단 4칸 바에서
+         이미 겪었다. 줄바꿈 대신 버튼을 줄여 한 줄을 지킨다. */
+      #bd-foot { flex: none; display: flex; gap: clamp(8px, 1.6vw, 18px); flex-wrap: nowrap; }
       .bd-big {
-        min-height: 62px; padding: 0 clamp(20px, 3.2vw, 38px);
+        min-height: 62px; padding: 0 clamp(14px, 2.4vw, 30px); white-space: nowrap;
         border-radius: 9999px; border: none; font: inherit;
         font-size: clamp(0.95rem, 1.8vw, 1.25rem); font-weight: 900;
         cursor: pointer; -webkit-tap-highlight-color: transparent;
@@ -156,22 +161,23 @@ export function buddyPage(app) {
 
     <div id="bd">
       <div id="bd-top">
-        <button class="bd-btn" id="bd-back" data-pz-hit data-pz-dwell="900">← 뒤로</button>
-        <button class="bd-btn" id="bd-hand" data-pz-hit data-pz-dwell="900">✋ <span id="bd-hand-label">손 컨트롤 모드</span></button>
+        <button class="bd-btn" id="bd-back" data-pz-hit data-pz-dwell="900">${icon('back')} 뒤로</button>
+        <button class="bd-btn" id="bd-hand" data-pz-hit data-pz-dwell="900">${icon('hand')} <span id="bd-hand-label">손 컨트롤 모드</span></button>
       </div>
 
       <div id="bd-view"></div>
 
       <div id="bd-foot">
-        <button class="bd-big" id="bd-badges" data-pz-hit data-pz-dwell="1100">🏅 내 배지</button>
-        <button class="bd-big alt" id="bd-dress" data-pz-hit data-pz-dwell="1100">👕 꾸미기</button>
+        <button class="bd-big" id="bd-badges" data-pz-hit data-pz-dwell="1100">${icon('medal')} 내 배지</button>
+        <button class="bd-big alt" id="bd-dress" data-pz-hit data-pz-dwell="1100">${icon('shirt')} 꾸미기</button>
+        <button class="bd-big alt" id="bd-who" data-pz-hit data-pz-dwell="1100">${icon('run')} 내 모습</button>
       </div>
     </div>
 
     <div id="bd-sheet">
       <div id="bd-sheet-head">
         <div id="bd-sheet-title"></div>
-        <button class="bd-btn" id="bd-sheet-close" data-pz-hit data-pz-dwell="900">✕ 닫기</button>
+        <button class="bd-btn" id="bd-sheet-close" data-pz-hit data-pz-dwell="900">${icon('close')} 닫기</button>
       </div>
       <div id="bd-sheet-body"></div>
       <div id="bd-sheet-note"></div>
@@ -203,7 +209,7 @@ export function buddyPage(app) {
   const closeSheet = () => sheet.classList.remove('on')
 
   function openBadges() {
-    $('#bd-sheet-title').textContent = '🏅 내 배지'
+    $('#bd-sheet-title').innerHTML = `${icon('medal')} 내 배지`
     const owned = new Set(s.badges)
     // 딴 것을 앞에 세운다. 아래로 내려갈수록 "아직 남은 것"이다.
     const sorted = [...BADGES].sort((a, b) => (owned.has(b.id) ? 1 : 0) - (owned.has(a.id) ? 1 : 0))
@@ -216,8 +222,34 @@ export function buddyPage(app) {
     sheet.classList.add('on')
   }
 
+  /**
+   * 내 모습 — 게임에서 달리는 아이를 고른다.
+   *
+   * **가입 성별이 아니라 아이가 고른다.** 가입은 부모가 하고 캐릭터는 아이가 논다.
+   * 가입을 안 해도 게임은 돌아가므로 성별에 묶으면 비회원은 자기가 아닌 캐릭터를 받는다.
+   */
+  function openWho() {
+    $('#bd-sheet-title').innerHTML = `${icon('run')} 내 모습`
+    $('#bd-sheet-body').innerHTML = PROFILES.map(p => `
+      <button class="bd-stage ${s.profile === p.id ? 'on' : ''}" data-who="${p.id}"
+              data-pz-hit data-pz-dwell="1100">
+        <img src="${profileImage(p.id)}" alt="" onerror="this.style.visibility='hidden'" />
+        <div class="n">${p.label}</div>
+      </button>`).join('')
+    $('#bd-sheet-note').textContent = '게임에서 달리는 아이예요. 언제든 바꿀 수 있어요'
+
+    $('#bd-sheet-body').querySelectorAll('.bd-stage').forEach(btn => {
+      btn.addEventListener('click', () => {
+        s = setProfile(btn.dataset.who)
+        openWho()                                   // 고른 표시를 갱신한다
+        toast(`${getProfile(s.profile)?.label}로 달려요!`)
+      })
+    })
+    sheet.classList.add('on')
+  }
+
   function openDress() {
-    $('#bd-sheet-title').textContent = '👕 꾸미기'
+    $('#bd-sheet-title').innerHTML = `${icon('shirt')} 꾸미기`
     const openIds = new Set(open.map(x => x.id))
     // 형태는 **옷이지 운명이 아니다**(docs/05 §2). 열린 것은 언제든 다시 입는다 —
     // 알 모습 그대로 레벨 40이 될 수 있어야 한다.
@@ -227,7 +259,7 @@ export function buddyPage(app) {
         <button class="bd-stage ${unlocked ? '' : 'locked'} ${stage?.id === st.id ? 'on' : ''}"
                 data-stage="${st.id}" ${unlocked ? 'data-pz-hit data-pz-dwell="1100"' : 'disabled'}>
           <img src="${buddyImage(s.buddyId, st.image)}" alt="" onerror="this.style.visibility='hidden'" />
-          <div class="n">${unlocked ? st.label : '🔒'}</div>
+          <div class="n">${unlocked ? st.label : `${icon('lock')}`}</div>
         </button>`
     }).join('')
     $('#bd-sheet-note').textContent = '아이템 꾸미기는 곧 나와요'
@@ -255,6 +287,7 @@ export function buddyPage(app) {
   on('#bd-back', () => navigate('/'))
   on('#bd-badges', openBadges)
   on('#bd-dress', openDress)
+  on('#bd-who', openWho)
   on('#bd-sheet-close', closeSheet)
 
   const onKey = e => { if (e.key === 'Escape') sheet.classList.contains('on') ? closeSheet() : navigate('/') }

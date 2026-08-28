@@ -6,6 +6,7 @@
 //
 // 손 제스처로도 고를 수 있어야 한다. 카드가 크고, 서로 **가로로** 떨어져 있다.
 
+import { icon } from '../core/icons.js'
 import { navigate, onLeave } from '../core/router.js'
 import { handSession } from '../core/handSession.js'
 import { bindHandButton } from '../core/handControl.js'
@@ -116,10 +117,10 @@ export function startPage(app) {
       <div id="st-sub"></div>
       <div id="st-choices"></div>
       <div id="st-foot">
-        <button class="st-btn" id="st-back" data-pz-hit data-pz-dwell="900">← 뒤로</button>
+        <button class="st-btn" id="st-back" data-pz-hit data-pz-dwell="900">${icon('back')} 뒤로</button>
         <button class="st-btn" id="st-next" data-pz-hit data-pz-dwell="1200" disabled>다음</button>
       </div>
-      <button id="st-hand" data-pz-hit data-pz-dwell="900">✋ <span id="st-hand-label">손 컨트롤 모드</span></button>
+      <button id="st-hand" data-pz-hit data-pz-dwell="900">${icon('hand')} <span id="st-hand-label">손 컨트롤 모드</span></button>
       <div id="st-toast"></div>
     </div>
   `
@@ -175,7 +176,7 @@ export function startPage(app) {
         return `
         <button class="st-card ${buddyId === b.id ? 'on' : ''}" data-pick="${b.id}"
                 data-pz-hit data-pz-dwell="1200">
-          ${art(buddyImage(b.id, egg.image), '🥚')}
+          ${art(buddyImage(b.id, egg.image), icon('egg', 2))}
           <div class="st-name">${b.name}</div>
           <div class="st-tag">${b.species}</div>
         </button>`

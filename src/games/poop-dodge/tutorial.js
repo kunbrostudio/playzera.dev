@@ -8,6 +8,8 @@
 // 다만 **손 컨트롤이 꺼져 있으면 O를 만들 방법 자체가 없다.** 그래서 버튼도 같이
 // 둔다. 제스처만 두면 카메라를 못 켠 아이는 여기서 갇힌다.
 
+import { icon } from '../../core/icons.js'
+import { playerSkin } from '../../core/playerSkin.js'
 import { navigate, onLeave } from '../../core/router.js'
 import * as sound from '../../core/sound.js'
 import { handSession } from '../../core/handSession.js'
@@ -20,12 +22,14 @@ import { getPlayRoute } from '../registry.js'
 
 const GAME_ID = 'poop-dodge'
 
-const IMG = {
+const IMG = () => ({
   bg:       '/assets/image/poop_game_bg.jpg',
   poop:     '/assets/image/poop01_default.png',
-  charIdle: '/assets/characters/tutorial/char_tutorial_idle.png',
-  charMove: '/assets/characters/tutorial/char_tutorial_move.png',
-}
+  // 튜토리얼도 **게임과 같은 아이**여야 한다. 전용 그림을 따로 두면 캐릭터를 바꿀 때
+  // 여기만 옛 아이가 남는다 — 아이는 화면을 넘길 때마다 다른 아이를 본다.
+  charIdle: `/assets/characters/${playerSkin()}/char_idle.png`,
+  charMove: `/assets/characters/${playerSkin()}/char_move_right.png`,
+})
 
 // 데모 한 바퀴의 타이밍(ms).
 //
@@ -62,7 +66,7 @@ export default function tutorialPage(app) {
         position: fixed; inset: 0; overflow: hidden;
         display: flex; flex-direction: column; align-items: center;
         font-family: var(--font-main, 'Jua', sans-serif); color: #fff;
-        background: #0a0616 url('${IMG.bg}') center/cover no-repeat;
+        background: #0a0616 url('${IMG().bg}') center/cover no-repeat;
         touch-action: none; user-select: none;
       }
       /* 어둡게 깔아야 검정 실루엣이 읽힌다. 배경을 완전히 가리지는 않는다 —
@@ -103,15 +107,15 @@ export default function tutorialPage(app) {
       #tut-poop {
         position: absolute; width: clamp(48px, 8vw, 96px); aspect-ratio: 1;
         left: 0; top: 0; transform: translate(-50%, -50%);
-        background: url('${IMG.poop}') center/contain no-repeat;
+        background: url('${IMG().poop}') center/contain no-repeat;
       }
       #tut-char {
         position: absolute; bottom: var(--tut-floor); left: 0;
         height: var(--tut-char-h); width: calc(var(--tut-char-h) * 1070 / 1450);
         transform: translateX(-50%);
-        background: url('${IMG.charIdle}') center bottom/contain no-repeat;
+        background: url('${IMG().charIdle}') center bottom/contain no-repeat;
       }
-      #tut-char.moving { background-image: url('${IMG.charMove}'); }
+      #tut-char.moving { background-image: url('${IMG().charMove}'); }
       /* 실루엣 원본은 **왼쪽을 보고 있다.** 오른쪽으로 갈 때만 뒤집는다. */
       #tut-char.to-right { transform: translateX(-50%) scaleX(-1); }
 
@@ -204,7 +208,7 @@ export default function tutorialPage(app) {
 
       <div id="tut-head">
         <div id="tut-title">TUTORIAL</div>
-        <div id="tut-sub">← 옆으로 몸을 옮겨요 →</div>
+        <div id="tut-sub">옆으로 몸을 옮겨요</div>
       </div>
 
       <div id="tut-stage">
@@ -219,12 +223,12 @@ export default function tutorialPage(app) {
       </div>
 
       <div id="tut-foot">
-        <div id="tut-hint">🙆 머리 위로 <b>O</b>를 만들면 시작!</div>
+        <div id="tut-hint">${icon('hand')} 머리 위로 <b>O</b>를 만들면 시작!</div>
         <div id="tut-gauge-wrap"><div id="tut-gauge"></div></div>
         <div id="tut-btns">
-          <button class="tut-btn" id="tut-back" data-pz-hit data-pz-dwell="800">← 뒤로</button>
-          <button class="tut-btn" id="tut-hand" data-pz-hit data-pz-dwell="800">✋ <span id="tut-hand-label">손으로 하기</span></button>
-          <button class="tut-btn" id="tut-start" data-pz-hit data-pz-dwell="1200">▶ 바로 시작</button>
+          <button class="tut-btn" id="tut-back" data-pz-hit data-pz-dwell="800">${icon('back')} 뒤로</button>
+          <button class="tut-btn" id="tut-hand" data-pz-hit data-pz-dwell="800">${icon('hand')} <span id="tut-hand-label">손으로 하기</span></button>
+          <button class="tut-btn" id="tut-start" data-pz-hit data-pz-dwell="1200">${icon('play')} 바로 시작</button>
         </div>
       </div>
 

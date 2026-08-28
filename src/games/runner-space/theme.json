@@ -1,0 +1,361 @@
+{
+  "id": "warmup-obstacle",
+  "name": "우주 놀이터",
+  "assetBase": "/assets/runner/space",
+  "audio": {
+    "bgm": "bgm_strawberry_lane.mp3"
+  },
+  "sprites": {
+    "character": {
+      "idle": [
+        "_shared/char_run01",
+        "_shared/char_run04"
+      ],
+      "run": [
+        "_shared/char_run01",
+        "_shared/char_run02",
+        "_shared/char_run03",
+        "_shared/char_run04",
+        "_shared/char_run05"
+      ],
+      "jumpPrep": "_shared/char_jump_prep",
+      "jumpAir": "_shared/char_jump_air",
+      "slide": "_shared/char_slide",
+      "pose": {
+        "lunge": "_shared/char_stretch_lunge",
+        "forwardbend": "_shared/char_stretch_forwardbend",
+        "armsopen": "_shared/char_stretch_armsopen"
+      }
+    },
+    "obstacle": {
+      "cubeLeft": "obs_cube_star_left",
+      "cubeCenter": "obs_cube_star_center",
+      "cubeRight": "obs_cube_star_right",
+      "hurdleLow": "obs_hurdle_low",
+      "hurdleWide": "obs_hurdle_wide",
+      "archGate": "obs_arch_gate",
+      "poseSign": {
+        "lunge": "obs_sign_stretch_lunge",
+        "forwardbend": "obs_sign_stretch_forwardbend",
+        "armsopen": "obs_sign_stretch_armsopen"
+      }
+    },
+    "hint": {
+      "left": "_shared/signs_left",
+      "right": "_shared/signs_right",
+      "up": "_shared/signs_up",
+      "down": "_shared/signs_down",
+      "pose": "_shared/signs_pose"
+    },
+    "poseSilhouette": {
+      "lunge": "_shared/pose01",
+      "forwardbend": "_shared/pose02",
+      "armsopen": "_shared/pose03"
+    },
+    "startLine": "start_line"
+  },
+  "ui": {
+    "title": "fx_title_screen",
+    "titlePortrait": "fx_title_screen_mobile",
+    "startButton": "ui/btn_start",
+    "startWord": "_shared/fx_start_word",
+    "countdown": [
+      "_shared/fx_count_1",
+      "_shared/fx_count_2",
+      "_shared/fx_count_3"
+    ],
+    "levelComplete": [
+      "_shared/fx_level_complete_1",
+      "_shared/fx_level_complete_2",
+      "_shared/fx_level_complete_3",
+      "_shared/fx_level_complete_4",
+      "_shared/fx_level_complete_5"
+    ],
+    "missionComplete": "_shared/fx_mission_complete",
+    "podium": "_shared/fx_podium",
+    "menu": "_shared/ico_menu",
+    "menuClose": "_shared/ico_menu_close",
+    "fullscreen": "_shared/ico_menu_fullscreen",
+    "exit": "_shared/ico_menu_logout",
+    "music": "_shared/btn_main_music",
+    "musicOff": "_shared/btn_main_music_off",
+    "sfxOn": "_shared/btn_main_audio",
+    "sfxOff": "_shared/btn_main_audio_off",
+    "startButtonPressed": "ui/btn_start_pressed"
+  },
+  "world": {
+    "sky": "bg_sky",
+    "skyline": "bg_buildings",
+    "curbStar": "bg_star_deco_yellow_small",
+    "skyDeco": [
+      {
+        "name": "bg_planet_orange_striped",
+        "x": 190,
+        "y": 90,
+        "h": 150
+      },
+      {
+        "name": "bg_planet_purple",
+        "x": 1360,
+        "y": 70,
+        "h": 130
+      },
+      {
+        "name": "bg_star_deco_yellow",
+        "x": 620,
+        "y": 60,
+        "h": 55
+      },
+      {
+        "name": "bg_star_outline_pink",
+        "x": 90,
+        "y": 190,
+        "h": 50
+      },
+      {
+        "name": "bg_star_deco_yellow",
+        "x": 1080,
+        "y": 130,
+        "h": 45
+      },
+      {
+        "name": "bg_star_deco_yellow_small",
+        "x": 1520,
+        "y": 220,
+        "h": 34
+      },
+      {
+        "name": "bg_star_outline_pink",
+        "x": 1180,
+        "y": 250,
+        "h": 34
+      },
+      {
+        "name": "bg_star_deco_purple",
+        "x": 330,
+        "y": 260,
+        "h": 30
+      }
+    ],
+    "props": {
+      "left": [
+        {
+          "name": "bg_rocket_pink",
+          "h": 520,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_disc_dome_blue",
+          "h": 150
+        },
+        {
+          "name": "bg_tower_spiral_slide",
+          "h": 480,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_mascot_bunny_blue",
+          "h": 200
+        },
+        {
+          "name": "bg_star_deco_yellow_small",
+          "h": 90,
+          "tier": "small"
+        },
+        {
+          "name": "bg_tower_teal_slide",
+          "h": 500,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_disc_pink",
+          "h": 142
+        },
+        {
+          "name": "bg_star_mascot_yellow",
+          "h": 120,
+          "tier": "small"
+        },
+        {
+          "name": "bg_tower_cannon_blue",
+          "h": 455,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_disc_plain_purple",
+          "h": 132
+        },
+        {
+          "name": "bg_star_deco_purple",
+          "h": 95,
+          "tier": "small"
+        },
+        {
+          "name": "bg_target_pole_purple",
+          "h": 300
+        }
+      ],
+      "right": [
+        {
+          "name": "bg_tower_purple_slide",
+          "h": 520,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_disc_dome_purple",
+          "h": 152
+        },
+        {
+          "name": "bg_target_pole_purple",
+          "h": 305
+        },
+        {
+          "name": "bg_mascot_robot_blue",
+          "h": 230
+        },
+        {
+          "name": "bg_tower_cannon_blue",
+          "h": 465,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_disc_plain_purple",
+          "h": 136
+        },
+        {
+          "name": "bg_star_deco_purple",
+          "h": 95,
+          "tier": "small"
+        },
+        {
+          "name": "bg_star_deco_yellow_small",
+          "h": 85,
+          "tier": "small"
+        },
+        {
+          "name": "bg_rocket_pink",
+          "h": 495,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_disc_pink",
+          "h": 145
+        },
+        {
+          "name": "bg_star_mascot_yellow",
+          "h": 115,
+          "tier": "small"
+        },
+        {
+          "name": "bg_tower_spiral_slide",
+          "h": 475,
+          "tier": "hero"
+        }
+      ]
+    },
+    "horizonFillers": [
+      {
+        "name": "bg_tower_spiral_slide",
+        "x": 250,
+        "h": 95
+      },
+      {
+        "name": "bg_rocket_pink",
+        "x": 505,
+        "h": 104
+      },
+      {
+        "name": "bg_tower_teal_slide",
+        "x": 620,
+        "h": 82
+      },
+      {
+        "name": "bg_tower_cannon_blue",
+        "x": 900,
+        "h": 79
+      },
+      {
+        "name": "bg_tower_purple_slide",
+        "x": 1090,
+        "h": 98
+      },
+      {
+        "name": "bg_target_pole_purple",
+        "x": 1205,
+        "h": 73
+      },
+      {
+        "name": "bg_tower_cannon_blue",
+        "x": 1440,
+        "h": 91
+      }
+    ],
+    "palette": {
+      "skyFallback": "#2a1a6e",
+      "floorFar": "#3a6ed8",
+      "floorMid": "#2650cc",
+      "floorNear": "#182f96",
+      "floorSeam": [
+        16,
+        36,
+        104
+      ],
+      "floorGloss": [
+        196,
+        232,
+        255
+      ],
+      "fog": [
+        126,
+        168,
+        240
+      ],
+      "toneLift": "rgba(70, 52, 130, 0.05)",
+      "shadow": "#0c1a56",
+      "curbTop": "#8a5ee8",
+      "curbTopFar": "#6a4ac0",
+      "curbFace": "#241458",
+      "curbRim": "rgba(255, 214, 92, 0.95)",
+      "curbLamp": [
+        120,
+        240,
+        255
+      ],
+      "track": "#3d2bb8",
+      "trackEdge": "#f6c845",
+      "trackEdgeDark": "#d7a418",
+      "trackSheen": [
+        120,
+        90,
+        255
+      ],
+      "laneNeon": [
+        94,
+        234,
+        255
+      ],
+      "chevron": [
+        120,
+        255,
+        90
+      ],
+      "chevronGlow": [
+        0,
+        255,
+        200
+      ],
+      "grassDark": [
+        30,
+        82,
+        22
+      ],
+      "grassLight": [
+        138,
+        200,
+        78
+      ]
+    },
+    "skylineMode": "tile",
+    "floorStyle": "blocks"
+  }
+}

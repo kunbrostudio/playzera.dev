@@ -10,6 +10,7 @@
 // 키보드로도 게임은 돌아가지만 **기록에는 남기지 않는다.**
 // 키를 누르고 있는 건 균형이 아니다.
 
+import { icon } from '../../core/icons.js'
 import { navigate, onLeave } from '../../core/router.js'
 import { showReadyScreen } from '../../core/readyScreen.js'
 import { handSession } from '../../core/handSession.js'
@@ -140,7 +141,7 @@ async function playScreen(app, { gameId, backTo, mode, release }) {
 
     <div id="sb">
       <div id="sb-top">
-        <button class="sb-btn" id="sb-back">← 그만하기</button>
+        <button class="sb-btn" id="sb-back">${icon('back')} 그만하기</button>
         <div id="sb-count"></div>
       </div>
 
@@ -264,7 +265,7 @@ async function playScreen(app, { gameId, backTo, mode, release }) {
     const s = game.snapshot()
     showGameOver($('#sb'), {
       title: early ? '오늘은 여기까지!'
-                   : (s.cleared === s.stones ? '다 건넜어요! 🎉' : '수고했어요!'),
+                   : (s.cleared === s.stones ? '다 건넜어요!' : '수고했어요!'),
       line: `${s.cleared}개의 돌을 건너고 ${s.balance_sec}초 버텼어요`,
       reward: record(s),
       onAgain: () => window.location.reload(),

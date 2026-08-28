@@ -4,7 +4,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const saveResult = vi.fn()
 vi.mock('../src/core/gameResult.js', () => ({ saveResult: (...a) => saveResult(...a) }))
 
-const { Stats } = await import('../src/games/warmup-obstacle/stats.js')
+// 기록 키(game_id)는 테마가 갖는다. 꽂지 않으면 stats.js가 즉시 터진다 —
+// 그게 맞다. 테마 없이 저장이 돌면 어느 게임의 기록인지 모르는 행이 쌓인다.
+const { setTheme } = await import('../src/games/runner/theme.js')
+const spaceTheme = (await import('../src/games/runner-space/theme.json')).default
+setTheme(spaceTheme)
+
+const { Stats } = await import('../src/games/runner/stats.js')
 
 const QUEUE = 'pz_pending_records'
 const queue = () => JSON.parse(localStorage.getItem(QUEUE) || '[]')

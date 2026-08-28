@@ -1,7 +1,7 @@
 // 허브 홈 — 고정 히어로 + 한 줄 좌우 레일.
 //
 // ┌──────────────────────────────────────────────────────────┐
-// │  PLAY ZERA            [✋ 손][👤 제라][☰]                │
+// │  PLAY ZERA               [손][제라][메뉴]                 │
 // │                                                          │
 // │   4-8세 · 순발력           [ 선택된 게임 비주얼 ]        │  ← 고정
 // │   똥 피하기                                              │
@@ -24,6 +24,7 @@
 //   격자 목록을 따로 연다. 거기에는 검색·카테고리·세로 스크롤이 있다.
 //   **검색은 부모·선생님용이다** — 아이는 키보드를 못 쓰고 손 제스처로도 불가능하다.
 
+import { icon } from '../core/icons.js'
 import { navigate, onLeave } from '../core/router.js'
 import { getAll, getEntry } from '../games/registry.js'
 import { getRecentIds, markPlayed } from '../core/recent.js'
@@ -168,6 +169,11 @@ export function homePage(app) {
       #pz-hero-title {
         font-size: clamp(1.6rem, 4vw, 3rem); font-weight: 900; line-height: 1.15;
         margin: 0 0 10px; text-shadow: 0 4px 20px rgba(0,0,0,0.6);
+      }
+      .pz-hero-logo {
+        display: block; width: auto; max-width: min(420px, 76%);
+        max-height: clamp(72px, 11vh, 150px); object-fit: contain;
+        filter: drop-shadow(0 8px 22px rgba(0,0,0,0.5));
       }
       #pz-hero-desc {
         font-size: clamp(0.88rem, 1.4vw, 1.08rem); line-height: 1.5;
@@ -586,9 +592,9 @@ export function homePage(app) {
       <header id="pz-head">
         <button id="pz-logo">PLAY ZERA</button>
         <div id="pz-head-right">
-          <button class="pz-btn" id="pz-hand" data-pz-hit data-pz-dwell="${DWELL_CAT}">✋ <span id="pz-hand-label">손으로 고르기</span></button>
-          <button class="pz-btn" id="pz-account">👤 <span>제라</span></button>
-          <button class="pz-btn" id="pz-menu">☰</button>
+          <button class="pz-btn" id="pz-hand" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('hand')} <span id="pz-hand-label">손으로 고르기</span></button>
+          <button class="pz-btn" id="pz-account">${icon('user')} <span>제라</span></button>
+          <button class="pz-btn" id="pz-menu">${icon('menu')}</button>
         </div>
       </header>
 
@@ -601,7 +607,7 @@ export function homePage(app) {
           <div id="pz-hero-meta"></div>
           <h1 id="pz-hero-title"></h1>
           <p id="pz-hero-desc"></p>
-          <button id="pz-hero-play" data-pz-hit data-pz-dwell="${DWELL_CARD}">▶ 시작하기</button>
+          <button id="pz-hero-play" data-pz-hit data-pz-dwell="${DWELL_CARD}">${icon('play')} 시작하기</button>
         </div>
         <button id="pz-buddy" data-pz-hit data-pz-dwell="${DWELL_CAT}">
           <span id="pz-buddy-dot"></span>
@@ -618,14 +624,14 @@ export function homePage(app) {
               <span id="pz-rail-count"></span>
             </div>
             <div id="pz-rail-actions">
-              <button class="pz-btn" id="pz-filter" data-pz-hit data-pz-dwell="${DWELL_CAT}">⚙ <span id="pz-filter-label">전체</span> ▾</button>
-              <button class="pz-btn" id="pz-open-all" data-pz-hit data-pz-dwell="${DWELL_CAT}">☷ 전체 보기</button>
+              <button class="pz-btn" id="pz-filter" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('settings')} <span id="pz-filter-label">전체</span> ${icon('down', 0.8)}</button>
+              <button class="pz-btn" id="pz-open-all" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('grid')} 전체 보기</button>
             </div>
           </div>
           <div id="pz-rail-wrap">
-            <button class="pz-arrow" id="pz-prev" aria-label="이전" data-pz-hit data-pz-dwell="${DWELL_NAV}">◀</button>
+            <button class="pz-arrow" id="pz-prev" aria-label="이전" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('left')}</button>
             <div id="pz-rail-row"></div>
-            <button class="pz-arrow" id="pz-next" aria-label="다음" data-pz-hit data-pz-dwell="${DWELL_NAV}">▶</button>
+            <button class="pz-arrow" id="pz-next" aria-label="다음" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('right')}</button>
           </div>
         </div>
       </section>
@@ -642,12 +648,12 @@ export function homePage(app) {
       <div id="pz-all">
         <div id="pz-all-head">
           <div id="pz-all-title">전체 게임 <span id="pz-all-count"></span></div>
-          <button class="pz-btn" id="pz-all-close" data-pz-hit data-pz-dwell="${DWELL_CAT}">✕ 닫기</button>
+          <button class="pz-btn" id="pz-all-close" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('close')} 닫기</button>
         </div>
         <div id="pz-all-search-row">
           <input id="pz-search" type="search" placeholder="게임 이름·태그 검색" autocomplete="off" />
           <div id="pz-cat-select">
-            <button class="pz-btn" id="pz-chips-btn" aria-haspopup="listbox" aria-expanded="false" data-pz-hit data-pz-dwell="${DWELL_CAT}">⚙ <span id="pz-chips-label">전체</span> <span id="pz-chips-caret">▾</span></button>
+            <button class="pz-btn" id="pz-chips-btn" aria-haspopup="listbox" aria-expanded="false" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('settings')} <span id="pz-chips-label">전체</span> <span id="pz-chips-caret">${icon('down', 0.8)}</span></button>
             <div id="pz-cat-drop" role="listbox"></div>
           </div>
         </div>
@@ -655,8 +661,8 @@ export function homePage(app) {
         <div id="pz-all-body">
           <div id="pz-all-grid"></div>
           <div id="pz-all-scroll">
-            <button class="pz-scroll-btn" id="pz-all-up" aria-label="위로" data-pz-hit data-pz-dwell="${DWELL_NAV}">▲</button>
-            <button class="pz-scroll-btn" id="pz-all-down" aria-label="아래로" data-pz-hit data-pz-dwell="${DWELL_NAV}">▼</button>
+            <button class="pz-scroll-btn" id="pz-all-up" aria-label="위로" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('up')}</button>
+            <button class="pz-scroll-btn" id="pz-all-down" aria-label="아래로" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('down')}</button>
           </div>
         </div>
       </div>
@@ -840,9 +846,15 @@ export function homePage(app) {
       m.players ? `<span class="dot">·</span><span>${playersLabel(m.players)}</span>` : '',
       ...(m.tags ?? []).slice(0, 3).map(t => `<span class="dot">·</span><span>${t}</span>`),
     ].join('')
-    $('#pz-hero-title').textContent = m.title
+    // 게임에 로고 그림이 있으면 글자 제목 대신 그것을 쓴다. 4~8세는 글자를 못 읽는다 —
+    // 로고는 아이가 "저 게임"이라고 알아보는 유일한 표지다. 없는 게임은 글자로 남는다.
+    const titleEl = $('#pz-hero-title')
+    titleEl.innerHTML = m.logo
+      ? `<img class="pz-hero-logo" src="${m.logo}" alt="${m.title}">`
+      : ''
+    if (!m.logo) titleEl.textContent = m.title
     $('#pz-hero-desc').textContent = m.description ?? ''
-    $('#pz-hero-play').textContent = m.placeholder ? '준비 중이에요' : '▶ 시작하기'
+    $('#pz-hero-play').innerHTML = m.placeholder ? '준비 중이에요' : `${icon('play')} 시작하기`
 
     for (const [el, cls] of [[heroInner, 'pz-hero-anim'], [heroBg, 'pz-bg-anim'], [heroPoster, 'pz-poster-anim']]) {
       el.classList.remove(cls)
@@ -919,7 +931,7 @@ export function homePage(app) {
       opt.addEventListener('click', () => {
         filter = opt.dataset.key || null
         closeCatDrop()
-        renderChips()      // 라벨(⚙ 전체 ▾)도 여기서 갱신된다
+        renderChips()      // 라벨(전체 ▾)도 여기서 갱신된다
         renderAll()
         refreshRail({ keepPage: false })
       })
@@ -1085,7 +1097,7 @@ export function homePage(app) {
 
     // 그림이 아직 없는 버디가 있다. **빈 칸이 되면 안 된다** — 이모지가 받친다.
     $('#pz-buddy-art').innerHTML = `
-      <span>${stage?.id === 'egg' ? '🥚' : '🐣'}</span>
+      <span>${icon('egg')}</span>
       ${src ? `<img src="${src}" alt="" onload="this.previousElementSibling?.remove()" onerror="this.remove()" />` : ''}`
     $('#pz-buddy-lv').textContent = `LV.${lv.level}`
     el.classList.toggle('news', buddyNews(s))
@@ -1099,7 +1111,7 @@ export function homePage(app) {
 
   // ── 헤더 ────────────────────────────────────────────────────
   $('#pz-logo').addEventListener('click', () => { railPage = 0; renderRail(-1) })
-  // 👤 제라 = **부모 화면 입구**(docs/06 §5). 아이 선택(계정)은 그 뒤에 붙는다.
+  // '제라' = **부모 화면 입구**(docs/06 §5). 아이 선택(계정)은 그 뒤에 붙는다.
   $('#pz-account').addEventListener('click', () => navigate('/me'))
   $('#pz-menu').addEventListener('click', () => toast('설정 메뉴는 준비 중이에요'))
 

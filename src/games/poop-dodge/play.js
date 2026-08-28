@@ -1,3 +1,4 @@
+import { icon, iconFilled } from '../../core/icons.js'
 import { navigate, onLeave } from '../../core/router.js'
 import { poseEngine } from '../../core/pose/index.js'
 import { createPipOverlay } from '../../core/pose/pipOverlay.js'
@@ -8,7 +9,8 @@ import { getCurrentPlayerName } from '../../core/player.js'
 import { handSession } from '../../core/handSession.js'
 import { bindHandButton } from '../../core/handControl.js'
 import { showReadyScreen } from '../../core/readyScreen.js'
-import { recordSession } from '../../progress/state.js'
+import { recordSession, getProgress } from '../../progress/state.js'
+import { lanesFor, LANE_CHOICES } from './lanes.js'
 import { mountReward, hasReward } from '../../progress/rewardView.js'
 import { MAX_LIVES } from './game.js'
 import { getManifest, getEntry } from '../registry.js'
@@ -62,7 +64,17 @@ export default async function poopDodgePlay(app, query) {
   // 키보드로 떨어졌는데, 아이는 왜 몸이 안 먹히는지 알 수 없었다. 화면에 너무
   // 가까이 서 있어서 전신이 안 잡히는 경우가 특히 그랬다 — 고칠 수 있는 문제인데
   // 고칠 방법을 알려주지 않았다.
-  const ready = await showReadyScreen(app, { title: '카메라 준비', showZones: true })
+  // 칸 수는 **여기서 아이가 고른다.** 누르면 미리보기의 점선이 바로 바뀌어서
+  // "5칸이면 내 방이 이렇게 갈린다"를 눈으로 보고 정할 수 있다.
+  const prog = getProgress()
+  const ready = await showReadyScreen(app, {
+    title: '카메라 준비',
+    showZones: true,
+    laneChoices: LANE_CHOICES,
+    lanes: lanesFor({ lockNarrow: prog.narrowLanes }),
+    // 부모가 좁은 공간이라고 해 두면 5칸은 못 고른다 — 공간은 아이가 판단할 수 없다
+    laneLocked: prog.narrowLanes ? 5 : null,
+  })
   if (ready.mode === 'back') { ready.release(); navigate(backTo); return }
 
   await showSoloGame(app, gameId, manifest, ready)
@@ -212,11 +224,25 @@ async function showSoloGame(app, gameId, manifest, ready) {
   app.innerHTML = `
     <style>
       /* ── 솔로 HUD (개별 배경) ── */
+      /* 세 덩어리 — 왼쪽(레벨·입력) · 가운데(시간·점수) · 오른쪽(목숨·버튼).
+         **윗줄을 맞춘다.** 왼쪽만 두 줄이라 가운데 정렬하면 나머지가 아래로 처진다. */
       #solo-hud {
         position: absolute; top: 0; left: 0; right: 0; z-index: 5;
-        display: flex; align-items: center; justify-content: space-between;
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: clamp(6px,1.2vw,14px);
         padding: clamp(8px,1.4vh,12px) clamp(12px,2vw,20px);
         font-family: var(--font-main);
+      }
+      .hud-col   { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+      .hud-mid   { display: flex; align-items: center; gap: 10px; }
+      .hud-right { display: flex; align-items: center; gap: 8px; }
+      /* 입력 배지 — 레벨 칩 바로 아래, 왼쪽 끝을 맞춘다 */
+      #source-badge {
+        display: inline-flex; align-items: center; gap: 5px;
+        background: rgba(10,6,22,0.72); backdrop-filter: blur(8px);
+        padding: 4px 12px; border-radius: 50px; border: 1px solid rgba(196,168,245,0.18);
+        font-size: clamp(0.62rem,1.1vw,0.72rem); white-space: nowrap; pointer-events: none;
+        color: rgba(255,255,255,0.35); transition: color 0.3s;
       }
       /* 진행 단계 — 예전에는 동그라미 5개였는데 "이게 목숨인가 레벨인가"가
          안 읽혔다. 하트(목숨)와 모양이 겹쳐서 더 헷갈렸다. 숫자로 적는다. */
@@ -308,8 +334,10 @@ async function showSoloGame(app, gameId, manifest, ready) {
         text-align: center;
         box-shadow: 0 6px 0 #a78bda, 0 16px 56px rgba(0,0,0,0.4);
       }
-      #menu-title { font-size: clamp(1.2rem,2.8vw,1.5rem); font-weight: 900; color: #7c3aed; margin-bottom: 2px; }
+      #menu-title {
+        display: flex; align-items: center; justify-content: center; gap: 8px; font-size: clamp(1.2rem,2.8vw,1.5rem); font-weight: 900; color: #7c3aed; margin-bottom: 2px; }
       .menu-btn {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
         width: 100%; padding: clamp(12px,2vh,16px) 0;
         border: none; border-radius: 9999px;
         font-family: var(--font-main); font-size: clamp(0.95rem,2.4vw,1.15rem); font-weight: 800;
@@ -369,12 +397,18 @@ async function showSoloGame(app, gameId, manifest, ready) {
 
       <!-- HUD (배경 없음 — 각 요소에 개별 배경) -->
       <div id="solo-hud">
-        <div id="hud-rounds"></div>
-        <div style="display:flex;align-items:center;gap:10px;">
+        <!-- 왼쪽 덩어리. 입력 배지는 **여기 안에** 있어야 레벨 칩과 왼쪽 끝이 맞는다.
+             예전에는 화면에 절대 배치(top:58px, left:12px)라 HUD 여백이 화면 폭에
+             따라 변할 때마다 혼자 어긋났다. -->
+        <div class="hud-col">
+          <div id="hud-rounds"></div>
+          <div id="source-badge">${icon('keyboard', 0.95)} 키보드</div>
+        </div>
+        <div class="hud-mid">
           <div id="hud-timer"></div>
           <div id="hud-score-wrap">점수<span id="score-val">0</span></div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
+        <div class="hud-right">
           <div id="hud-lives"></div>
           <button id="btn-bgm" class="hud-icon-btn" aria-label="음악">
             <img id="hud-bgm-img" src="/assets/image/btn_main_music.png" alt="음악" />
@@ -429,13 +463,6 @@ async function showSoloGame(app, gameId, manifest, ready) {
       </div>
 
       <!-- 카메라 소스 표시 -->
-      <div id="source-badge" style="
-        position:absolute;top:58px;left:12px;
-        background:rgba(10,6,22,0.72);backdrop-filter:blur(8px);
-        padding:4px 12px;border-radius:50px;border:1px solid rgba(196,168,245,0.18);
-        font-size:0.72rem;font-family:var(--font-main);pointer-events:none;
-        color:rgba(255,255,255,0.35);transition:color 0.3s;
-      ">⌨️ 키보드</div>
 
       <!-- 일시정지 메뉴 -->
       <div id="menu-panel" style="
@@ -445,13 +472,13 @@ async function showSoloGame(app, gameId, manifest, ready) {
         font-family:var(--font-main);
       ">
         <div id="menu-card">
-          <div id="menu-title">⏸ 일시정지</div>
-          <button id="btn-resume"    class="menu-btn green"  data-pz-hit data-pz-dwell="900">▶ 계속하기</button>
-          <button id="menu-btn-hand" class="menu-btn gray"   data-pz-hit data-pz-dwell="900">✋ <span id="menu-hand-label">손 컨트롤 모드</span></button>
+          <div id="menu-title">${iconFilled('pause', 0.85)} 일시정지</div>
+          <button id="btn-resume"    class="menu-btn green"  data-pz-hit data-pz-dwell="900">${iconFilled('play', 0.85)} 계속하기</button>
+          <button id="menu-btn-hand" class="menu-btn gray"   data-pz-hit data-pz-dwell="900">${icon('hand')} <span id="menu-hand-label">손 컨트롤 모드</span></button>
           <button id="menu-btn-bgm"  class="menu-btn gray narrow-only" data-pz-hit data-pz-dwell="900">🎵 <span id="menu-bgm-label">음악 켜짐</span></button>
           <button id="menu-btn-mute" class="menu-btn gray narrow-only" data-pz-hit data-pz-dwell="900">🔊 <span id="menu-mute-label">소리 켜짐</span></button>
-          <button id="btn-menu-exit" class="menu-btn danger" data-pz-hit data-pz-dwell="1400">🚪 게임 나가기</button>
-          <button id="btn-menu-hub"  class="menu-btn gray"   data-pz-hit data-pz-dwell="1400">🏠 게임 목록으로</button>
+          <button id="btn-menu-exit" class="menu-btn danger" data-pz-hit data-pz-dwell="1400">${icon('exit')} 게임 나가기</button>
+          <button id="btn-menu-hub"  class="menu-btn gray"   data-pz-hit data-pz-dwell="1400">${icon('home')} Home으로</button>
         </div>
       </div>
 
@@ -518,19 +545,27 @@ async function showSoloGame(app, gameId, manifest, ready) {
   // ── 소스 배지 ─────────────────────────────────────────────
   const sourceBadge = app.querySelector('#source-badge')
   function updateSourceBadge(src) {
-    const c = { local: ['📷 내장 카메라', '#ffe600'], keyboard: ['⌨️ 키보드', 'rgba(255,255,255,0.35)'] }
+    const c = {
+      local:    [`${icon('camera', 0.95)} 내장 카메라`, '#ffe600'],
+      keyboard: [`${icon('keyboard', 0.95)} 키보드`, 'rgba(255,255,255,0.35)'],
+    }
     const [label, color] = c[src] ?? c.keyboard
-    sourceBadge.textContent = label
+    sourceBadge.innerHTML = label
     sourceBadge.style.color = color
   }
 
   // ── 게임 빌드 ─────────────────────────────────────────────
   const { default: GameClass } = await import('./game.js')
+
+  // 준비 화면에서 고른 값. 한 판 안에서는 안 바뀐다(`lanes.js`의 이유 참고).
+  const lanes = ready?.lanes ?? 3
+
   let game = null
 
   function buildGame() {
     game?.destroy()
     game = new GameClass(canvas, {
+      lanes,
       onRoundEnd:    round => updateRoundPips(round),
       onGameEnd:     async stats => {
         showGameOver(stats)
@@ -550,6 +585,9 @@ async function showSoloGame(app, gameId, manifest, ready) {
               input_mode: poseEngine.isRunning ? 'motion' : 'keyboard',
               active_sec: stats.activeSec ?? 0,
               completed:  !!stats.cleared,
+              // **칸 수를 남긴다.** 같은 거리를 걸어도 5칸이 3칸보다 side_steps가
+              // 더 세진다. 안 남기면 두 판의 숫자가 한 통에 섞여 되돌릴 수 없다.
+              lanes: stats.lanes ?? 3,
               exercise: {
                 side_steps: stats.sideSteps ?? 0,   // 실제로 자리를 옮긴 횟수
                 jumps:      0,                       // 이 게임에는 점프·앉기가 없다
@@ -593,6 +631,8 @@ async function showSoloGame(app, gameId, manifest, ready) {
     recorded = true
     return recordSession({
       gameId,
+      // 칸 수는 **서버 기록(saveResult)에만** 남긴다. 성장 통계는 아이 한 명의
+      // 누적이라 3칸·5칸이 어차피 섞이고, 여기 넣어도 recordSession이 버린다.
       exercise: {
         active_sec: stats.activeSec ?? 0,
         side_steps: stats.sideSteps ?? 0,
@@ -733,8 +773,8 @@ async function showSoloGame(app, gameId, manifest, ready) {
   // ── 로컬 카메라 ───────────────────────────────────────────
   const pipVideo = app.querySelector('#pip-video')
   const pipWrap  = app.querySelector('#pip-wrap')
-  const overlay  = createPipOverlay(app.querySelector('#pip-overlay'))
-  let camZone = 1
+  const overlay  = createPipOverlay(app.querySelector('#pip-overlay'), { lanes })
+  let camZone = Math.floor(lanes / 2)
 
   let lastLandmarks = null
 
@@ -745,6 +785,7 @@ async function showSoloGame(app, gameId, manifest, ready) {
     ready.release()
     updateSourceBadge('keyboard')
   } else poseEngine.init(pipVideo, {
+    lanes,
     onZoneChange: zone => {
       camZone = zone
       game?.setPlayerZone(zone)
@@ -804,7 +845,9 @@ async function showSoloGame(app, gameId, manifest, ready) {
 
   function showHint(text, progress) {
     hintEl.style.display = 'flex'
-    hintText.textContent = text
+    // 아이콘이 섞이므로 innerHTML이다. 넣는 문구는 **전부 이 파일 안의 상수**라
+    // 바깥 값이 들어올 자리가 없다.
+    hintText.innerHTML = text
     gaugeEl.style.width = `${Math.round(progress * 100)}%`
   }
   function hideHint() {
@@ -830,7 +873,7 @@ async function showSoloGame(app, gameId, manifest, ready) {
 
     if (now < graceUntil) {
       resetHolds()
-      showHint('✋ 팔을 내려주세요', 0)
+      showHint(`${icon('hand')} 팔을 내려주세요`, 0)
       return
     }
 
@@ -838,7 +881,7 @@ async function showSoloGame(app, gameId, manifest, ready) {
       playExitHold.reset()
       const oDone = oHold.update(dt, lms)
       const xDone = xHold.update(dt, lms)
-      showHint('✋ O = 다시 하기 · X = 그만하기', Math.max(oHold.progress, xHold.progress))
+      showHint(`${icon('hand')} O = 다시 하기 · X = 그만하기`, Math.max(oHold.progress, xHold.progress))
       if (oDone) { armGrace(); startGame() }
       else if (xDone) { resetHolds(); navigate(backTo) }
       return
@@ -848,7 +891,7 @@ async function showSoloGame(app, gameId, manifest, ready) {
       playExitHold.reset()
       const oDone = oHold.update(dt, lms)
       const xDone = xHold.update(dt, lms)
-      showHint('✋ O = 계속하기 · X = 게임 나가기', Math.max(oHold.progress, xHold.progress))
+      showHint(`${icon('hand')} O = 계속하기 · X = 게임 나가기`, Math.max(oHold.progress, xHold.progress))
       if (oDone) { armGrace(); closeMenu() }
       else if (xDone) { resetHolds(); navigate(backTo) }
       return
@@ -860,7 +903,7 @@ async function showSoloGame(app, gameId, manifest, ready) {
     // 플레이 중에만 — 라운드 배너·카운트다운 중에는 받지 않는다
     if (game?._running) {
       const done = playExitHold.update(dt, lms)
-      showHint('✋ 팔로 X → 잠시 멈추기', playExitHold.progress)
+      showHint(`${icon('hand')} 팔로 X → 잠시 멈추기`, playExitHold.progress)
       if (done) { armGrace(); openMenu() }
     } else {
       playExitHold.reset()
@@ -887,10 +930,10 @@ async function showSoloGame(app, gameId, manifest, ready) {
   // 몸으로 할 때는 옆으로 한 걸음씩 옮기는 게임이니 키보드도 같아야 한다.
   const onKey = e => {
     if (!game) return
-    const step = d => game.setPlayerZone(Math.max(0, Math.min(2, game.playerZone + d)))
+    const step = d => game.setPlayerZone(Math.max(0, Math.min(lanes - 1, game.playerZone + d)))
     if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1) }
     if (e.key === 'ArrowRight') { e.preventDefault(); step(1) }
-    if (e.key === ' ')          { e.preventDefault(); game.setPlayerZone(1) }   // 가운데로 한 번에
+    if (e.key === ' ')          { e.preventDefault(); game.setPlayerZone(Math.floor(lanes / 2)) }   // 가운데로 한 번에
     if (e.key === 'Escape') {
       if (menuPanel.style.display === 'flex') closeMenu()
       else openMenu()

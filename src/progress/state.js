@@ -26,6 +26,8 @@ const EMPTY = {
   events: [],           // 일어난 사건
   badges: [],           // 딴 배지 id
   seen: null,           // 마지막으로 /buddy를 봤을 때의 { level, badges }
+  // 부모가 정하는 것. 아이 화면에는 안 뜬다.
+  narrowLanes: false,   // 똥 피하기를 3칸으로 고정 — 좁은 집에서 5칸은 물리적으로 안 된다
 }
 
 // **기본값은 매번 새로 만든다.**
@@ -124,6 +126,33 @@ export function markBuddySeen() {
   const s = read()
   s.seen = { level: levelOf(s).level, badges: s.badges.length }
   return write(s)
+}
+
+/**
+ * 캐릭터 바꾸기 — **아이가 언제든 바꿀 수 있어야 한다.**
+ *
+ * 처음 고른 것에 묶어 두면 마음이 바뀐 아이는 앱을 지우는 수밖에 없다.
+ * 버디의 단계와 같은 생각이다 — 형태는 옷이지 운명이 아니다(docs/05 §2).
+ * 운동 기록과는 무관한 값이라 바꿔도 쌓인 것은 그대로다.
+ */
+/**
+ * 3칸 고정 — **공간은 아이가 판단할 수 있는 것이 아니라 부모가 아는 것이다.**
+ *
+ * 5칸은 카메라에 담기는 폭이 충분해야 성립한다. 좁으면 칸 옮기기가 큰 동작이
+ * 아니라 발 옮기기가 되고, 운동량이 오히려 줄어든다.
+ */
+export function setNarrowLanes(on) {
+  const s = read()
+  s.narrowLanes = !!on
+  write(s)
+  return s
+}
+
+export function setProfile(profile) {
+  const s = read()
+  s.profile = profile
+  write(s)
+  return s
 }
 
 export function setNickname(name) {

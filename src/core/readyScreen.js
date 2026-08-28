@@ -14,6 +14,7 @@
 // `.screen`·`.pip-slot` 같은 클래스에 얽혀 있어서, 가져오면 웜업 CSS가 딸려 온다.
 // 여기서는 core만 쓴다 — poseEngineCore · gesture · tuning.
 
+import { icon, iconFilled } from './icons.js'
 import { poseEngineCore, isFullBodyVisible, isPoseSupported, poseUnsupportedReason } from './pose/poseEngine.js'
 import { createPipOverlay } from './pose/pipOverlay.js'
 import { isArmsUpCircle, isArmsUpCross, GestureHold } from './pose/gesture.js'
@@ -23,6 +24,22 @@ import { handErrorMessage } from './handControl.js'
 // 빨강↔초록이 경계에서 깜빡이지 않도록, 바뀐 상태가 이만큼 유지될 때만 전환한다.
 // (웜업에서 현장 검증된 값이다 — 0.1초로 줄이면 눈에 띄게 떨린다)
 export const BODY_SETTLE_SEC = 0.3
+
+// ── 연속 플레이면 자동으로 통과시킨다 ★ ──────────────────────
+//
+// 게임 → 허브 → 다른 게임을 이어서 하면 이 화면을 매번 보게 된다. 아이는 그 자리에
+// 그대로 서 있는데 O를 3초씩 다시 들어야 하니 **금방 지겨워진다.**
+//
+// 직전에 몸으로 시작한 지 얼마 안 됐고 **지금도 전신이 보이면** 곧바로 넘긴다.
+// 안전장치(전신 확인)는 그대로 두고 반복만 없애는 것이다 — 몸이 안 보이면
+// 자동 통과는 일어나지 않는다.
+//
+// 카메라는 참조 카운팅으로 계속 열려 있으므로 다시 여는 비용도 없다.
+export const QUICK_RESUME_SEC = 60
+let lastMotionAt = 0
+
+/** 테스트·개발용 — 다음 진입을 무조건 정식 절차로 되돌린다. */
+export function forgetQuickResume() { lastMotionAt = 0 }
 
 /**
  * 카메라 준비 화면을 띄우고, 아이가 고른 결과를 돌려준다.
@@ -44,7 +61,21 @@ export const BODY_SETTLE_SEC = 0.3
 export function showReadyScreen(app, {
   title = '카메라 준비',
   showZones = false,
+  // 칸 수 고르기. 게임이 쓸 때만 넘긴다 — 러너처럼 칸이 없는 게임은 안 넘긴다.
+  laneChoices = null,        // 예: [3, 5]
+  lanes: lanes0 = 3,         // 처음 눌려 있는 것
+  laneLocked = null,         // 고를 수 없는 값 (부모가 3칸으로 잠갔을 때의 5)
+  // ── 게임의 세계를 배경으로 깐다 ★ ──
+  // 기본은 보라색 그라디언트다. 그건 어느 게임에도 안 어울리지 않지만
+  // **어느 게임처럼 보이지도 않는다** — 아이는 방금 고른 게임에서 이 화면으로
+  // 넘어오는데, 세계가 한 번 끊겼다 다시 시작한다.
+  //
+  // 게임이 그림을 넘기면 그걸 깔고 위에 어둠을 덮는다. 어둠을 덮는 이유는
+  // 이 화면의 주인공이 **영상 속 아이**이기 때문이다 — 배경이 밝으면
+  // 자기 모습이 어디 있는지 못 찾는다.
+  backdrop = null,           // 예: '/assets/runner/jurassic/image/fx_title_screen.png'
 } = {}) {
+  let lanes = lanes0
   return new Promise(resolve => {
     app.innerHTML = `
       <style>
@@ -59,15 +90,54 @@ export function showReadyScreen(app, {
           background: linear-gradient(180deg, #2b1b52 0%, #150a2e 100%);
           touch-action: none; user-select: none;
         }
+        /* 제목과 칸 고르기를 **한 줄에** 둔다.
+           칸 버튼을 아래 버튼 무리에 섞으면 "시작"과 나란히 서서
+           눌러야 하는 것처럼 보인다 — 이건 고르는 것이지 진행하는 것이 아니다.
+           폭은 영상과 맞춘다. 그래야 화면이 한 덩어리로 읽힌다. */
+        /* 제목 줄과 아래 덩어리가 **같은 폭**이어야 왼쪽 끝이 맞는다.
+           따로 적으면 화면 크기에 따라 하나만 먼저 줄어 어긋난다. */
+        #rdy { --rdy-w: min(76vw, 46vh * 16 / 9); }
+        /* 배경 그림 — 덮기(cover)로 깐다. 늘이지 않는다 (CLAUDE.md).
+           위에 어둠을 덮어 영상 속 아이가 주인공으로 남게 한다. */
+        #rdy-bg {
+          position: absolute; inset: 0; z-index: 0;
+          background-image: linear-gradient(rgba(12,5,32,.72), rgba(12,5,32,.82)),
+                            url("${backdrop}");
+          background-size: cover; background-position: center;
+        }
+        #rdy > *:not(#rdy-bg) { position: relative; z-index: 1; }
+        #rdy-body { display: flex; flex-direction: column; align-items: center;
+                    gap: clamp(14px, 3vh, 32px); width: var(--rdy-w); }
+        #rdy-head {
+          width: var(--rdy-w);
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        }
+        /* 칸 고르기가 없는 게임(러너 등)에서는 제목만 남으므로 가운데로 */
+        #rdy-head:not(:has(#rdy-lanes)) { justify-content: center; }
         #rdy-title {
           font-size: clamp(1.2rem, 3vw, 2rem); font-weight: 900;
           text-shadow: 0 3px 14px rgba(0,0,0,0.5);
         }
+        #rdy-lanes { display: flex; gap: 8px; }
+        .rdy-lane {
+          min-height: 44px; padding: 0 clamp(12px, 1.8vw, 20px);
+          border-radius: 9999px; border: 2px solid rgba(255,255,255,0.28);
+          background: rgba(255,255,255,0.10); color: #fff;
+          font: inherit; font-size: clamp(0.82rem, 1.5vw, 1rem); font-weight: 900;
+          cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 0.12s;
+        }
+        .rdy-lane.on { background: #ffd23e; color: #4a2a00; border-color: transparent; }
+        .rdy-lane:disabled { opacity: 0.35; cursor: default; }
+        .rdy-lane:active { transform: scale(0.95); }
 
         /* 영상 — 여기가 이 화면의 주인공이다. 크게 둔다. */
         #rdy-pip {
           position: relative; flex: 0 1 auto;
-          width: min(76vw, 46vh * 4 / 3); aspect-ratio: 4 / 3;
+          /* **카메라가 주는 그대로 16:9다.** 4:3 상자에 담으면 cover가 좌우를
+             25% 잘라내는데, 칸 판정은 잘린 화면이 아니라 **원본 프레임 전체**를
+             등분한다. 그러면 화면의 점선이 진짜 경계와 다른 자리를 가리킨다 —
+             3칸에서는 티가 덜 났지만 5칸이면 바로 드러난다. */
+          width: 100%; aspect-ratio: 16 / 9;
           border-radius: 22px; overflow: hidden;
           border: 5px solid rgba(255,255,255,0.22);
           box-shadow: 0 10px 40px rgba(0,0,0,0.5);
@@ -85,7 +155,7 @@ export function showReadyScreen(app, {
            폭이 고정된 게이지만 왼쪽으로 붙었다. 정렬 규칙은 기본에 둔다. */
         #rdy-side {
           display: flex; flex-direction: column; align-items: center;
-          gap: clamp(8px, 1.6vh, 18px);
+          gap: clamp(8px, 1.6vh, 18px); width: 100%;
         }
 
         #rdy-status {
@@ -111,6 +181,7 @@ export function showReadyScreen(app, {
           margin-top: clamp(4px, 1.2vh, 14px);
         }
         .rdy-btn {
+          display: inline-flex; align-items: center; justify-content: center; gap: 7px;
           min-height: 58px; padding: 0 clamp(18px, 2.8vw, 30px);
           border-radius: 9999px; border: 2px solid rgba(255,255,255,0.28);
           background: rgba(255,255,255,0.12); color: #fff;
@@ -124,35 +195,73 @@ export function showReadyScreen(app, {
         }
         .rdy-btn.go:disabled { opacity: 0.4; box-shadow: none; cursor: default; }
 
-        /* 세로가 짧은 가로 모드 — 영상과 조작을 좌우로 나눈다.
-           세로로 쌓으면 400px 화면에서 버튼이 밖으로 밀려난다. */
+        /* 세로가 짧은 가로 모드(폰을 눕힌 화면).
+           **제목 줄은 위에 그대로 두고, 그 아래에서 영상과 조작을 좌우로 나눈다.**
+           셋을 다 옆으로 늘어놓으면 제목이 영상 옆에 붙어 어디에 속한 말인지
+           읽히지 않는다. 세로로 쌓으면 400px 높이에서 버튼이 화면 밖으로 밀려난다. */
         @media (max-height: 560px) {
-          #rdy { flex-direction: row; flex-wrap: wrap; align-content: center; gap: clamp(10px, 2vw, 24px); }
-          #rdy-title { width: 100%; text-align: center; font-size: clamp(1rem, 2.4vw, 1.4rem); }
-          #rdy-pip { width: min(46vw, 62vh * 4 / 3); }
-          /* 정렬·간격은 기본 규칙 그대로 쓰고, 여기서는 폭만 잡는다 */
-          #rdy-side { flex: 1 1 240px; min-width: 200px; gap: 10px; }
+          #rdy { --rdy-w: min(92vw, 1000px); gap: clamp(8px, 1.6vh, 16px); }
+          #rdy-title { font-size: clamp(1rem, 2.4vw, 1.4rem); }
+          #rdy-body { flex-direction: row; align-items: center; gap: clamp(12px, 2vw, 26px); }
+          #rdy-pip { width: 58%; max-width: calc(62vh * 16 / 9); flex: none; }
+
+          /* **칸 버튼의 오른쪽 끝을 영상의 오른쪽 끝에 맞춘다.**
+             제목 줄을 전체 폭으로 두면 버튼이 화면 오른쪽 끝까지 밀려가서
+             아래 영상과 아무 관계 없는 자리에 뜬다 — 칸을 나누는 건 영상이다.
+             그래서 제목 줄도 영상과 같은 폭을 쓴다. */
+          #rdy-head { width: 58%; max-width: calc(62vh * 16 / 9); }
+
+          /* 조작은 영상 오른쪽 칸의 **가운데**에 모은다. 오른쪽으로 붙이면
+             글줄이 제각각 끝나서 오른쪽 가장자리만 들쭉날쭉해 보인다. */
+          #rdy-side { flex: 1 1 auto; min-width: 0; align-items: center; text-align: center; gap: 8px; }
+          #rdy-status, #rdy-hint { text-align: center; }
+          #rdy-btns { justify-content: center; margin-top: 4px; }
+          .rdy-btn { min-height: 46px; padding: 0 clamp(12px, 2vw, 20px); }
+          .rdy-lane { min-height: 38px; padding: 0 clamp(10px, 1.6vw, 16px); }
+        }
+
+        /* 세로로 든 폰 — 버튼 셋이 한 줄에 안 들어가 시작만 아래로 떨어진다.
+           그러면 **가장 중요한 버튼이 제일 작아 보인다.**
+           위에 둘, 아래에 시작 하나를 **두 칸 폭으로** 깔아 무게를 맞춘다. */
+        @media (max-width: 560px) and (orientation: portrait) {
+          #rdy-btns {
+            display: grid; width: 100%;
+            grid-template-columns: 1fr 1fr; gap: 10px;
+          }
+          .rdy-btn { padding: 0 8px; }
+          .rdy-btn.go { grid-column: 1 / -1; }
         }
       </style>
 
       <div id="rdy">
-        <div id="rdy-title">${title}</div>
-
-        <div id="rdy-pip">
-          <video id="rdy-video" playsinline muted></video>
-          <canvas id="rdy-overlay"></canvas>
+        ${backdrop ? '<div id="rdy-bg"></div>' : ''}
+        <div id="rdy-head">
+          <div id="rdy-title">${title}</div>
+          ${laneChoices ? `<div id="rdy-lanes">${laneChoices.map(n => `
+            <button class="rdy-lane ${n === lanes0 ? 'on' : ''}" data-lanes="${n}"
+                    data-pz-hit data-pz-dwell="1000"
+                    ${n === laneLocked ? 'disabled title="놀이 공간이 좁게 설정돼 있어요 (마이페이지)"' : ''}>${n}칸</button>`).join('')}</div>` : ''}
         </div>
 
-        <div id="rdy-side">
-          <div id="rdy-status">웹캠과 모션 인식을 준비하고 있어요…</div>
-          <div id="rdy-hint" class="off">
-            ✋ 머리 위 <b>O</b> = 시작 · 팔로 <b>X</b> = 뒤로
+        <!-- 영상과 조작을 한 덩어리로 묶는다. 가로 모드에서 이 둘을 좌우로 나누는데,
+             묶어 두지 않으면 제목·영상·조작이 각자 접혀 폭이 제각각이 된다. -->
+        <div id="rdy-body">
+          <div id="rdy-pip">
+            <video id="rdy-video" playsinline muted></video>
+            <canvas id="rdy-overlay"></canvas>
           </div>
-          <div id="rdy-gauge-wrap"><div id="rdy-gauge"></div></div>
-          <div id="rdy-btns">
-            <button class="rdy-btn" id="rdy-back" data-pz-hit data-pz-dwell="900">← 뒤로</button>
-            <button class="rdy-btn" id="rdy-keyboard" data-pz-hit data-pz-dwell="1200">⌨️ 키보드로 하기</button>
-            <button class="rdy-btn go" id="rdy-go" data-pz-hit data-pz-dwell="1200" disabled>▶ 시작</button>
+
+          <div id="rdy-side">
+            <div id="rdy-status">웹캠과 모션 인식을 준비하고 있어요…</div>
+            <div id="rdy-hint" class="off">
+              ${icon('hand')} 머리 위 <b>O</b> = 시작 · 팔로 <b>X</b> = 뒤로
+            </div>
+            <div id="rdy-gauge-wrap"><div id="rdy-gauge"></div></div>
+            <div id="rdy-btns">
+              <button class="rdy-btn" id="rdy-back" data-pz-hit data-pz-dwell="900">${icon('back')} 뒤로</button>
+              <button class="rdy-btn" id="rdy-keyboard" data-pz-hit data-pz-dwell="1200">${icon('keyboard')} 키보드로 하기</button>
+              <button class="rdy-btn go" id="rdy-go" data-pz-hit data-pz-dwell="1200" disabled>${iconFilled('play', 0.9)} 시작</button>
+            </div>
           </div>
         </div>
       </div>
@@ -166,7 +275,17 @@ export function showReadyScreen(app, {
     const gaugeEl = $('#rdy-gauge')
     const goBtn   = $('#rdy-go')
 
-    const overlay = createPipOverlay($('#rdy-overlay'), { zones: showZones })
+    const overlay = createPipOverlay($('#rdy-overlay'), { zones: showZones, lanes })
+
+    // 칸 고르기 — **누르면 미리보기의 점선이 바로 바뀐다.** 글로 "5칸"이라고 적는 것보다
+    // 내 방이 다섯으로 갈린 모습을 보는 편이 빠르다. 좁으면 여기서 바로 안다.
+    for (const btn of app.querySelectorAll('.rdy-lane')) {
+      btn.addEventListener('click', () => {
+        lanes = Number(btn.dataset.lanes)
+        overlay.setLanes(lanes)
+        for (const b of app.querySelectorAll('.rdy-lane')) b.classList.toggle('on', b === btn)
+      })
+    }
 
     let settled = false
     let detach = null
@@ -184,12 +303,13 @@ export function showReadyScreen(app, {
     const finish = mode => {
       if (settled) return
       settled = true
+      if (mode === 'motion') lastMotionAt = Date.now()
       if (raf) cancelAnimationFrame(raf)
       unsub?.()
       detach?.()
       overlay.destroy?.()
       // 카메라 참조는 호출부에 넘긴다 — 위 주석 참고
-      resolve({ mode, release })
+      resolve({ mode, release, lanes })
     }
 
     $('#rdy-back').addEventListener('click', () => finish('back'))
@@ -212,7 +332,7 @@ export function showReadyScreen(app, {
       statusEl.classList.toggle('warn', !ok)
       statusEl.textContent = ok
         ? '좋아요! 이제 시작할 수 있어요'
-        : '⬅ 머리부터 발까지 다 보이게 뒤로 물러나 주세요 ➡'
+        : '머리부터 발까지 다 보이게 뒤로 물러나 주세요'
       goBtn.disabled = !ok
     }
 
@@ -234,6 +354,14 @@ export function showReadyScreen(app, {
 
       // 전신 여부는 곧바로 뒤집지 않는다 — 경계에서 깜빡인다
       const ok = isFullBodyVisible(lastLms)
+
+      // 이어서 하는 중이고 몸이 보이면 그냥 넘어간다 (위 QUICK_RESUME_SEC 주석)
+      if (ok && Date.now() - lastMotionAt < QUICK_RESUME_SEC * 1000) {
+        statusEl.textContent = '이어서 해요!'
+        statusEl.classList.add('ok')
+        finish('motion')
+        return
+      }
       if (ok === bodyOk) settleT = 0
       else {
         settleT += dt

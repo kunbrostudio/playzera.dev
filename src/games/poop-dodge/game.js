@@ -1,3 +1,4 @@
+import { playerSkin } from '../../core/playerSkin.js'
 import * as sound from '../../core/sound.js'
 
 // 라운드 구성 — **한 판이 2분 반은 가야 한다.**
@@ -34,7 +35,6 @@ const FLOOR_H_BASE  = 110
 
 // ── 플레이어 캐릭터 ──────────────────────────────────────────────
 const CHAR_H        = 210   // 기준 높이(px). _scale이 곱해진다
-const CHAR_RATIO    = 1070 / 1450   // 원본 가로/세로
 // 캐릭터 발이 버튼의 윗부분 어디에 닿는가(버튼 그림 높이 대비).
 // **캐릭터가 버튼 위에 올라선 것처럼 보여야 한다.** 그래서 발 위치를 화면 높이가
 // 아니라 **버튼 그림 위치에 묶는다** — 따로 두면 화면 크기가 바뀔 때 한쪽만 움직여
@@ -87,12 +87,22 @@ export function stepToward(current, target, maxStep) {
   return current + Math.sign(dx) * maxStep
 }
 
-// 존별 테마 색상 (왼쪽=분홍, 가운데=파랑, 오른쪽=보라)
-const ZONE_COLORS = [
-  { fill: 'rgba(255,100,160,{a})', warn: 'rgba(255,60,60,{a})', line: 'rgba(255,180,210,0.6)' },
-  { fill: 'rgba(80,150,255,{a})',  warn: 'rgba(255,60,60,{a})', line: 'rgba(150,200,255,0.6)' },
-  { fill: 'rgba(160,80,255,{a})',  warn: 'rgba(255,60,60,{a})', line: 'rgba(200,150,255,0.6)' },
+// 칸별 테마 색상 — **다섯 벌을 두고 3칸이면 가운데 셋을 쓴다.**
+//
+// 그래야 3칸의 분홍·파랑·보라가 예전 그대로 남는다. 칸이 늘어날 때 색이 통째로
+// 재배치되면 아이는 익숙한 "내 칸 색"을 잃는다.
+const ZONE_PALETTE = [
+  { fill: 'rgba(255,205,60,{a})',  line: 'rgba(255,230,150,0.6)' },  // 노랑
+  { fill: 'rgba(255,100,160,{a})', line: 'rgba(255,180,210,0.6)' },  // 분홍
+  { fill: 'rgba(80,150,255,{a})',  line: 'rgba(150,200,255,0.6)' },  // 파랑
+  { fill: 'rgba(160,80,255,{a})',  line: 'rgba(200,150,255,0.6)' },  // 보라
+  { fill: 'rgba(90,220,120,{a})',  line: 'rgba(170,245,190,0.6)' },  // 초록
 ]
+const zoneColors = lanes => lanes >= 5 ? ZONE_PALETTE : ZONE_PALETTE.slice(1, 1 + lanes)
+
+// 버튼 그림도 같은 규칙이다. 가운데 셋이 기존 3칸 버튼이고, 바깥 둘이 5칸에서만 쓰인다.
+const BTN_NAMES = ['btn_left_default_02', 'btn_left_default', 'btn_center_default',
+                   'btn_right_default', 'btn_right_default_02']
 
 export default class PoopDodgeGame {
   constructor(canvas, options = {}) {
@@ -103,7 +113,9 @@ export default class PoopDodgeGame {
     this.onScoreUpdate = options.onScoreUpdate ?? (() => {})
     this.onLifeUpdate  = options.onLifeUpdate  ?? (() => {})
 
-    this.playerZone = 1
+    // 칸 수. 3 또는 5 — 난이도가 정하고 부모가 잠글 수 있다(`/me`).
+    this.lanes      = Math.max(2, Math.round(options.lanes ?? 3))
+    this.playerZone = Math.floor(this.lanes / 2)
     this.lives      = MAX_LIVES
     this.score      = 0
     this.round      = 0
@@ -154,19 +166,24 @@ export default class PoopDodgeGame {
     }
     load('bg',   '/assets/image/poop_game_bg.jpg')
     load('poop', '/assets/image/poop01_default.png')
-    load('btnL', '/assets/image/btn_left_default.png',    true)
-    load('btnC', '/assets/image/btn_center_default.png',  true)
-    load('btnR', '/assets/image/btn_right_default.png',   true)
-    load('btnLP', '/assets/image/btn_left_pressed.png',   true)
-    load('btnCP', '/assets/image/btn_center_pressed.png', true)
-    load('btnRP', '/assets/image/btn_right_pressed.png',  true)
+    // 버튼은 다섯 벌을 다 부른다. 없는 것은 로더가 조용히 건너뛰고
+    // 그 칸만 색 알약으로 떨어진다 — 5칸 버튼 그림이 오기 전에도 게임은 돈다.
+    for (const n of BTN_NAMES) {
+      load(`btn:${n}`,  `/assets/image/${n}.png`, true)
+      load(`btnP:${n}`, `/assets/image/${n.replace('_default', '_pressed')}.png`, true)
+    }
 
     // 플레이어 캐릭터. 하나라도 없으면 그 표정만 idle로 떨어진다(게임은 계속된다).
-    load('charIdle',   '/assets/characters/char_idle.png')
-    load('charLeft',   '/assets/characters/char_move_left.png')
-    load('charRight',  '/assets/characters/char_move_right.png')
-    load('charScared', '/assets/characters/char_scared.png')
-    load('charCheer',  '/assets/characters/char_cheer.png')
+    //
+    // **아이가 고른 프로필로 갈린다.** 러너와 같은 규칙이다 —
+    // 가입은 부모가 하고 캐릭터는 아이가 논다(`src/core/playerSkin.js`).
+    // 게임마다 다른 아이가 나오면 같은 아이가 노는 것으로 안 보인다.
+    const skin = `/assets/characters/${playerSkin()}`
+    load('charIdle',   `${skin}/char_idle.png`)
+    load('charLeft',   `${skin}/char_move_left.png`)
+    load('charRight',  `${skin}/char_move_right.png`)
+    load('charScared', `${skin}/char_scared.png`)
+    load('charCheer',  `${skin}/char_cheer.png`)
   }
 
   // ── 논리 픽셀 ────────────────────────────────────────────────
@@ -321,7 +338,7 @@ export default class PoopDodgeGame {
   // 아이가 또 움직이면 가던 방향에서 그대로 방향만 바꾼다 — 그래서 목표를
   // 매 프레임 다시 읽는다.
   _updateCharacter(dt) {
-    const zw     = this.lw / 3
+    const zw     = this.lw / this.lanes
     const target = zw * this.playerZone + zw / 2
 
     if (this._charX === null) { this._charX = target }   // 첫 프레임
@@ -359,9 +376,10 @@ export default class PoopDodgeGame {
     const zone = this.playerZone
     const inFlight = new Set(this.poops.map(p => p.zone))
 
-    // 다만 도망갈 칸은 반드시 남겨둔다. 다른 두 칸에 이미 똥이 떨어지는 중인데
-    // 남은 한 칸까지 겨누면 어디로 가도 맞는다 — 그건 반응이 아니라 운이다.
-    if (!inFlight.has(zone) && inFlight.size >= 2) {
+    // 다만 **도망갈 칸은 반드시 남겨둔다.** 나머지 칸이 전부 막힌 상태에서 남은
+    // 한 칸까지 겨누면 어디로 가도 맞는다 — 그건 반응이 아니라 운이다.
+    // 3칸에 박아 뒀던 값(2)을 칸 수에서 계산한다.
+    if (!inFlight.has(zone) && inFlight.size >= this.lanes - 1) {
       return [...inFlight][0]
     }
     return zone
@@ -370,7 +388,7 @@ export default class PoopDodgeGame {
   _spawnPoop(speed) {
     const zone = this._pickZone()
     const w    = this.lw
-    const zw   = w / 3
+    const zw   = w / this.lanes
     const sc   = this._scale
     this.poops.push({
       zone,
@@ -433,6 +451,7 @@ export default class PoopDodgeGame {
   snapshot() {
     return {
       score:         this.score,
+      lanes:         this.lanes,
       roundsCleared: this.round,
       dodgeCount:    this.dodgeCount,
       hitCount:      this.hitCount,
@@ -569,15 +588,18 @@ export default class PoopDodgeGame {
     // 발은 버튼 그림 윗부분에 딛는다 — 버튼을 발판처럼 밟고 선 모양이 된다
     const ft   = this._footing(h)
     const floor = ft.top + ft.artH * CHAR_FOOT_ON_BTN
-    if (this._charX === null) this._charX = (w / 3) * this.playerZone + w / 6
+    if (this._charX === null) this._charX = (w / this.lanes) * (this.playerZone + 0.5)
 
     const img =
       this._img[{ left: 'charLeft', right: 'charRight', scared: 'charScared', cheer: 'charCheer' }[this._charPose]]
       ?? this._img.charIdle
     if (!img) return
 
+    // 가로는 **그림에서 읽는다.** 상수로 박아 두면(예전에 1070/1450이었다) 새 그림이
+    // 올 때마다 찌그러진다 — 자세마다 가로세로가 다르기도 하다(서 있기 0.42,
+    // 달리기 0.68). 높이만 맞추고 가로는 비율을 따라간다.
     const ch = CHAR_H * this._scale
-    const cw = ch * CHAR_RATIO
+    const cw = ch * (img.width / img.height)
 
     // 달릴 때만 통통 튄다. 서 있을 때 흔들리면 산만하다.
     const hop = this._charPose === 'left' || this._charPose === 'right'
@@ -601,13 +623,13 @@ export default class PoopDodgeGame {
 
   _drawZones(w, h) {
     const ctx   = this.ctx
-    const zw    = w / 3
+    const zw    = w / this.lanes
     const floor = h - this._floorH
     const now   = Date.now()
 
     // 활성 존 컬러 오버레이 (반투명)
     const pulse = 0.08 + 0.05 * Math.sin(now * 0.003)
-    const zc    = ZONE_COLORS[this.playerZone]
+    const zc    = zoneColors(this.lanes)[this.playerZone]
     ctx.fillStyle = zc.fill.replace('{a}', pulse.toFixed(3))
     ctx.fillRect(this.playerZone * zw, 0, zw, floor)
 
@@ -618,8 +640,9 @@ export default class PoopDodgeGame {
       ctx.fillRect(z * zw, 0, zw, floor)
     }
 
-    // 레인 구분 빔 (흰 광선)
-    for (const x of [zw, zw * 2]) {
+    // 레인 구분 빔 (흰 광선) — 칸 사이 경계마다
+    const edges = Array.from({ length: this.lanes - 1 }, (_, i) => zw * (i + 1))
+    for (const x of edges) {
       const bw   = Math.max(16, zw * 0.05)
       const beam = ctx.createLinearGradient(x - bw / 2, 0, x + bw / 2, 0)
       beam.addColorStop(0,   'rgba(255,255,255,0)')
@@ -724,17 +747,27 @@ export default class PoopDodgeGame {
 
   _drawMarkers(w, h) {
     const ctx  = this.ctx
-    const zw   = w / 3
+    const sc   = this._scale        // ⚠️ 이게 없어서 5칸에서 화면이 통째로 죽었다(아래 참고)
+    const zw   = w / this.lanes
     const { cy } = this._footing(h)
 
-    // default / pressed 이미지 쌍
-    const defaultImgs = [this._img.btnL,  this._img.btnC,  this._img.btnR]
-    const pressedImgs = [this._img.btnLP, this._img.btnCP, this._img.btnRP]
+    // 3칸이면 가운데 셋 — 색과 그림이 예전 그대로 남는다
+    const names = this.lanes >= 5 ? BTN_NAMES : BTN_NAMES.slice(1, 1 + this.lanes)
 
-    const fallbackColors = ['#ff64a0', '#5096ff', '#a050ff']
-    const labels = ['◀ 왼쪽', '가운데', '오른쪽 ▶']
+    // 바깥 두 칸의 그림이 아직 없다. **옆 칸 그림을 빌려 쓴다** —
+    // 알약 폴백으로 떨어지면 5칸에서 그림 셋과 알약 둘이 섞여 덜 된 화면이 된다.
+    const near = i => i === 0 ? 1 : i === names.length - 1 ? names.length - 2 : i
+    const pick = (kind, i) => this._img[`${kind}:${names[i]}`] ?? this._img[`${kind}:${names[near(i)]}`]
+    const defaultImgs = names.map((_, i) => pick('btn', i))
+    const pressedImgs = names.map((_, i) => pick('btnP', i))
 
-    for (let i = 0; i < 3; i++) {
+    const fallbackColors = ['#ffcd3c', '#ff64a0', '#5096ff', '#a050ff', '#5adc78']
+      .filter((_, i) => this.lanes >= 5 || (i >= 1 && i <= this.lanes))
+    const labels = this.lanes >= 5
+      ? ['◀◀', '◀ 왼쪽', '가운데', '오른쪽 ▶', '▶▶']
+      : ['◀ 왼쪽', '가운데', '오른쪽 ▶']
+
+    for (let i = 0; i < this.lanes; i++) {
       const cx       = zw * i + zw / 2
       const isActive = i === this.playerZone
       const img      = isActive ? (pressedImgs[i] ?? defaultImgs[i]) : defaultImgs[i]

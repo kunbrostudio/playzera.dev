@@ -84,3 +84,10 @@ html, body {
   border-color: var(--color-text);
   color: #fff;
 }
+
+
+/* ── UI 아이콘 (src/core/icons.js) ─────────────────────────────
+   이모지 대신 쓰는 Lucide 모양 SVG. **여기 한 번만 적는다** —
+   화면마다 `<style>`에 넣으면 새 화면을 만들 때 빠뜨리고, 그러면
+   아이콘이 글자 옆에서 혼자 위로 떠 있는 채로 나간다. */
+.pz-ico { display: inline-block; vertical-align: -0.16em; flex: none; }

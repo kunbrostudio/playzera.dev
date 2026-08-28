@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import PoopDodgeGame from '../src/games/poop-dodge/game.js'
 
-// _pickZone은 playerZone과 poops만 본다. 캔버스 없이 그대로 호출한다.
-const pick = (playerZone, zonesInFlight) =>
+// _pickZone은 playerZone·poops·lanes만 본다. 캔버스 없이 그대로 호출한다.
+const pick = (playerZone, zonesInFlight, lanes = 3) =>
   PoopDodgeGame.prototype._pickZone.call({
     playerZone,
+    lanes,
     poops: zonesInFlight.map(zone => ({ zone })),
   })
 
@@ -36,6 +37,18 @@ describe('똥 떨어지는 칸 고르기', () => {
     // 이미 세 칸에 떨어지는 중 = 내 칸도 위험하므로 그냥 내 칸을 겨눈다
     // (새로 다른 칸을 겨눠도 안전한 칸이 늘지 않는다)
     expect(pick(1, [0, 1, 2])).toBe(1)
+  })
+
+  // 5칸에서도 같은 규칙이다 — "나머지가 다 막혔나"는 칸 수에서 나온다.
+  // 3에 박아 두면 5칸에서 두 칸만 위험해도 비켜 주게 되어 너무 쉬워진다.
+  it('5칸 — 다른 칸 셋이 위험해도 아직 겨눈다', () => {
+    expect(pick(2, [0, 1, 3], 5)).toBe(2)
+  })
+
+  it('5칸 — 나머지 네 칸이 다 위험하면 내 칸을 비운다', () => {
+    const z = pick(2, [0, 1, 3, 4], 5)
+    expect(z).not.toBe(2)
+    expect([0, 1, 3, 4]).toContain(z)
   })
 
   it('피할 곳을 남긴 결과가 항상 유효한 칸이다', () => {

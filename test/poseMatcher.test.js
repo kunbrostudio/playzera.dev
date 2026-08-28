@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { matchPose, jointScore, jointScores, jointAngles, POSE_TARGETS } from '../src/games/warmup-obstacle/input/poseMatcher.js'
+import { matchPose, jointScore, jointScores, jointAngles, POSE_TARGETS } from '../src/games/runner/input/poseMatcher.js'
 import { LM } from '../src/core/pose/gesture.js'
-import { CONFIG } from '../src/games/warmup-obstacle/config.js'
+import { CONFIG } from '../src/games/runner/config.js'
 
 const THRESHOLD = CONFIG.pose.matchThreshold
 const ASPECT = 16 / 9

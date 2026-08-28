@@ -8,7 +8,7 @@ import { createZoneDetector } from './detectors/zoneDetector.js'
 
 class PoseEngine {
   constructor() {
-    this.currentZone = 1
+    this.currentZone = 1   // init()에서 칸 수에 맞춰 다시 잡힌다
     this.isRunning   = false
     this._detector   = null
     this._unsub      = null
@@ -20,12 +20,16 @@ class PoseEngine {
     const onPoseUpdate = callbacks.onPoseUpdate ?? null
 
     // zoneDetector 생성: zone 변경 시 currentZone 동기화 + 외부 콜백 호출
+    // 칸 수는 게임이 정한다 — 똥 피하기가 난이도에 따라 3칸·5칸을 오간다.
     this._detector = createZoneDetector({
+      lanes: callbacks.lanes ?? 3,
       onZoneChange: (zone) => {
         this.currentZone = zone
         callbacks.onZoneChange?.(zone)
       },
     })
+
+    this.currentZone = this._detector.getCurrentZone()
 
     this._unsub = poseEngineCore.onLandmarks((landmarks) => {
       this._detector.update(landmarks)
@@ -61,7 +65,7 @@ class PoseEngine {
     // stop()이 아니라 release()다 — 허브가 아직 쓰고 있으면 카메라는 켜진 채 남는다
     if (this._acquired) { poseEngineCore.release(); this._acquired = false }
     this.isRunning   = false
-    this.currentZone = 1
+    this.currentZone = 1   // init()에서 칸 수에 맞춰 다시 잡힌다
   }
 }
 

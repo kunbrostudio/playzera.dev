@@ -13,9 +13,13 @@
 //
 // entry: 허브 목록에서 이 게임을 고를 때 갈 곳. 인트로가 있으면 인트로부터.
 import poopDodgeManifest from './poop-dodge/manifest.json'
-import warmupManifest from './warmup-obstacle/manifest.json'
+import warmupManifest from './runner-space/manifest.json'
+import jungleManifest from './runner-jungle/manifest.json'
+import jurassicManifest from './runner-jurassic/manifest.json'
+import jurassic3dManifest from './jurassic-run-3d/manifest.json'
 import fireRescueManifest from './fire-rescue/manifest.json'
 import stoneBridgeManifest from './stone-bridge/manifest.json'
+import popClickerManifest from './pop-clicker/manifest.json'
 import { getPlaceholderManifests } from './placeholders.js'
 
 export const GAME_REGISTRY = {
@@ -37,10 +41,36 @@ export const GAME_REGISTRY = {
     // 플레이 화면 안의 안내가 동작을 먼저 보여준다 (불 끄기와 같은 방식).
     play:     () => import('./stone-bridge/play.js'),
   },
+  // ── 러너 엔진을 공유하는 게임들 ──────────────────────────
+  //
+  // 둘 다 `games/runner/`의 같은 코드로 돈다. 다른 것은 `theme.json`뿐이다.
+  // 세 번째 러너를 만들 때도 여기 한 줄 + 폴더 하나면 된다.
   'warmup-obstacle': {
     manifest: warmupManifest,
-    // 웜업은 자체 타이틀 화면이 인트로 역할을 한다 — 따로 두면 화면이 하나 는다
-    play:     () => import('./warmup-obstacle/play.js'),
+    // 러너는 자체 타이틀 화면이 인트로 역할을 한다 — 따로 두면 화면이 하나 는다
+    play:     () => import('./runner-space/play.js'),
+  },
+  'jungle-run': {
+    manifest: jungleManifest,
+    play:     () => import('./runner-jungle/play.js'),
+  },
+  'jurassic-run': {
+    manifest: jurassicManifest,
+    play:     () => import('./runner-jurassic/play.js'),
+  },
+
+  // 네 번째 러너지만 **엔진이 다르다** — `runner3d/`(three.js).
+  // 인트로·튜토리얼은 두지 않는다. 준비 화면의 안내가 동작을 먼저 보여준다.
+  'jurassic-run-3d': {
+    manifest: jurassic3dManifest,
+    play:     () => import('./jurassic-run-3d/play.js'),
+  },
+
+  // 클리커를 몸으로 누른다. 규칙이 한 줄("켜진 걸 따라 해")이라 인트로·튜토리얼을
+  // 두지 않는다 — 플레이 화면 안의 안내가 동작을 먼저 보여준다(불 끄기와 같은 방식).
+  'pop-clicker': {
+    manifest: popClickerManifest,
+    play:     () => import('./pop-clicker/play.js'),
   },
 }
 

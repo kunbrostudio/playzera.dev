@@ -6,6 +6,7 @@
 // 게임팩이 아니라 core에 둔 이유 — 웜업도 같은 걸 쓴다. 게임마다 축하가 다르면
 // 아이가 매번 새로 배워야 한다.
 
+import { icon } from '../core/icons.js'
 import { getBadge, badgeIcon } from './badges.js'
 import { levelFromTotals, levelHint } from './level.js'
 import { getProgress } from './state.js'
@@ -92,7 +93,7 @@ export function mountReward(host, reward) {
   host.innerHTML = `
     <div class="pz-reward">
       ${badges.length ? `
-        <div class="pz-reward-title">⭐ 새 배지!</div>
+        <div class="pz-reward-title">${icon('medal')} 새 배지!</div>
         <div class="pz-reward-badges">
           ${badges.map((b, i) => `
             <div class="pz-badge-pop" style="animation-delay:${i * 0.12}s">
@@ -101,7 +102,7 @@ export function mountReward(host, reward) {
             </div>`).join('')}
         </div>` : ''}
 
-      ${reward?.leveledUp ? `<div class="pz-reward-up">🎉 레벨 ${reward.to}이 됐어요!</div>` : ''}
+      ${reward?.leveledUp ? `<div class="pz-reward-up">${icon('trophy')} 레벨 ${reward.to}이 됐어요!</div>` : ''}
 
       <div class="pz-reward-lv">
         <span class="lv">LV.${lv.level}</span>

@@ -5,6 +5,7 @@
 //
 // rewardView.js와 같은 방식이다 — 스타일은 한 번만 붙이고, 그리는 함수 하나를 내보낸다.
 
+import { icon } from '../core/icons.js'
 import { getBuddy, buddyImage, unlockedStages, currentStage } from '../buddies/registry.js'
 import { levelFromTotals, levelHint } from './level.js'
 import { getProgress } from './state.js'
@@ -115,12 +116,12 @@ export function mountBuddy(host, { stageId = null, stars = true, gauge = true, h
   host.innerHTML = `
     <div class="pz-bd">
       <div class="pz-bd-art">
-        <span class="pz-bd-fb">${stage?.id === 'egg' ? '🥚' : '🐣'}</span>
+        <span class="pz-bd-fb">${icon('egg', 2.4)}</span>
         ${src ? `<img src="${src}" alt="" onload="this.previousElementSibling?.remove()" onerror="this.remove()" />` : ''}
       </div>
       <div class="pz-bd-name">${s.nickname || buddy?.name || '내 친구'}</div>
       ${stars ? `<div class="pz-bd-stars">${
-        Array.from({ length: STAR_MAX }, (_, i) => `<span class="${i < filled ? '' : 'off'}">⭐</span>`).join('')
+        Array.from({ length: STAR_MAX }, (_, i) => `<span class="${i < filled ? '' : 'off'}">${icon('star')}</span>`).join('')
       }<span class="lv">LV.${lv.level}</span></div>` : ''}
       ${gauge ? `<div class="pz-bd-gauge"><div class="pz-bd-fill" style="width:${Math.round(lv.ratio * 100)}%"></div></div>` : ''}
       ${hint ? `<div class="pz-bd-hint">${levelHint(lv.ratio)}</div>` : ''}

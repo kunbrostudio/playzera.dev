@@ -15,6 +15,7 @@
 // 안내·카메라·결과·기록은 **`core/gameShell.js`가 한다.** 여기 남은 것은
 // 이 게임만의 것 — 무대를 그리는 일뿐이다.
 
+import { icon } from '../../core/icons.js'
 import { navigate, onLeave } from '../../core/router.js'
 import { showReadyScreen } from '../../core/readyScreen.js'
 import { handSession } from '../../core/handSession.js'
@@ -161,7 +162,7 @@ async function playScreen(app, { gameId, backTo, mode, release }) {
 
     <div id="fr">
       <div id="fr-top">
-        <button class="fr-btn" id="fr-back">← 그만하기</button>
+        <button class="fr-btn" id="fr-back">${icon('back')} 그만하기</button>
         <div id="fr-round"></div>
       </div>
 
@@ -169,8 +170,8 @@ async function playScreen(app, { gameId, backTo, mode, release }) {
         <div id="fr-hero">🧑‍🚒</div>
         <div id="fr-water"><i></i></div>
         <div id="fr-fire">
-          <div id="fr-flame">🔥</div>
-          <div id="fr-house">🏠</div>
+          <div id="fr-flame">${icon('flame', 2.2)}</div>
+          <div id="fr-house">${icon('home', 2)}</div>
           <div id="fr-gauge"><i></i></div>
         </div>
 
@@ -301,7 +302,7 @@ async function playScreen(app, { gameId, backTo, mode, release }) {
     const s = game.snapshot()
     showGameOver($('#fr'), {
       title: early ? '오늘은 여기까지!'
-                   : (s.cleared === s.rounds ? '불을 다 껐어요! 🎉' : '수고했어요!'),
+                   : (s.cleared === s.rounds ? '불을 다 껐어요!' : '수고했어요!'),
       line: `${s.cleared}개의 불을 끄고 ${s.high_knees}걸음 달렸어요 · ${s.active_sec}초`,
       reward: record(s),
       onAgain: () => window.location.reload(),

@@ -1,0 +1,38 @@
+{
+  "id": "jungle-run",
+  "title": "정글 탐험대",
+  "description": "통나무를 넘고 동물 자세를 따라해요!",
+  "thumbnail": "/assets/runner/jungle/image/fx_title_screen.png",
+  "hero": "/assets/runner/jungle/image/fx_title_screen.png",
+  "ageRange": "4-8",
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "gestures": [
+    "O",
+    "X"
+  ],
+  "detectors": [
+    "lane",
+    "jump",
+    "duck",
+    "poseMatch"
+  ],
+  "tags": [
+    "달리기",
+    "점프",
+    "균형",
+    "정글"
+  ],
+  "metrics": [
+    "jumps",
+    "squats",
+    "side_steps",
+    "pose_holds",
+    "active_sec"
+  ],
+  "status": "active",
+  "createdAt": "2026-08-12",
+  "logo": "/assets/runner/jungle/image/fx_title_logo.png"
+}

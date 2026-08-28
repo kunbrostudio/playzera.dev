@@ -39,8 +39,11 @@ const routes = {
 // /lab — 감지기가 웹캠으로 실제로 세는지 눈으로 보는 자리
 // 들어갈 때 불러온다. 최상위 await를 쓰면 이 모듈이 통째로 비동기가 되어
 // 아래 load 리스너 등록이 늦어진다 — 첫 화면이 안 그려질 수 있다.
+// /lab3d — 3D 러너 성능 게이트. 포즈와 3D를 **동시에** 돌려 FPS를 잰다.
+//          곡률 세기도 여기서 눈으로 고른다 (docs/10 §5의 0단계)
 if (import.meta.env?.DEV) {
   routes['/lab'] = (app, q) => import('../pages/lab.js').then(m => m.labPage(app, q))
+  routes['/lab3d'] = (app, q) => import('../pages/lab3d.js').then(m => m.lab3dPage(app, q))
 }
 
 // ── 소리가 나도 되는 경로 ────────────────────────────────────

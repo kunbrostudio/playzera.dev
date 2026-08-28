@@ -27,9 +27,13 @@ const JOINTS = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
 const VISIBILITY_MIN = 0.4
 
 // 존별 색 — 게임 화면의 존 색과 맞춘다(왼쪽 분홍 / 가운데 파랑 / 오른쪽 보라)
-const ZONE_RGB = ['255,100,160', '80,150,255', '160,80,255']
+// 게임 화면의 칸 색과 같아야 한다 — PIP에서 파란 칸에 서 있는데 게임에서는
+// 보라 칸이면 아이는 둘을 같은 것으로 못 읽는다. 다섯 벌을 두고 3칸이면 가운데 셋.
+const ZONE_PALETTE_RGB = ['255,205,60', '255,100,160', '80,150,255', '160,80,255', '90,220,120']
+const zoneRgb = (lanes, i) => (lanes >= 5 ? ZONE_PALETTE_RGB : ZONE_PALETTE_RGB.slice(1, 1 + lanes))[i]
 
-export function createPipOverlay(canvasEl, { zones = true } = {}) {
+export function createPipOverlay(canvasEl, { zones = true, lanes: lanes0 = 3 } = {}) {
+  let lanes = lanes0
   if (!canvasEl) return { draw() {}, clear() {}, destroy() {} }
   const ctx = canvasEl.getContext('2d')
   let raf = null
@@ -53,30 +57,31 @@ export function createPipOverlay(canvasEl, { zones = true } = {}) {
   }
 
   // landmarks: MediaPipe 33점 (없으면 라인만 그린다)
-  // zone: 지금 서 있는 칸 0|1|2
+  // zone: 지금 서 있는 칸 (0 ~ lanes-1)
   function draw(landmarks, zone = 1) {
     const { w, h } = fit()
     ctx.clearRect(0, 0, w, h)
 
-    const zw = w / 3
+    const zw = w / lanes
 
     // 1) 현재 칸 강조 — 어디 서 있는지가 먼저 읽혀야 한다
-    if (zones && zone >= 0 && zone <= 2) {
+    if (zones && zone >= 0 && zone < lanes) {
       const g = ctx.createLinearGradient(0, 0, 0, h)
-      g.addColorStop(0, `rgba(${ZONE_RGB[zone]},0.30)`)
-      g.addColorStop(1, `rgba(${ZONE_RGB[zone]},0.10)`)
+      g.addColorStop(0, `rgba(${zoneRgb(lanes, zone)},0.30)`)
+      g.addColorStop(1, `rgba(${zoneRgb(lanes, zone)},0.10)`)
       ctx.fillStyle = g
       ctx.fillRect(zone * zw, 0, zw, h)
     }
 
-    // 2) 3분할 경계선 — 칸으로 조종하는 게임에서만.
+    // 2) 칸 경계선 — 칸으로 조종하는 게임에서만.
     //    웜업은 캘리브레이션한 자리를 기준으로 좌우를 재므로 고정된 선이 거짓말이 된다.
     if (zones) {
       ctx.save()
       ctx.setLineDash([6, 5])
       ctx.strokeStyle = 'rgba(255,255,255,0.75)'
       ctx.lineWidth = 2
-      for (const x of [zw, zw * 2]) {
+      for (let i = 1; i < lanes; i++) {
+        const x = zw * i
         ctx.beginPath()
         ctx.moveTo(x, 0)
         ctx.lineTo(x, h)
@@ -146,6 +151,8 @@ export function createPipOverlay(canvasEl, { zones = true } = {}) {
   return {
     draw: drawThrottled,
     clear,
+    /** 칸 수 바꾸기 — 준비 화면에서 3칸·5칸을 눌러 볼 수 있어야 한다. */
+    setLanes(n) { lanes = Math.max(2, Math.round(n)) },
     destroy() {
       if (raf) cancelAnimationFrame(raf)
       raf = null

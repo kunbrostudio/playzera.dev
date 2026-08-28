@@ -13,7 +13,7 @@
 // 실제 데이터에서 어떻게 보이는지가 목적이라 그림 자체는 아무거나 상관없다.
 
 const POOP = n => `/assets/image/poop${String(n).padStart(2, '0')}_default.png`
-const WU = f => `/assets/warmup/image/${f}.png`
+const WU = f => `/assets/runner/space/image/${f}.png`
 
 // [id, 제목, 설명, 썸네일, 태그, 최대인원, createdAt]
 const RAW = [

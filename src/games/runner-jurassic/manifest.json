@@ -1,0 +1,38 @@
+{
+  "id": "jurassic-run",
+  "title": "쥬라기 대탐험",
+  "description": "바위를 피하고 공룡 자세를 따라해요!",
+  "thumbnail": "/assets/runner/jurassic/image/fx_title_screen.png",
+  "hero": "/assets/runner/jurassic/image/fx_title_screen.png",
+  "ageRange": "4-8",
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "gestures": [
+    "O",
+    "X"
+  ],
+  "detectors": [
+    "lane",
+    "jump",
+    "duck",
+    "poseMatch"
+  ],
+  "tags": [
+    "달리기",
+    "점프",
+    "균형",
+    "공룡"
+  ],
+  "metrics": [
+    "jumps",
+    "squats",
+    "side_steps",
+    "pose_holds",
+    "active_sec"
+  ],
+  "status": "active",
+  "createdAt": "2026-08-12",
+  "logo": "/assets/runner/jurassic/image/fx_title_logo.png"
+}

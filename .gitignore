@@ -142,3 +142,20 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 .DS_Store
+.placeholders
+
+# ── AI 원본은 로컬에만 둔다 ★ ────────────────────────────────
+#
+# Tripo·Meshy가 준 GLB는 한 개가 56~64MB다. 스무 개면 446MB이고, 깃허브는
+# 50MB가 넘으면 경고하고 100MB가 넘으면 아예 막는다. 무엇보다 **한 번 올리면
+# 이력에서 빼기 어렵고**, 그때부터 클론하는 사람마다 그걸 다 받는다.
+#
+# 재현이 걱정될 수 있지만, 어차피 이 파이프라인은 **블렌더가 있어야** 돈다
+# (`tools/blender/import_ai.py`). 원본만 있다고 다른 컴퓨터에서 돌아가지 않는다.
+# 정본은 원본이 아니라 **만드는 방법**이고, 그건 `.py`에 남아 있다(`CLAUDE.md`).
+#
+# 결과물(`public/assets/runner3d/*.glb`)은 압축돼서 200~700KB고, 그건 커밋한다.
+tools/ai_inbox/
+tools/ai_source/
+tools/blender/preview/
+tools/blender/__pycache__/

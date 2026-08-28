@@ -1,0 +1,415 @@
+{
+  "id": "jungle-run",
+  "name": "정글 탐험",
+  "assetBase": "/assets/runner/jungle",
+  "audio": {
+    "bgm": "bgm_jungle.mp3"
+  },
+  "sprites": {
+    "character": {
+      "idle": [
+        "_shared/char_run01",
+        "_shared/char_run04"
+      ],
+      "run": [
+        "_shared/char_run01",
+        "_shared/char_run02",
+        "_shared/char_run03",
+        "_shared/char_run04",
+        "_shared/char_run05"
+      ],
+      "jumpPrep": "_shared/char_jump_prep",
+      "jumpAir": "_shared/char_jump_air",
+      "slide": "_shared/char_slide",
+      "pose": {
+        "lunge": "_shared/char_stretch_lunge",
+        "forwardbend": "_shared/char_stretch_forwardbend",
+        "armsopen": "_shared/char_stretch_armsopen"
+      }
+    },
+    "obstacle": {
+      "cubeLeft": "obs_cube_star_left",
+      "cubeCenter": "obs_cube_star_center",
+      "cubeRight": "obs_cube_star_right",
+      "hurdleLow": "obs_hurdle_low",
+      "hurdleWide": "obs_hurdle_wide",
+      "archGate": "obs_temple_gate",
+      "poseSign": {
+        "lunge": "obs_sign_stretch_lunge",
+        "forwardbend": "obs_sign_stretch_forwardbend",
+        "armsopen": "obs_sign_stretch_armsopen"
+      }
+    },
+    "hint": {
+      "left": "_shared/signs_left",
+      "right": "_shared/signs_right",
+      "up": "_shared/signs_up",
+      "down": "_shared/signs_down",
+      "pose": "_shared/signs_pose"
+    },
+    "poseSilhouette": {
+      "lunge": "_shared/pose01",
+      "forwardbend": "_shared/pose02",
+      "armsopen": "_shared/pose03"
+    },
+    "startLine": "start_line"
+  },
+  "ui": {
+    "title": "fx_title_screen",
+    "titlePortrait": "fx_title_screen_mobile",
+    "startButton": "ui/btn_start",
+    "startWord": "_shared/fx_start_word",
+    "countdown": [
+      "_shared/fx_count_1",
+      "_shared/fx_count_2",
+      "_shared/fx_count_3"
+    ],
+    "levelComplete": [
+      "_shared/fx_level_complete_1",
+      "_shared/fx_level_complete_2",
+      "_shared/fx_level_complete_3",
+      "_shared/fx_level_complete_4",
+      "_shared/fx_level_complete_5"
+    ],
+    "missionComplete": "_shared/fx_mission_complete",
+    "podium": "_shared/fx_podium",
+    "menu": "_shared/ico_menu",
+    "menuClose": "_shared/ico_menu_close",
+    "fullscreen": "_shared/ico_menu_fullscreen",
+    "exit": "_shared/ico_menu_logout",
+    "music": "_shared/btn_main_music",
+    "musicOff": "_shared/btn_main_music_off",
+    "sfxOn": "_shared/btn_main_audio",
+    "sfxOff": "_shared/btn_main_audio_off",
+    "startButtonPressed": "ui/btn_start_pressed"
+  },
+  "world": {
+    "sky": "bg_sky",
+    "skyline": "bg_jungle_ridge",
+    "curbStar": "bg_star_leaf_small",
+    "skyDeco": [
+      {
+        "name": "bg_cloud_big",
+        "x": 300,
+        "y": 120,
+        "h": 90
+      },
+      {
+        "name": "bg_cloud_small",
+        "x": 1180,
+        "y": 100,
+        "h": 110
+      },
+      {
+        "name": "bg_cloud_big",
+        "x": 900,
+        "y": 190,
+        "h": 70
+      }
+    ],
+    "props": {
+      "left": [
+        {
+          "name": "bg_palm_tall",
+          "h": 520,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_flower_cluster",
+          "h": 210
+        },
+        {
+          "name": "bg_waterfall_rock",
+          "h": 400
+        },
+        {
+          "name": "bg_parrot_green",
+          "h": 210
+        },
+        {
+          "name": "bg_drum_tower",
+          "h": 480,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_bush_round",
+          "h": 200
+        },
+        {
+          "name": "bg_tiki_totem",
+          "h": 400
+        },
+        {
+          "name": "bg_sloth",
+          "h": 210
+        },
+        {
+          "name": "bg_palm_pair",
+          "h": 540,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_flower_cluster",
+          "h": 210
+        },
+        {
+          "name": "bg_waterfall_palm",
+          "h": 420
+        },
+        {
+          "name": "bg_elephant_baby",
+          "h": 235
+        },
+        {
+          "name": "bg_jungle_slide",
+          "h": 420
+        },
+        {
+          "name": "bg_bush_round",
+          "h": 200
+        },
+        {
+          "name": "bg_rope_bridge_post",
+          "h": 360
+        },
+        {
+          "name": "bg_toucan",
+          "h": 215
+        },
+        {
+          "name": "bg_tiki_totem_b",
+          "h": 410
+        },
+        {
+          "name": "bg_monkey",
+          "h": 205
+        },
+        {
+          "name": "bg_palm_tall",
+          "h": 520,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_croc_baby",
+          "h": 200
+        }
+      ],
+      "right": [
+        {
+          "name": "bg_palm_pair",
+          "h": 540,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_bush_round",
+          "h": 200
+        },
+        {
+          "name": "bg_waterfall_palm",
+          "h": 420
+        },
+        {
+          "name": "bg_tiger",
+          "h": 215
+        },
+        {
+          "name": "bg_tiki_totem_b",
+          "h": 410
+        },
+        {
+          "name": "bg_flower_cluster",
+          "h": 210
+        },
+        {
+          "name": "bg_drum_tower",
+          "h": 480,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_parrot_red",
+          "h": 210
+        },
+        {
+          "name": "bg_palm_tall",
+          "h": 520,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_bush_round",
+          "h": 200
+        },
+        {
+          "name": "bg_waterfall_rock",
+          "h": 400
+        },
+        {
+          "name": "bg_croc_baby",
+          "h": 200
+        },
+        {
+          "name": "bg_rope_bridge_post",
+          "h": 360
+        },
+        {
+          "name": "bg_flower_cluster",
+          "h": 210
+        },
+        {
+          "name": "bg_tiki_totem",
+          "h": 400
+        },
+        {
+          "name": "bg_sloth",
+          "h": 210
+        },
+        {
+          "name": "bg_jungle_slide",
+          "h": 420
+        },
+        {
+          "name": "bg_toucan",
+          "h": 215
+        },
+        {
+          "name": "bg_palm_pair",
+          "h": 540,
+          "tier": "hero"
+        },
+        {
+          "name": "bg_monkey",
+          "h": 205
+        }
+      ]
+    },
+    "horizonFillers": [
+      {
+        "name": "bg_palm_pair",
+        "x": 140,
+        "h": 106
+      },
+      {
+        "name": "bg_bush_round",
+        "x": 285,
+        "h": 56
+      },
+      {
+        "name": "bg_palm_tall",
+        "x": 400,
+        "h": 100
+      },
+      {
+        "name": "bg_flower_cluster",
+        "x": 520,
+        "h": 58
+      },
+      {
+        "name": "bg_waterfall_rock",
+        "x": 610,
+        "h": 78
+      },
+      {
+        "name": "bg_bush_round",
+        "x": 690,
+        "h": 52
+      },
+      {
+        "name": "bg_flower_cluster",
+        "x": 930,
+        "h": 58
+      },
+      {
+        "name": "bg_tiki_totem",
+        "x": 1010,
+        "h": 86
+      },
+      {
+        "name": "bg_palm_tall",
+        "x": 1105,
+        "h": 102
+      },
+      {
+        "name": "bg_drum_tower",
+        "x": 1235,
+        "h": 98
+      },
+      {
+        "name": "bg_bush_round",
+        "x": 1330,
+        "h": 56
+      },
+      {
+        "name": "bg_palm_pair",
+        "x": 1455,
+        "h": 104
+      }
+    ],
+    "palette": {
+      "skyFallback": "#57b6ef",
+      "floorFar": "#7fbf45",
+      "floorMid": "#5aa032",
+      "floorNear": "#3d7a26",
+      "floorSeam": [
+        32,
+        84,
+        18
+      ],
+      "floorGloss": [
+        232,
+        255,
+        190
+      ],
+      "fog": [
+        186,
+        226,
+        255
+      ],
+      "toneLift": "rgba(255, 236, 150, 0.05)",
+      "shadow": "#1d4a12",
+      "curbTop": "#c98c31",
+      "curbTopFar": "#a97324",
+      "curbFace": "#6b4212",
+      "curbRim": "rgba(255, 224, 108, 0.95)",
+      "curbLamp": [
+        168,
+        240,
+        96
+      ],
+      "track": "#b8823a",
+      "trackEdge": "#f2c94c",
+      "trackEdgeDark": "#c99a1e",
+      "trackSheen": [
+        255,
+        214,
+        120
+      ],
+      "laneNeon": [
+        168,
+        240,
+        74
+      ],
+      "chevron": [
+        255,
+        214,
+        60
+      ],
+      "chevronGlow": [
+        255,
+        168,
+        0
+      ],
+      "grassDark": [
+        30,
+        82,
+        22
+      ],
+      "grassLight": [
+        138,
+        200,
+        78
+      ]
+    },
+    "skylineMode": "center",
+    "skylineH": 170,
+    "floorStyle": "grass"
+  }
+}

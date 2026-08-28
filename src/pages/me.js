@@ -35,10 +35,11 @@
 // 부모가 폰을 손에 들고 보는 화면이고, 작은 요소가 많아 손 커서로는 어차피 못 쓴다.
 // "아이 화면만 손으로 된다"는 규칙을 여기서 지킨다. 카메라도 켜지 않는다.
 
+import { icon } from '../core/icons.js'
 import { navigate, onLeave } from '../core/router.js'
 import { handSession } from '../core/handSession.js'
 import { getAll } from '../games/registry.js'
-import { getProgress, setNickname, hasStarted } from '../progress/state.js'
+import { getProgress, setNickname, hasStarted, setNarrowLanes } from '../progress/state.js'
 import { getBuddy, currentStage } from '../buddies/registry.js'
 import { mountBuddy } from '../progress/buddyView.js'
 import { profileImage, profileEmoji } from '../profiles/registry.js'
@@ -147,6 +148,14 @@ export function mePage(app) {
         font-size: 0.76rem; font-weight: 800; color: #cbb8f2;
         background: rgba(0,0,0,0.24); border-radius: 999px; padding: 4px 10px;
       }
+      /* 부모가 정하는 것. 아이 화면에는 이런 게 없어야 한다 —
+         5칸이 가능한지는 방 크기의 문제라 아이가 판단할 수 없다. */
+      #me-narrow {
+        display: inline-flex; align-items: center; gap: 8px; margin-top: 10px;
+        font-size: 0.78rem; font-weight: 800; color: #cbb8f2; cursor: pointer;
+        background: rgba(0,0,0,0.24); border-radius: 999px; padding: 6px 12px;
+      }
+      #me-narrow input { width: 16px; height: 16px; accent-color: #ffd23e; cursor: pointer; }
       /* 프로필과 오늘을 한 카드에 두되 **줄 하나로 나눈다.** 두 카드로 띄우면
          "누구의 오늘인지"가 끊긴다. */
       #me-divider { height: 2px; background: rgba(255,255,255,0.1); margin: 16px 0; border-radius: 2px; }
@@ -309,7 +318,7 @@ export function mePage(app) {
             <div id="me-divider"></div>
             <div id="me-today-head">
               오늘의 활동 <span class="sub">목표 ${DAILY_GOAL_MIN}분</span>
-              <span class="tools"><button class="me-btn" id="me-report">📈 활동 리포트</button></span>
+              <span class="tools"><button class="me-btn" id="me-report">${icon('chart')} 활동 리포트</button></span>
             </div>
             <div id="me-today"></div>
           </div>
@@ -357,7 +366,7 @@ export function mePage(app) {
         <div id="me-modal-box">
           <div id="me-modal-head">
             <h3 id="me-modal-title"></h3>
-            <span class="tools"><button class="me-btn" id="me-modal-close">✕ 닫기</button></span>
+            <span class="tools"><button class="me-btn" id="me-modal-close">${icon('close')} 닫기</button></span>
           </div>
           <div id="me-modal-body"></div>
         </div>
@@ -416,7 +425,7 @@ export function mePage(app) {
       <div id="me-who">
         <div id="me-name-row">
           <span id="me-name">${esc(name)}</span>
-          <button id="me-edit" title="이름 바꾸기" aria-label="이름 바꾸기">✏️</button>
+          <button id="me-edit" title="이름 바꾸기" aria-label="이름 바꾸기">${icon('pencil')}</button>
         </div>
         <div id="me-sub">LV.${lv.level} · ${esc(stage?.label ?? '알')}</div>
         <div id="me-chips">
@@ -424,8 +433,17 @@ export function mePage(app) {
           <span>${s.totals.sessions ?? 0}판</span>
           <span>다 합쳐 ${Math.round((s.totals.active_sec ?? 0) / 60)}분</span>
         </div>
+        <!-- 공간은 아이가 판단할 수 있는 것이 아니라 부모가 아는 것이다 -->
+        <label id="me-narrow" title="놀이 공간이 좁으면 켜 주세요">
+          <input type="checkbox" ${s.narrowLanes ? 'checked' : ''} />
+          <span>좁은 공간 — 똥 피하기를 3칸으로</span>
+        </label>
       </div>
     `
+
+    // 5칸은 카메라에 담기는 폭이 충분해야 성립한다. 좁으면 칸 옮기기가
+    // 큰 동작이 아니라 발 옮기기가 되어 운동량이 오히려 줄어든다.
+    $('#me-narrow input').addEventListener('change', e => setNarrowLanes(e.target.checked))
 
     // 이름은 **여기서만** 고친다 — 아이 화면에서 키보드를 띄우지 않으려고 그렇게 정했다
     $('#me-edit').addEventListener('click', () => {
@@ -596,7 +614,7 @@ export function mePage(app) {
 
   const thumbOf = m => m?.thumbnail
     ? `<img src="${m.thumbnail}" alt="" onerror="this.remove()" />`
-    : '🎮'
+    : icon('gamepad', 1.6)
 
   function gameCard(r) {
     const m = gameOf(r.id)
