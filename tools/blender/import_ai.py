@@ -1022,7 +1022,58 @@ def _export(path):
     )
 
 
-def run(only=None):
+class _Quiet:
+    """
+    블렌더가 뱉는 것을 **삼킨다.** ★
+
+    ── 왜 ──────────────────────────────────────────────────────
+    glTF 임포터는 메시 하나마다 한 줄씩 찍는다. 부품 59개짜리 포털을 한 번
+    부르면 "Blender create Mesh node Mesh_0 … Mesh_58"이 그대로 올라온다.
+    그중 우리가 읽는 것은 마지막 `report` 하나뿐이다.
+
+    사람이 블렌더 콘솔에서 직접 돌릴 때는 그 로그가 도움이 된다. 그래서
+    지우지 않고 **끄고 켤 수 있게** 둔다(`run(quiet=False)`).
+
+    ⚠️ 파일 서술자(fd) 수준으로 막는다. 블렌더의 임포터는 파이썬 `print`가
+    아니라 **C 쪽에서** 찍기 때문에 `sys.stdout`만 갈아 끼우면 안 막힌다.
+    """
+
+    def __init__(self, on=True):
+        self.on = on
+
+    def __enter__(self):
+        if not self.on:
+            return self
+        sys.stdout.flush()
+        sys.stderr.flush()
+        self._null = os.open(os.devnull, os.O_WRONLY)
+        self._saved = (os.dup(1), os.dup(2))
+        os.dup2(self._null, 1)
+        os.dup2(self._null, 2)
+        return self
+
+    def __exit__(self, *a):
+        if not self.on:
+            return False
+        os.dup2(self._saved[0], 1)
+        os.dup2(self._saved[1], 2)
+        for fd in (*self._saved, self._null):
+            os.close(fd)
+        return False
+
+
+def run(only=None, quiet=True):
+    """
+    받은 GLB를 게임 규격으로 바꿔 넣는다.
+
+    @param only  이 이름들만 (없으면 인박스 전부)
+    @param quiet 블렌더가 뱉는 로그를 삼킨다. 콘솔에서 눈으로 볼 때는 False
+    """
+    with _Quiet(quiet):
+        return _run(only)
+
+
+def _run(only=None):
     report = {}
     if not os.path.isdir(INBOX):
         return {"error": f"{INBOX} 가 없다"}

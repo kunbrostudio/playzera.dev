@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "world": "node tools/renderWorld.mjs",
     "test": "vitest run",
+    "check": "node tools/check.mjs",
     "test:watch": "vitest"
   },
   "devDependencies": {
