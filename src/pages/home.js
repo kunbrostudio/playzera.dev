@@ -292,7 +292,7 @@ export function homePage(app) {
       #pz-rail-count { font-size: 0.72em; opacity: 0.55; font-weight: 700; }
       #pz-rail-actions { display: flex; gap: 8px; }
 
-      #pz-rail-wrap { display: flex; align-items: stretch; gap: 0; position: relative; }
+      #pz-rail-wrap { display: flex; align-items: stretch; position: relative; }
 
       /* 양 끝 "다음/이전 카드가 살짝 걸쳐 보인다" — 버튼 없이도 더 있다는 걸 안다.
          실제 카드 컴포넌트를 축소해 절반쯤 잘려 보이게 두고, 안쪽(진짜 카드와
@@ -300,21 +300,35 @@ export function homePage(app) {
          (aria-hidden + pointer-events: none) — 지금 페이지의 카드가 아니라서
          눌려도 아무 일이 안 나면 그게 더 헷갈린다. */
       .pz-peek {
-        flex: 0 0 clamp(20px, 4vw, 40px); min-width: 0;
+        /* 카드 폭의 절반 안팎이 보여야 "다음 카드가 있다"는 게 실제로 읽힌다.
+           너무 좁으면(20~40px) 색 테두리처럼만 보여서 안 보인다는 말이 나왔다. */
+        flex: 0 0 clamp(64px, 11vw, 118px); min-width: 0;
         overflow: hidden; position: relative; pointer-events: none;
         display: flex; align-items: stretch;
+        /* 오른쪽 피크는 카드의 **왼쪽**이 보여야 한다(다음 카드가 이어지는 쪽).
+           justify-content로 자식을 컨테이너 시작 쪽에 붙이면 남는 폭(카드가
+           컨테이너보다 넓은 만큼)이 반대쪽으로 저절로 밀려나 잘린다. */
+        justify-content: flex-start;
       }
       .pz-peek:empty { flex-basis: 0; }
+      /* 진짜 카드 줄과 같은 간격으로 떨어뜨린다 — 붙어 있으면 같은 카드의
+         일부처럼 보인다. 비어 있을 때는(첫/마지막 페이지) 여백도 없앤다. */
+      #pz-peek-left:not(:empty) { margin-right: clamp(10px, 1.2vw, 18px); }
+      #pz-peek-right:not(:empty) { margin-left: clamp(10px, 1.2vw, 18px); }
+      /* 왼쪽 피크는 반대로 카드의 **오른쪽**(진짜 카드 줄에 맞닿는 쪽)이 보여야
+         한다 — 그게 "이 카드가 왼쪽으로 계속된다"는 뜻이다. */
+      #pz-peek-left { justify-content: flex-end; }
       .pz-peek .pz-card {
         flex: none; width: clamp(170px, 23vw, 250px);
-        opacity: 0.5; cursor: default;
+        opacity: 0.75; cursor: default;
       }
+      /* 안쪽(진짜 카드와 맞닿는 쪽)은 그대로 보이고, 바깥쪽(화면 잘리는 쪽)만
+         배경으로 페이드한다 — 대부분 가려 버리면 "절반쯤 보인다"가 안 된다. */
       .pz-peek::after {
         content: ''; position: absolute; inset: 0;
-        background: linear-gradient(90deg, #150a2e 0%, transparent 60%);
+        background: linear-gradient(90deg, #150a2e 0%, transparent 32%);
       }
-      #pz-peek-left .pz-card { margin-left: auto; }   /* 오른쪽 끝(진짜 카드 쪽)이 보인다 */
-      #pz-peek-right::after { background: linear-gradient(270deg, #150a2e 0%, transparent 60%); }
+      #pz-peek-right::after { background: linear-gradient(270deg, #150a2e 0%, transparent 32%); }
 
       #pz-rail-row {
         flex: 1; min-width: 0;
@@ -574,7 +588,7 @@ export function homePage(app) {
         #pz-rail-row { grid-template-columns: repeat(2, 1fr); }
         #pz-cat-list { grid-template-columns: 1fr; }
         #pz-all-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-        .pz-peek { flex-basis: clamp(14px, 6vw, 26px); }
+        .pz-peek { flex-basis: clamp(40px, 20vw, 80px); }
         .pz-peek .pz-card { width: clamp(120px, 46vw, 180px); }
       }
 
@@ -703,6 +717,7 @@ export function homePage(app) {
   const $ = sel => app.querySelector(sel)
   const hub = $('#pz-hub')
   const rowEl = $('#pz-rail-row')
+  const wrapEl = $('#pz-rail-wrap')
   const heroBg = $('#pz-hero-bg')
   const heroVideo = $('#pz-hero-video')
   const heroPoster = $('#pz-hero-poster')
@@ -820,10 +835,13 @@ export function homePage(app) {
     $('#pz-peek-left').innerHTML = peekHTML(rail[start - 1])
     $('#pz-peek-right').innerHTML = peekHTML(rail[start + per])
 
-    rowEl.classList.remove('pz-row-left', 'pz-row-right')
+    // 애니메이션은 카드 줄만이 아니라 **레일 전체**(피크 포함)에 건다.
+    // 카드 줄만 슬라이드하고 피크는 그 자리에서 툭 바뀌면 서로 안 맞아
+    // 보인다 — 전환하는 동안 한 덩어리로 같이 움직여야 자연스럽다.
+    wrapEl.classList.remove('pz-row-left', 'pz-row-right')
     if (dir !== 0) {
-      void rowEl.offsetWidth
-      rowEl.classList.add(dir > 0 ? 'pz-row-left' : 'pz-row-right')
+      void wrapEl.offsetWidth
+      wrapEl.classList.add(dir > 0 ? 'pz-row-left' : 'pz-row-right')
     }
   }
 
