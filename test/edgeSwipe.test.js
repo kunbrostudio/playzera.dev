@@ -77,4 +77,49 @@ describe('EdgeSwipeGate', () => {
     expect(g.update(60, 500, 100)).toBe(0)    // 40px < 50px
     expect(g.update(40, 500, 200)).toBe(1)    // 60px ≥ 50px — 확정
   })
+
+  // ── 롤링 윈도우 — ken 실사용 버그 재현 ─────────────────────────
+  // "손을 끝으로 가져가기만 했는데 스와이프 동작을 하지 않았는데도 자동으로
+  // 넘어간다" — 고정 anchor 모델은 시간 제한이 없어서, 가만히 대고 있는 동안
+  // 손 떨림이 수 초에 걸쳐 조금씩 쌓여도 결국 문턱(3.5%)을 넘었다.
+  it('가만히 대고 있으면(떨림이 수 초에 걸쳐 쌓여도) 자동으로 안 넘어간다', () => {
+    const g = new EdgeSwipeGate({ timeoutMs: 60000 })   // 시간초과가 먼저 끊지 않도록 넉넉히
+    g.enterZone('right', 900, 0)
+    // 100ms마다 1px씩, 60번(6초)에 걸쳐 같은 방향으로 아주 천천히 미끄러진다.
+    // 누적하면 60px로 문턱(35px)을 넘지만, 창(400ms) 안에서는 4px 안팎이라 안 걸려야 한다.
+    let x = 900
+    for (let i = 1; i <= 60; i++) {
+      x -= 1
+      expect(g.update(x, SCREEN, i * 100)).toBe(0)
+    }
+    expect(g.armedSide).toBe('right')   // 무장은 풀리지 않은 채 유지된다
+  })
+
+  it('창(windowMs)보다 느리게 당기면 문턱을 넘어도 확정되지 않는다', () => {
+    const g = new EdgeSwipeGate({ timeoutMs: 60000 })
+    g.enterZone('right', 900, 0)
+    // 2초에 걸쳐 40px을 당긴다 — 절대 거리는 문턱을 넘지만 창(400ms) 안에서는
+    // 8px 안팎이라 "당겼다"로 안 쳐준다.
+    let x = 900
+    for (let i = 1; i <= 20; i++) {
+      x -= 2
+      expect(g.update(x, SCREEN, i * 100)).toBe(0)
+    }
+  })
+
+  it('창 안에서 빠르게 당기면(진짜 스와이프) 확정된다', () => {
+    const g = new EdgeSwipeGate()
+    g.enterZone('right', 900, 0)
+    // 200ms 안에 40px — 창(400ms) 안에서 문턱(35px)을 넘는 진짜 당기기
+    expect(g.update(880, SCREEN, 100)).toBe(0)
+    expect(g.update(860, SCREEN, 200)).toBe(1)
+  })
+
+  it('windowMs를 짧게 주면 오래된 표본이 더 빨리 밀려난다', () => {
+    const g = new EdgeSwipeGate({ windowMs: 150 })
+    g.enterZone('right', 900, 0)
+    g.update(890, SCREEN, 50)     // 아직 창 안 — anchor 900, 10px
+    // 200ms 지나면 t=0 표본이 창(150ms) 밖으로 밀려나 anchor가 890 근처로 갱신된다
+    expect(g.update(860, SCREEN, 200)).toBe(0)   // anchor≈890 기준 30px < 35px
+  })
 })
