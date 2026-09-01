@@ -6,16 +6,20 @@ import { EdgeSwipeGate } from '../src/core/edgeSwipe.js'
 
 const SCREEN = 1000   // pullFrac 기본 3.5% = 35px · cancelFrac 5% = 50px
 
-describe('EdgeSwipeGate', () => {
+describe('EdgeSwipeGate — 창(windowMs) 로직', () => {
+  // 정착 유예(armGraceMs, 기본 200ms)가 섞이면 타이밍 계산이 복잡해지니
+  // 여기서는 armGraceMs: 0으로 꺼서 "당겼다"만 격리해서 본다.
+  // 실제 기본값(200ms)이 낀 채로의 동작은 아래 "정착 유예" describe에서 본다.
+
   it('오른쪽 끝에서 무장한 뒤 왼쪽으로 당기면 다음(1)을 낸다', () => {
-    const g = new EdgeSwipeGate()
+    const g = new EdgeSwipeGate({ armGraceMs: 0 })
     g.enterZone('right', 900, 0)
     expect(g.update(880, SCREEN, 100)).toBe(0)     // 20px, 문턱(35px) 미만
     expect(g.update(860, SCREEN, 200)).toBe(1)     // 40px ≥ 35px — 확정
   })
 
   it('왼쪽 끝에서 무장한 뒤 오른쪽으로 당기면 이전(-1)을 낸다', () => {
-    const g = new EdgeSwipeGate()
+    const g = new EdgeSwipeGate({ armGraceMs: 0 })
     g.enterZone('left', 100, 0)
     expect(g.update(120, SCREEN, 100)).toBe(0)     // 20px, 문턱(35px) 미만
     expect(g.update(140, SCREEN, 200)).toBe(-1)    // 40px ≥ 35px — 확정
@@ -30,7 +34,7 @@ describe('EdgeSwipeGate', () => {
   })
 
   it('반대로 물러나면(취소 문턱 이상) 무장이 풀리고 그 뒤엔 안 걸린다', () => {
-    const g = new EdgeSwipeGate()
+    const g = new EdgeSwipeGate({ armGraceMs: 0 })
     g.enterZone('right', 900, 0)
     // 오른쪽(반대 방향)으로 50px 이상 물러난다 — cancelFrac 5% = 50px
     expect(g.update(955, SCREEN, 100)).toBe(0)
@@ -47,7 +51,7 @@ describe('EdgeSwipeGate', () => {
   })
 
   it('이미 무장된 쪽으로 다시 enterZone을 불러도 기준점(anchor)이 안 바뀐다', () => {
-    const g = new EdgeSwipeGate()
+    const g = new EdgeSwipeGate({ armGraceMs: 0 })
     g.enterZone('right', 900, 0)
     g.enterZone('right', 870, 50)   // 같은 방향 — 무시된다(재무장 아님)
     // anchor가 900 그대로라면 860은 40px 당긴 것 — 확정
@@ -55,7 +59,7 @@ describe('EdgeSwipeGate', () => {
   })
 
   it('반대쪽 끝으로 손이 넘어가면 그쪽으로 다시 무장한다(기준점도 새로 잡는다)', () => {
-    const g = new EdgeSwipeGate()
+    const g = new EdgeSwipeGate({ armGraceMs: 0 })
     g.enterZone('right', 900, 0)
     g.enterZone('left', 100, 50)    // 반대쪽으로 무장 전환
     expect(g.armedSide).toBe('left')
@@ -72,13 +76,13 @@ describe('EdgeSwipeGate', () => {
   })
 
   it('화면 폭이 다르면 문턱도 같이 바뀐다(절대 px가 아니다)', () => {
-    const g = new EdgeSwipeGate({ pullFrac: 0.1 })
+    const g = new EdgeSwipeGate({ pullFrac: 0.1, armGraceMs: 0 })
     g.enterZone('right', 100, 0)   // 화면 폭 500 → 문턱 50px
     expect(g.update(60, 500, 100)).toBe(0)    // 40px < 50px
     expect(g.update(40, 500, 200)).toBe(1)    // 60px ≥ 50px — 확정
   })
 
-  // ── 롤링 윈도우 — ken 실사용 버그 재현 ─────────────────────────
+  // ── ken 실사용 버그 재현 1 — 가만히 대고 있으면 쌓이던 문제 ─────────
   // "손을 끝으로 가져가기만 했는데 스와이프 동작을 하지 않았는데도 자동으로
   // 넘어간다" — 고정 anchor 모델은 시간 제한이 없어서, 가만히 대고 있는 동안
   // 손 떨림이 수 초에 걸쳐 조금씩 쌓여도 결국 문턱(3.5%)을 넘었다.
@@ -107,19 +111,74 @@ describe('EdgeSwipeGate', () => {
     }
   })
 
-  it('창 안에서 빠르게 당기면(진짜 스와이프) 확정된다', () => {
-    const g = new EdgeSwipeGate()
-    g.enterZone('right', 900, 0)
-    // 200ms 안에 40px — 창(400ms) 안에서 문턱(35px)을 넘는 진짜 당기기
-    expect(g.update(880, SCREEN, 100)).toBe(0)
-    expect(g.update(860, SCREEN, 200)).toBe(1)
-  })
-
   it('windowMs를 짧게 주면 오래된 표본이 더 빨리 밀려난다', () => {
-    const g = new EdgeSwipeGate({ windowMs: 150 })
+    const g = new EdgeSwipeGate({ windowMs: 150, armGraceMs: 0 })
     g.enterZone('right', 900, 0)
     g.update(890, SCREEN, 50)     // 아직 창 안 — anchor 900, 10px
     // 200ms 지나면 t=0 표본이 창(150ms) 밖으로 밀려나 anchor가 890 근처로 갱신된다
     expect(g.update(860, SCREEN, 200)).toBe(0)   // anchor≈890 기준 30px < 35px
+  })
+})
+
+describe('EdgeSwipeGate — 정착 유예(armGraceMs)', () => {
+  // ── ken 실사용 버그 재현 2 — 오른쪽은 고쳤는데 왼쪽에서 여전히 자동으로 넘어감 ──
+  //
+  // 롤링 윈도우(위)는 "가만히 있는데 쌓이는" 건 막았지만, "무장하는 동작
+  // 자체의 관성·되튐"은 못 막는다. 몸을 가로질러 반대쪽 끝까지 손을 뻗는
+  // 쪽은 도착 직후 관성으로 더 들어갔다가 되튀는 폭이 크고, 이건 "짧은
+  // 시간에 먼 거리 이동"이라 롤링 윈도우 혼자로는 진짜 당기기와 구별이
+  // 안 된다. 무장 직후 armGraceMs(기본 200ms) 동안은 기준점을 계속
+  // 지금 자리로 옮겨(정착 유예), 그 되튐을 흡수한다.
+
+  it('무장 직후(정착 유예 200ms) 동안은 크게 움직여도 확정되지 않는다', () => {
+    const g = new EdgeSwipeGate()
+    g.enterZone('right', 900, 0)
+    expect(g.update(860, SCREEN, 100)).toBe(0)   // 40px 움직였지만 아직 유예 중
+    expect(g.update(860, SCREEN, 250)).toBe(0)   // 유예(200ms)가 막 끝난 시점, 기준점이 이미 860으로 옮겨져 있다
+  })
+
+  it('도착 직후 관성으로 되튀는 동작은(왼쪽) 확정되지 않는다 — ken이 보고한 시나리오', () => {
+    const g = new EdgeSwipeGate({ timeoutMs: 60000 })
+    g.enterZone('left', 100, 0)
+    // 관성으로 좀 더 들어갔다가(88까지) 자연스럽게 되튀어 140에서 정착한다.
+    // 순간 이동 거리만 보면 진짜 당기기와 모양이 같지만, 스와이프 동작(의도적
+    // 당김)이 아니라 도착 관성이다 — 확정되면 안 된다.
+    const steps = [
+      [33, 96], [66, 90], [100, 88], [133, 95], [166, 108],
+      [200, 122], [233, 133], [266, 138], [300, 140], [400, 140], [600, 140],
+    ]
+    for (const [t, x] of steps) expect(g.update(x, SCREEN, t)).toBe(0)
+    expect(g.armedSide).toBe('left')   // 자동으로 넘어가지 않고 계속 무장 상태로 남는다
+  })
+
+  it('같은 되튐이 오른쪽에서도 대칭으로 안 걸린다', () => {
+    const g = new EdgeSwipeGate({ timeoutMs: 60000 })
+    g.enterZone('right', 900, 0)
+    const steps = [
+      [33, 904], [66, 910], [100, 912], [133, 905], [166, 892],
+      [200, 878], [233, 867], [266, 862], [300, 860], [400, 860], [600, 860],
+    ]
+    for (const [t, x] of steps) expect(g.update(x, SCREEN, t)).toBe(0)
+    expect(g.armedSide).toBe('right')
+  })
+
+  it('정착 유예가 끝난 뒤 진짜로 당기면(왼쪽) 확정된다', () => {
+    const g = new EdgeSwipeGate({ timeoutMs: 60000 })
+    g.enterZone('left', 100, 0)
+    // 처음 250ms는 거의 안 움직이다가(유예 + 잠깐의 정지), 그 뒤 빠르게 당긴다
+    const steps = [[50, 101], [100, 101], [150, 101], [200, 102], [250, 125], [300, 155]]
+    let fired = 0
+    for (const [t, x] of steps) fired = g.update(x, SCREEN, t) || fired
+    expect(fired).toBe(-1)
+  })
+
+  it('가만히 대고 있는 6초 드리프트는 정착 유예를 켠 기본값에서도 안 걸린다', () => {
+    const g = new EdgeSwipeGate({ timeoutMs: 60000 })
+    g.enterZone('right', 900, 0)
+    let x = 900
+    for (let i = 1; i <= 60; i++) {
+      x -= 1
+      expect(g.update(x, SCREEN, i * 100)).toBe(0)
+    }
   })
 })

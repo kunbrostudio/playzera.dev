@@ -29,6 +29,28 @@
 // 오래된 것을 기준점으로 매 프레임 다시 잡는다. 가만히 있으면 기준점도
 // 같이 흘러가므로 떨림이 아무리 오래 쌓여도 순간 이동 거리는 0에 가깝다.
 // 실제로 손을 빠르게 당기는 동작만 (짧은 시간 안에 먼 거리) 문턱을 넘는다.
+//
+// ── 그래도 남은 문제 — 무장 직후의 관성·되튐 ★ ─────────────────
+//
+// 롤링 윈도우는 "가만히 있는데 쌓이는" 건 막지만, "무장하는 그 동작 자체의
+// 관성"은 못 막는다. 특히 몸을 가로질러 반대쪽 끝까지 손을 뻗는 쪽(ken 보고 —
+// 오른쪽은 멀쩡한데 왼쪽에서만 스와이프 없이 넘어간다)은 도착 직후에 손이
+// 자기 관성으로 살짝 더 들어갔다가 되튀는 동작이 크다. 이 되튐은 몇백ms 안에
+// 벌어지는 "짧은 시간에 먼 거리 이동"이라, 롤링 윈도우 혼자로는 진짜 당기기와
+// 구별이 안 된다 — 위치만 보면 둘이 같은 모양이다.
+//
+// 그래서 무장 직후 `armGraceMs`(정착 유예) 동안은 매 프레임 기준점을 지금
+// 자리로 계속 다시 잡는다("아직 안 멎었다"로 보고 판정을 안 연다) — 예전
+// swipeGate.js의 "정리 중(settling)" 상태와 같은 발상이다. 유예가 끝나는
+// 순간의 자리가 "정착한 자리"가 되고, 그 뒤로 움직인 것만 진짜 당기기로 잰다.
+// 관성으로 인한 되튐은 대개 유예 동안 다 끝나므로, 그 이후엔 남는 게 거의
+// 없어 문턱을 넘지 않는다.
+//
+// 값(200ms)은 node로 되튐을 흉내 낸 시뮬레이션으로 골랐다 — 150ms는 격렬한
+// 되튐엔 부족했고 200ms에서는 순한 것도 격렬한 것도 다 걸리지 않으면서
+// 진짜 당기기(250~300ms 안에 확정)는 그대로 통과했다. 그래도 이건 흉내 낸
+// 숫자다 — **아이 손으로 실제 되튐 폭·시간이 얼마나 되는지는 실기기에서
+// 확인이 안 됐다.** 더 심하면 여기 값을 올린다.
 
 export class EdgeSwipeGate {
   /**
@@ -36,12 +58,14 @@ export class EdgeSwipeGate {
    * @param {number} cancelFrac 반대로(무장 방향과 반대로) 이만큼 물러나면 무장 해제
    * @param {number} timeoutMs  무장한 채 이 시간이 지나면 저절로 풀린다(안전장치)
    * @param {number} windowMs   "당겼다"를 재는 시간 창 — 이보다 오래된 표본은 버린다
+   * @param {number} armGraceMs 무장 직후 이 시간 동안은 기준점을 계속 새로 잡는다(정착 유예)
    */
-  constructor({ pullFrac = 0.035, cancelFrac = 0.05, timeoutMs = 3000, windowMs = 400 } = {}) {
+  constructor({ pullFrac = 0.035, cancelFrac = 0.05, timeoutMs = 3000, windowMs = 400, armGraceMs = 200 } = {}) {
     this.pullFrac = pullFrac
     this.cancelFrac = cancelFrac
     this.timeoutMs = timeoutMs
     this.windowMs = windowMs
+    this.armGraceMs = armGraceMs
     this.armedSide = null   // 'left' | 'right' | null
     this.armedAt = 0
     this.samples = []       // [{x, t}] — 최근 windowMs 동안의 손 위치, 오래된 순
@@ -69,6 +93,13 @@ export class EdgeSwipeGate {
     if (!this.armedSide || !screenW) return 0
 
     if (now - this.armedAt > this.timeoutMs) { this.reset(); return 0 }
+
+    // 정착 유예 — 무장 직후엔 판정을 열지 않고, 기준점을 지금 자리로 계속
+    // 옮긴다. 도착 관성·되튐이 여기서 흡수된다.
+    if (now - this.armedAt < this.armGraceMs) {
+      this.samples = [{ x, t: now }]
+      return 0
+    }
 
     this.samples.push({ x, t: now })
     // 창보다 오래된 표본은 버리되, 창 시작점 하나는 항상 남겨 기준으로 삼는다.
