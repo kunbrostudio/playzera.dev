@@ -46,8 +46,13 @@ function ensurePip() {
   const style = document.createElement('style')
   style.id = 'pz-hand-pip-style'
   style.textContent = `
+    /* 오른쪽 아래에 뒀었는데, 홈 레일의 오른쪽 끝(피크·스와이프 힌트)과
+       같은 자리라 카메라 미리보기가 그 위를 덮어버렸다 — 화살표 힌트가
+       안 보인다는 지적(ken)이 있었다. 헤더 아래 오른쪽 위로 옮긴다.
+       이 화면 저 화면 다 같이 쓰는 자리라 페이지별 레이아웃은 모르지만,
+       헤더 높이(대략 76~96px)는 화면마다 비슷해서 그 아래면 안전하다. */
     #pz-hand-pip {
-      position: fixed; right: 14px; bottom: 92px; z-index: 9998;
+      position: fixed; right: 14px; top: 112px; z-index: 9998;
       width: 148px; height: 111px; display: none;
       border-radius: 12px; overflow: hidden;
       border: 2px solid rgba(196,168,245,0.5);

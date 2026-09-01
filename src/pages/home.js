@@ -342,8 +342,8 @@ export function homePage(app) {
       .pz-swipe-hint {
         position: absolute; top: 50%; z-index: 8;
         transform: translateY(-50%) scale(0.8);
-        display: flex; flex-direction: column; align-items: center; gap: 2px;
-        min-width: 64px; padding: 10px 12px 12px; border-radius: 9999px;
+        display: flex; flex-direction: column; align-items: center; gap: 4px;
+        min-width: 78px; padding: 10px 10px 12px; border-radius: 22px;
         background: #ffd23e; color: #3a2205;
         box-shadow: 0 10px 26px rgba(0,0,0,0.5), 0 0 0 4px rgba(255,210,62,0.3);
         opacity: 0; pointer-events: none;
@@ -353,7 +353,10 @@ export function homePage(app) {
       #pz-swipe-hint-left  { left: clamp(2px, 0.6vw, 10px); }
       #pz-swipe-hint-right { right: clamp(2px, 0.6vw, 10px); }
       .pz-swipe-hint svg { width: clamp(24px, 3vw, 32px); height: clamp(24px, 3vw, 32px); }
-      .pz-swipe-hint span { font-size: 0.72rem; font-weight: 900; white-space: nowrap; }
+      .pz-swipe-hint span {
+        font-size: 0.68rem; font-weight: 900; line-height: 1.25;
+        text-align: center; white-space: nowrap;
+      }
       /* 화살표는 손이 움직여야 할 방향으로 튄다 — 왼쪽 힌트(오른쪽으로 당기면
          '이전')는 오른쪽으로, 오른쪽 힌트(왼쪽으로 당기면 '다음')는 왼쪽으로. */
       #pz-swipe-hint-left svg  { animation: pzHintR 0.85s ease-in-out infinite; }
@@ -714,8 +717,8 @@ export function homePage(app) {
             <div id="pz-peek-left" class="pz-peek" aria-hidden="true" data-pz-swipe-zone="left"></div>
             <div id="pz-rail-row"></div>
             <div id="pz-peek-right" class="pz-peek" aria-hidden="true" data-pz-swipe-zone="right"></div>
-            <div id="pz-swipe-hint-left" class="pz-swipe-hint" aria-hidden="true">${icon('right', 1.3)}<span>이전</span></div>
-            <div id="pz-swipe-hint-right" class="pz-swipe-hint" aria-hidden="true">${icon('left', 1.3)}<span>다음</span></div>
+            <div id="pz-swipe-hint-left" class="pz-swipe-hint" aria-hidden="true">${icon('right', 1.3)}<span>오른쪽으로<br>끌기</span></div>
+            <div id="pz-swipe-hint-right" class="pz-swipe-hint" aria-hidden="true">${icon('left', 1.3)}<span>왼쪽으로<br>끌기</span></div>
           </div>
         </div>
       </section>
