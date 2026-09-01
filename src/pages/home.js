@@ -8,16 +8,22 @@
 // │   [▶ 시작하기]                                           │
 // ├──────────────────────────────────────────────────────────┤
 // │  게임 20   1/5           [⚙ 전체 ▾]  [☷ 전체 보기]      │
-// │  ◀ ┌────┐┌────┐┌────┐┌────┐ ▶                          │  ← 좌우로만 움직인다
+// │ ▒┌────┐┌────┐┌────┐┌────┐▒                              │  ← 좌우로만 움직인다
 // └──────────────────────────────────────────────────────────┘
+//   ▒ = 다음/이전 카드가 살짝 걸쳐 보인다 (버튼 없음)
 //
 // 왜 좌우 하나뿐인가
 //   이전에는 '이어서 하기'(좌우)와 '전체 게임'(세로 페이지) 두 축이 섞여 있었고,
 //   세로 이동 버튼이 카드 줄 **바로 아래** 붙어 있었다. 카드를 1.2초 겨누는 동안
 //   손이 조금만 내려가면 그 버튼에 걸린다. 세로로 인접한 두 타겟은 머무르기와 상극이다.
 //
-//   한 줄로 합치고 화살표를 좌우 끝에 두면 카드와 **가로로** 떨어진다.
 //   목록 순서는 "최근에 한 것 먼저, 그다음 나머지".
+//
+// 왜 좌우 화살표가 없나
+//   버튼은 카드와 가까이 있으면 오조준되고, 멀리 두면 못 찾는다. 대신 양 끝에
+//   다음/이전 카드를 살짝 잘라 보여준다(`.pz-peek`) — "더 있다"를 버튼 없이
+//   안다. 넘기는 길은 넷: 휠 · 터치 스와이프 · 방향키 · 손 스와이프
+//   (`core/swipeGate.js`) — 전부 `goRail()` 하나로 모인다.
 //
 // 게임이 많아지면
 //   좌우 레일은 개수에 약하다(20개면 5쪽, 100개면 25쪽). 그래서 [☷ 전체 보기]로
@@ -41,7 +47,7 @@ import {
 
 // 머무르기 시간 — 03 설계 §머무르기 시간
 const DWELL_CARD = 1200   // 게임 카드: 잘못 누르면 게임이 바뀐다
-const DWELL_NAV  = 500    // 화살표·스크롤: 되돌리기 쉽다
+const DWELL_NAV  = 500    // 스크롤 버튼 등: 되돌리기 쉽다
 const DWELL_CAT  = 600    // 카테고리·팝업 열고 닫기
 
 const HERO_MAX = 5
@@ -62,6 +68,13 @@ function cardHTML(m, { dwell = DWELL_CARD, maxTags = 2 } = {}) {
       <div class="pz-card-tags">${tags.map(t => `<span>${t}</span>`).join('')}</div>
     </button>`
 }
+
+// 화살표 대신 쓰는 "다음/이전 카드가 살짝 걸쳐 보인다" 조각.
+// 누를 수 있는 게 아니라서 `<button>`도 `data-pz-hit`도 없다 — 지금 페이지가
+// 아닌 카드가 눌리면 더 헷갈린다. 썸네일만 있으면 "이어진다"는 느낌은 충분하다.
+const peekHTML = m => m
+  ? `<div class="pz-card"><div class="pz-card-thumb"><img src="${m.thumbnail}" alt="" /></div></div>`
+  : ''
 
 export function homePage(app) {
   // 허브는 무음이다. **끄는 건 라우터가 한다**(core/router.js의 GAME_ROUTES) —
@@ -279,19 +292,29 @@ export function homePage(app) {
       #pz-rail-count { font-size: 0.72em; opacity: 0.55; font-weight: 700; }
       #pz-rail-actions { display: flex; gap: 8px; }
 
-      #pz-rail-wrap { display: flex; align-items: stretch; gap: clamp(10px, 1.2vw, 16px); }
-      /* 화살표는 카드와 **가로로** 떨어져 있다. 세로 인접이 아니라 오조준이 적다.
-         손으로 겨눌 수 있어야 하므로 폭도 96px 규칙에 가깝게 잡는다. */
-      .pz-arrow {
-        flex: none; width: clamp(56px, 5vw, 88px);
-        background: rgba(255,255,255,0.08);
-        border: 2px solid rgba(255,255,255,0.16); border-radius: 20px;
-        color: #fff; font-size: 1.6rem; cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        transition: background 0.12s, opacity 0.12s;
+      #pz-rail-wrap { display: flex; align-items: stretch; gap: 0; position: relative; }
+
+      /* 양 끝 "다음/이전 카드가 살짝 걸쳐 보인다" — 버튼 없이도 더 있다는 걸 안다.
+         실제 카드 컴포넌트를 축소해 절반쯤 잘려 보이게 두고, 안쪽(진짜 카드와
+         맞닿는 쪽)은 배경으로 흐려지게 해 이어지는 느낌을 준다. 누를 수 없다
+         (aria-hidden + pointer-events: none) — 지금 페이지의 카드가 아니라서
+         눌려도 아무 일이 안 나면 그게 더 헷갈린다. */
+      .pz-peek {
+        flex: 0 0 clamp(20px, 4vw, 40px); min-width: 0;
+        overflow: hidden; position: relative; pointer-events: none;
+        display: flex; align-items: stretch;
       }
-      .pz-arrow:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
-      .pz-arrow:disabled { opacity: 0.28; cursor: default; }
+      .pz-peek:empty { flex-basis: 0; }
+      .pz-peek .pz-card {
+        flex: none; width: clamp(170px, 23vw, 250px);
+        opacity: 0.5; cursor: default;
+      }
+      .pz-peek::after {
+        content: ''; position: absolute; inset: 0;
+        background: linear-gradient(90deg, #150a2e 0%, transparent 60%);
+      }
+      #pz-peek-left .pz-card { margin-left: auto; }   /* 오른쪽 끝(진짜 카드 쪽)이 보인다 */
+      #pz-peek-right::after { background: linear-gradient(270deg, #150a2e 0%, transparent 60%); }
 
       #pz-rail-row {
         flex: 1; min-width: 0;
@@ -551,7 +574,8 @@ export function homePage(app) {
         #pz-rail-row { grid-template-columns: repeat(2, 1fr); }
         #pz-cat-list { grid-template-columns: 1fr; }
         #pz-all-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-        .pz-arrow { width: clamp(44px, 12vw, 60px); }
+        .pz-peek { flex-basis: clamp(14px, 6vw, 26px); }
+        .pz-peek .pz-card { width: clamp(120px, 46vw, 180px); }
       }
 
       /* 칩 한 줄을 접는 조건은 **폭만이 아니다.**
@@ -628,15 +652,15 @@ export function homePage(app) {
               <button class="pz-btn" id="pz-open-all" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('grid')} 전체 보기</button>
             </div>
           </div>
-          <!-- data-pz-swipe: 화살표를 겨누지 않아도 손을 좌우로 휙 저으면 페이지가
-               넘어간다. 화살표가 카드 옆에 바짝 붙어 있어 손 커서로 겨누기 어렵다는
-               지적이 있었다(180cm 성인 기준) — 화살표는 남겨두되(그대로 눌러도 된다),
-               더 쉬운 길을 하나 더 둔다. core/swipeGate.js가 판정하고, core/pointer.js가
-               이 속성이 있는 영역 안에서만 판정을 돈다. -->
+          <!-- 화살표를 없앴다. 카드 옆에 바짝 붙어 있어 손 커서로 겨누기 어렵다는
+               지적이 있었다(180cm 성인 기준) — 버튼을 없애는 대신, 양 끝에 다음/이전
+               카드가 살짝 걸쳐 보이게 해서 "더 있다"는 걸 저절로 알게 한다. 넘기는 길은
+               넷: 휠 · 터치 스와이프 · 방향키(이미 있었다) · 손 스와이프(core/swipeGate.js,
+               data-pz-swipe 안에서만 core/pointer.js가 판정한다). -->
           <div id="pz-rail-wrap" data-pz-swipe>
-            <button class="pz-arrow" id="pz-prev" aria-label="이전" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('left')}</button>
+            <div id="pz-peek-left" class="pz-peek" aria-hidden="true"></div>
             <div id="pz-rail-row"></div>
-            <button class="pz-arrow" id="pz-next" aria-label="다음" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('right')}</button>
+            <div id="pz-peek-right" class="pz-peek" aria-hidden="true"></div>
           </div>
         </div>
       </section>
@@ -779,7 +803,8 @@ export function homePage(app) {
     const per = perPage()
     const pages = railPageCount(rail, per)
     railPage = Math.max(0, Math.min(railPage, pages - 1))
-    const items = rail.slice(railPage * per, railPage * per + per)
+    const start = railPage * per
+    const items = rail.slice(start, start + per)
 
     $('#pz-rail-label').textContent = filter ? `${filter} 게임` : '게임'
     $('#pz-rail-count').textContent = rail.length ? `${rail.length}개 · ${railPage + 1}/${pages}` : ''
@@ -790,8 +815,10 @@ export function homePage(app) {
       : `<p id="pz-rail-empty">이 분류에는 아직 게임이 없어요.</p>`
     armCards(rowEl)
 
-    $('#pz-prev').disabled = railPage <= 0
-    $('#pz-next').disabled = railPage >= pages - 1
+    // 화살표 대신 — 이전/다음 페이지의 끝 카드를 살짝 보여준다. 페이지
+    // 경계 밖(첫 페이지의 왼쪽, 마지막 페이지의 오른쪽)이면 빈 채로 둔다.
+    $('#pz-peek-left').innerHTML = peekHTML(rail[start - 1])
+    $('#pz-peek-right').innerHTML = peekHTML(rail[start + per])
 
     rowEl.classList.remove('pz-row-left', 'pz-row-right')
     if (dir !== 0) {
@@ -808,9 +835,7 @@ export function homePage(app) {
     renderRail(delta)
   }
 
-  $('#pz-prev').addEventListener('click', () => goRail(-1))
-  $('#pz-next').addEventListener('click', () => goRail(1))
-  // 손 스와이프 — 화살표를 안 겨누고 목록 위에서 옆으로 휙 저어도 넘어간다
+  // 화살표는 없다 — 휠 · 터치 스와이프 · 방향키 · 손 스와이프 넷이 전부 goRail()로 모인다
   $('#pz-rail-wrap').addEventListener('pz-swipe', e => goRail(e.detail.dir))
 
   // ── 히어로 ──────────────────────────────────────────────────
