@@ -12,6 +12,7 @@
 //   · 머무르기 감소율은 GestureHold와 동일한 dt × 0.6 — 손동작과 감각을 맞춘다
 import { poseEngineCore } from './pose/poseEngine.js'
 import { LM } from './pose/gesture.js'
+import { SwipeGate } from './swipeGate.js'
 
 const DEFAULT_DWELL_MS = 1200   // 게임 카드 기준 (03 설계 §머무르기 시간)
 const EDGE_HYSTERESIS = 12      // px
@@ -107,13 +108,20 @@ function buildCursor() {
  * @param {object}   opts
  * @param {string}   opts.hitAttr   대상 표시 속성 (기본 'data-pz-hit')
  * @param {number}   opts.dwellMs   기본 머무르기 시간. 대상에 data-pz-dwell로 개별 지정 가능
+ * @param {string}   opts.swipeAttr 좌우로 휙 저으면 페이지가 넘어가는 영역 표시 속성
+ *                                  (기본 'data-pz-swipe'). 이 안에서는 커서가 멈추지 않아도
+ *                                  빠르게 옆으로 움직이면 `pz-swipe` 이벤트가 뜬다.
  * @param {Function} opts.onActivate(el) 없으면 el.click()
  */
-export function createHandPointer({ hitAttr = 'data-pz-hit', dwellMs = DEFAULT_DWELL_MS, onActivate } = {}) {
+export function createHandPointer({
+  hitAttr = 'data-pz-hit', dwellMs = DEFAULT_DWELL_MS, swipeAttr = 'data-pz-swipe', onActivate,
+} = {}) {
   const cursor = buildCursor()
   const ring = cursor.querySelector('.pz-cursor-ring')
   const fx = new OneEuro()
   const fy = new OneEuro()
+  const swipe = new SwipeGate()
+  let swipeZone = null   // 지금 스와이프 판정 중인 영역. 바뀌면 판정을 다시 시작한다
 
   let unsub = null
   let raf = null
@@ -199,6 +207,21 @@ export function createHandPointer({ hitAttr = 'data-pz-hit', dwellMs = DEFAULT_D
     cursor.classList.add('on')
     cursor.style.transform = `translate(${px}px, ${py}px)`
 
+    // ── 스와이프 영역 ────────────────────────────────────────
+    // 영역이 바뀌면(들어오거나 나가면) 그 전 움직임은 안 센다 —
+    // 다른 버튼을 겨누다 들어온 움직임까지 스와이프로 잡히면 안 된다.
+    const zone = document.elementFromPoint(px, py)?.closest(`[${swipeAttr}]`) ?? null
+    if (zone !== swipeZone) { swipeZone = zone; swipe.reset() }
+    if (zone) {
+      const dir = swipe.push(now, px, window.innerWidth)
+      if (dir) {
+        zone.dispatchEvent(new CustomEvent('pz-swipe', { bubbles: true, detail: { dir } }))
+        // 스와이프와 선택은 동시에 안 일어난다 — 젓는 동작 중에 지나친 카드가 눌리면 안 된다
+        clearTarget()
+        return
+      }
+    }
+
     if (now < cooldownUntil) { clearTarget(); return }
 
     // ── 대상 판정 ──
@@ -256,6 +279,7 @@ export function createHandPointer({ hitAttr = 'data-pz-hit', dwellMs = DEFAULT_D
     clearTarget()
     // 손을 내렸다 다시 들면 그 자리에서 시작해야 한다 — 이전 위치로 튀지 않게
     fx.reset(); fy.reset()
+    swipe.reset(); swipeZone = null
   }
 
   return {

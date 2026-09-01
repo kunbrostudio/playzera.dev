@@ -628,7 +628,12 @@ export function homePage(app) {
               <button class="pz-btn" id="pz-open-all" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('grid')} 전체 보기</button>
             </div>
           </div>
-          <div id="pz-rail-wrap">
+          <!-- data-pz-swipe: 화살표를 겨누지 않아도 손을 좌우로 휙 저으면 페이지가
+               넘어간다. 화살표가 카드 옆에 바짝 붙어 있어 손 커서로 겨누기 어렵다는
+               지적이 있었다(180cm 성인 기준) — 화살표는 남겨두되(그대로 눌러도 된다),
+               더 쉬운 길을 하나 더 둔다. core/swipeGate.js가 판정하고, core/pointer.js가
+               이 속성이 있는 영역 안에서만 판정을 돈다. -->
+          <div id="pz-rail-wrap" data-pz-swipe>
             <button class="pz-arrow" id="pz-prev" aria-label="이전" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('left')}</button>
             <div id="pz-rail-row"></div>
             <button class="pz-arrow" id="pz-next" aria-label="다음" data-pz-hit data-pz-dwell="${DWELL_NAV}">${icon('right')}</button>
@@ -805,6 +810,8 @@ export function homePage(app) {
 
   $('#pz-prev').addEventListener('click', () => goRail(-1))
   $('#pz-next').addEventListener('click', () => goRail(1))
+  // 손 스와이프 — 화살표를 안 겨누고 목록 위에서 옆으로 휙 저어도 넘어간다
+  $('#pz-rail-wrap').addEventListener('pz-swipe', e => goRail(e.detail.dir))
 
   // ── 히어로 ──────────────────────────────────────────────────
   const heroGame = () => (selectedId ? byId[selectedId] : featured[heroIdx])

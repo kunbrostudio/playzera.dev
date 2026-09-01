@@ -34,6 +34,7 @@ src/core/
   router.js       해시 라우팅 + onLeave(정리 훅)
   handSession.js  손 컨트롤 세션 (앱 수명 동안 하나)
   pointer.js      손목 커서 + 머무르기
+  swipeGate.js    손을 빨리 옆으로 저으면 페이지 넘김 (허브 레일이 쓴다) — 운동 아님, 감지기 아님
   catalog.js      홈의 페이지·배지·카테고리 규칙 (순수 함수)
   recent.js       이어서 하기 (localStorage)
   player.js       현재 아이 — 계정 전 임시
