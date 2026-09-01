@@ -45,13 +45,35 @@ describe('SwipeGate', () => {
     expect(g.push(400, 950, SCREEN)).toBe(0)
   })
 
-  it('쿨다운이 지나면 다시 판정한다', () => {
-    const g = new SwipeGate({ cooldownMs: 300 })
+  it('쿨다운이 지나고 손이 멈췄다가 다시 크게 움직이면 판정한다', () => {
+    const g = new SwipeGate({ cooldownMs: 300, windowMs: 200, settleFrac: 0.4 })
     g.push(0, 500, SCREEN)
     expect(g.push(200, 650, SCREEN)).toBe(1)
-    // 쿨다운(300ms) 이후 새 창에서 다시 크게 움직이면 낸다
-    expect(g.push(600, 650, SCREEN)).toBe(0)     // 새 기준점
-    expect(g.push(750, 500, SCREEN)).toBe(-1)
+    // 쿨다운은 지났지만 손이 아직 움직이는 중(창 안 움직임이 크다) — 안 풀린다
+    expect(g.push(600, 650, SCREEN)).toBe(0)
+    expect(g.push(650, 500, SCREEN)).toBe(0)
+    // 손이 멈춘다(창 안 움직임이 작아진다) — 풀릴 때까지 조금 더 걸린다
+    expect(g.push(700, 495, SCREEN)).toBe(0)
+    expect(g.push(900, 495, SCREEN)).toBe(0)
+    expect(g.push(950, 495, SCREEN)).toBe(0)
+    // 풀린 뒤 새 기준점에서 다시 크게 움직이면 낸다
+    expect(g.push(1100, 645, SCREEN)).toBe(1)
+  })
+
+  it('확정 직후 손이 빠르게 되돌아가도 반대 스와이프로 잘못 걸리지 않는다 ★', () => {
+    // 실제로 겪은 버그: 같은 방향으로 두 번 이으려면 손이 원위치로 돌아와야
+    // 하는데, 그 복귀 동작(빠르게 반대로 큰 거리)이 반대 스와이프로 오판됐다.
+    const g = new SwipeGate({ cooldownMs: 200, windowMs: 200, distFrac: 0.14, settleFrac: 0.4 })
+    g.push(0, 500, SCREEN)
+    expect(g.push(100, 650, SCREEN)).toBe(1)     // 오른쪽으로 스와이프 확정
+    // 쿨다운이 지난 직후, 손이 빠르게 왼쪽(원위치)으로 돌아온다 — 걸리면 안 된다
+    expect(g.push(310, 650, SCREEN)).toBe(0)
+    expect(g.push(350, 500, SCREEN)).toBe(0)     // 150px 되돌아옴 — 예전엔 여기서 -1이 났다
+    expect(g.push(500, 490, SCREEN)).toBe(0)
+    // 손이 완전히 멈춘 뒤에야
+    expect(g.push(520, 490, SCREEN)).toBe(0)
+    // 같은 방향으로 다시 크게 움직이면 정상적으로 걸린다
+    expect(g.push(570, 640, SCREEN)).toBe(1)
   })
 
   it('reset()은 지금까지의 움직임을 지운다', () => {
