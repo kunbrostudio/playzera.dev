@@ -10,7 +10,7 @@
   "detectors": ["highKnees"],
   "tags": ["유산소", "달리기"],
   "metrics": ["high_knees", "active_sec"],
-  "status": "active",
+  "status": "hidden",
   "createdAt": "2026-08-09",
   "rounds": 3
 }

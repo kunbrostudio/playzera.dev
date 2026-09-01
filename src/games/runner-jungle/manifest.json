@@ -32,7 +32,7 @@
     "pose_holds",
     "active_sec"
   ],
-  "status": "active",
+  "status": "hidden",
   "createdAt": "2026-08-12",
   "logo": "/assets/runner/jungle/image/fx_title_logo.png"
 }

@@ -404,9 +404,12 @@ describe('게임팩으로 묶기 ★', () => {
   })
 
   it('기록 키가 기존 쥬라기와 다르다 ★', async () => {
-    const { getAll } = await import('../src/games/registry.js')
-    const ids = getAll().map(g => g.id)
-    // 같은 키를 쓰면 두 게임의 운동 데이터가 한 통에 섞이고 **되돌릴 수 없다**.
+    // registry 전체로 본다 — getAll()이 아니다. 2D 쥬라기는 STEP 20에서
+    // status: hidden으로 숨겼지만(3D와 이름이 같아져서), 코드와 game_id는
+    // 그대로 있고 옛 기록도 그 id로 남아 있다. **숨겼다고 id가 비는 건 아니다** —
+    // 겹치면 옛 기록과 새 기록이 한 통에 섞이고 되돌릴 수 없다.
+    const { GAME_REGISTRY } = await import('../src/games/registry.js')
+    const ids = Object.keys(GAME_REGISTRY)
     expect(ids).toContain('jurassic-run')
     expect(ids).toContain('jurassic-run-3d')
     expect(new Set(ids).size).toBe(ids.length)

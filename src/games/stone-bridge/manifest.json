@@ -10,7 +10,7 @@
   "detectors": ["balance"],
   "tags": ["균형", "집중"],
   "metrics": ["balance_sec", "active_sec"],
-  "status": "active",
+  "status": "hidden",
   "createdAt": "2026-08-09",
   "rounds": 5
 }

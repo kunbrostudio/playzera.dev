@@ -10,6 +10,6 @@
   "detectors": ["jump", "squat", "lane", "armsUp"],
   "tags": ["점프", "앉기", "좌우", "팔", "순발력"],
   "metrics": ["jumps", "squats", "side_steps", "arm_raises", "active_sec"],
-  "status": "active",
+  "status": "hidden",
   "createdAt": "2026-08-13"
 }
