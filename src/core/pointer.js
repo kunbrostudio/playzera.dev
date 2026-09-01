@@ -10,7 +10,19 @@
 //   · 손을 어깨 위로 들면 활성, 내리면 비활성 — 팔을 내린 채 쉴 수 있어야 한다
 //   · 경계 히스테리시스 12px — 가장자리에서 대상이 깜빡이면 머무르기가 계속 끊긴다
 //   · 머무르기 감소율은 GestureHold와 동일한 dt × 0.6 — 손동작과 감각을 맞춘다
+//
+// ── 확정은 주먹을 쥐어야 한다 ★ ─────────────────────────────
+//
+// 손을 얹기만 해도 로딩(머무르기 링)이 바로 차기 시작해 스와이프와 뒤섞여
+// 헷갈린다는 지적(ken)이 있었다. 그래서 **대상 위에 있는 것과 확정하는 것을
+// 분리했다** — 손을 얹으면 미리보기(`pz-hover`)는 그대로 뜨지만, 로딩은
+// **주먹을 쥐어야만** 차기 시작한다. `fistEngine.js`(GestureRecognizer)가
+// 그 판정을 준다. `#/labhands`에서 실측 — 포즈 단독과 FPS 차이 없었다.
+//
+// 주먹 인식이 시작되지 못하면(네트워크 등) 예전처럼 **머무르기만으로** 확정한다
+// — 이 폴백이 없으면 모델 하나 못 받았다고 앱 전체를 아무도 못 누르게 된다.
 import { poseEngineCore } from './pose/poseEngine.js'
+import { fistEngineCore } from './pose/fistEngine.js'
 import { LM } from './pose/gesture.js'
 import { SwipeGate } from './swipeGate.js'
 
@@ -122,6 +134,12 @@ export function createHandPointer({
   const fy = new OneEuro()
   const swipe = new SwipeGate()
   let swipeZone = null   // 지금 스와이프 판정 중인 영역. 바뀌면 판정을 다시 시작한다
+
+  // ── 주먹 게이트 ──
+  let isFist = false        // fistEngineCore가 주는 마지막 판정
+  let fistReady = false     // 주먹 인식이 실제로 켜졌는지 — 못 켜졌으면 머무르기로 폴백
+  let fistUnsub = null
+  let fistGen = 0           // start/stop이 빠르게 반복돼도 늦게 온 acquire()가 안 섞이게
 
   let unsub = null
   let raf = null
@@ -252,13 +270,19 @@ export function createHandPointer({
 
     if (!target) { setRing(0); cursor.classList.remove('armed'); return }
 
-    dwell += dt
+    // 주먹 인식이 못 켜졌으면(폴백) 예전처럼 머무르기만으로 확정한다.
+    // 켜졌으면 **대상 위 + 주먹**일 때만 채워지고, 아니면 천천히 풀린다 —
+    // 대상을 벗어났을 때(위 분기)와 같은 dt × 0.6 감소율.
+    const confirming = !fistReady || isFist
     const need = dwellFor(target) / 1000
+    dwell = confirming
+      ? Math.min(need, dwell + dt)
+      : Math.max(0, dwell - dt * DWELL_DECAY)
     const progress = Math.min(1, dwell / need)
     setRing(progress)
     cursor.classList.toggle('armed', progress > 0.15)
 
-    if (progress >= 1) {
+    if (confirming && progress >= 1) {
       const el = target
       cooldownUntil = now + RELEASE_COOLDOWN
       clearTarget()
@@ -282,15 +306,39 @@ export function createHandPointer({
     swipe.reset(); swipeZone = null
   }
 
+  // 주먹 인식은 별도 모델이라 로딩에 시간이 걸린다 — 커서 자체는 그걸 기다리지
+  // 않고 바로 움직인다. 준비되기 전까지는 위 tick()의 폴백(!fistReady)이 돈다.
+  function startFist() {
+    const gen = ++fistGen
+    fistEngineCore.acquire()
+      .then(() => {
+        if (gen !== fistGen) { fistEngineCore.release(); return }   // 그새 stop()이 불렸다
+        fistReady = true
+        fistUnsub = fistEngineCore.onFist(r => { isFist = r.isFist })
+      })
+      .catch(e => {
+        if (gen !== fistGen) return
+        console.warn('[pointer] 주먹 인식 시작 실패 — 머무르기로 대신한다:', e?.name, e?.message)
+      })
+  }
+  function stopFist() {
+    fistGen++   // 늦게 도착하는 acquire() 결과를 무시시킨다
+    fistUnsub?.(); fistUnsub = null
+    if (fistReady) { fistEngineCore.release(); fistReady = false }
+    isFist = false
+  }
+
   return {
     start() {
       if (unsub) return
       unsub = poseEngineCore.onLandmarks(lms => { lastLms = lms })
       lastT = performance.now()
       raf = requestAnimationFrame(tick)
+      startFist()
     },
     stop() {
       unsub?.(); unsub = null
+      stopFist()
       if (raf) cancelAnimationFrame(raf)
       raf = null
       lastLms = null

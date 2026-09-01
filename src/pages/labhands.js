@@ -9,11 +9,12 @@
 //
 // **고치기 전에 잰다.** 포즈만 켰을 때와 포즈+주먹인식을 같이 켰을 때 FPS가
 // 실제로 얼마나 떨어지는지, 그리고 주먹 인식 자체가 실전에서 쓸 만한 지연·
-// 정확도로 잡히는지를 먼저 본다. 여기서 괜찮으면 `pointer.js`에 정식으로 붙이고,
-// 너무 무거우면 손목 깊이(z) 기반 대안으로 돌아간다.
+// 정확도로 잡히는지를 먼저 본다. 실측 결과(포즈와 FPS 차이 없음, 점수 0.90대)로
+// `pointer.js`에 정식으로 붙였다 — 이 화면은 이제 **회귀 확인용**이다.
 //
-// MediaPipe tasks-vision의 **GestureRecognizer**는 손 모양(Open_Palm·Closed_Fist 등)을
-// 이미 분류해서 준다 — 손가락 마디 각도를 직접 계산할 필요가 없다.
+// `core/pose/fistEngine.js`(GestureRecognizer)를 **직접** 쓴다. 여기서만 쓰는
+// 별도 로딩 코드를 두면 이 화면이 잰 것과 실제로 배포되는 것이 다른 경로가
+// 될 수 있다 — pointer.js와 같은 엔진을 봐야 이 화면의 숫자가 의미 있다.
 //
 // ── 왜 화면을 따로 만드나 ──────────────────────────────────
 //
@@ -28,19 +29,15 @@
 
 import { onLeave, navigate } from '../core/router.js'
 import { poseEngineCore } from '../core/pose/poseEngine.js'
+import { fistEngineCore, FIST_SCORE_MIN } from '../core/pose/fistEngine.js'
 import { handErrorMessage } from '../core/handControl.js'
 import { icon } from '../core/icons.js'
 
-const MP_VERSION = '0.10.14'
-const GESTURE_MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
-
 // pointer.js의 머무르기(DEFAULT_DWELL_MS 1200)와 같은 감각으로 맞춰본다 —
-// 실제로 붙이면 이 느낌이어야 비교가 의미 있다. 주먹은 이미 확실한 의사표시라
+// 실전과 비교하려면 이 느낌이어야 한다. 주먹은 이미 확실한 의사표시라
 // 머무르기보다 짧게 잡아 시험해본다. **여기서 정한 숫자는 어림값이다.**
 const HOLD_MS = 700
 const HOLD_DECAY = 0.6        // tuning.js GESTURE 계열과 같은 감소율(dt × 0.6)
-const FIST_SCORE_MIN = 0.6    // 이 미만이면 "주먹"으로 안 본다
 
 export async function labhandsPage(app) {
   app.innerHTML = `
@@ -122,7 +119,7 @@ export async function labhandsPage(app) {
 
           <div class="lh-h" style="margin-top:14px">주먹 인식 결과</div>
           <div class="lh-row"><span>제스처</span><span id="lh-gesture-name">–</span></div>
-          <div class="lh-row"><span>점수</span><span id="lh-score">–</span></div>
+          <div class="lh-row"><span>점수 (문턱 ${FIST_SCORE_MIN})</span><span id="lh-score">–</span></div>
           <div id="lh-ring-wrap">
             <div id="lh-ring">
               <svg viewBox="0 0 100 100">
@@ -148,9 +145,10 @@ export async function labhandsPage(app) {
   let acc = 0
   let last = performance.now()
 
-  let recognizer = null
   let gestureOn = false
-  let lastVideoTime = -1
+  let fistUnsub = null
+  let fistAcquired = false
+  let latestFist = { isFist: false, score: 0, gestureName: null, landmarks: null }
   let hold = 0
   let firedCount = 0
   let firedFlashUntil = 0
@@ -201,10 +199,12 @@ export async function labhandsPage(app) {
     $('#lh-err').textContent = handErrorMessage(e)
   }
 
-  // ── 주먹 인식 켜기/끄기 ──
+  // ── 주먹 인식 켜기/끄기 — pointer.js와 같은 fistEngineCore를 빌린다 ──
   $('#lh-hands').addEventListener('click', async () => {
     if (gestureOn) {
       gestureOn = false
+      fistUnsub?.(); fistUnsub = null
+      if (fistAcquired) { fistEngineCore.release(); fistAcquired = false }
       $('#lh-hands').classList.remove('on')
       $('#lh-hands').innerHTML = `${icon('camera')} 주먹인식 켜기`
       $('#lh-gfps').textContent = '꺼짐'
@@ -212,6 +212,7 @@ export async function labhandsPage(app) {
       $('#lh-gesture-name').textContent = '–'
       $('#lh-score').textContent = '–'
       $('#lh-gesture').textContent = '–'
+      latestFist = { isFist: false, score: 0, gestureName: null, landmarks: null }
       hold = 0; setRing(0)
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       return
@@ -219,25 +220,10 @@ export async function labhandsPage(app) {
     $('#lh-hands').disabled = true
     $('#lh-err').textContent = ''
     try {
-      if (!recognizer) {
-        // @vite-ignore: 번들러가 CDN URL을 상대경로로 재작성하지 않도록 그대로 둔다
-        const vision = await import(/* @vite-ignore */ `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`)
-        const fileset = await vision.FilesetResolver.forVisionTasks(
-          `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`
-        )
-        const create = delegate => vision.GestureRecognizer.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: GESTURE_MODEL_URL, delegate },
-          runningMode: 'VIDEO',
-          numHands: 1,
-        })
-        try {
-          recognizer = await create('GPU')
-        } catch {
-          recognizer = await create('CPU')
-        }
-      }
+      await fistEngineCore.acquire()
+      fistAcquired = true
+      fistUnsub = fistEngineCore.onFist(r => { latestFist = r; gestureFrames++ })
       gestureOn = true
-      lastVideoTime = -1
       $('#lh-hands').classList.add('on')
       $('#lh-hands').innerHTML = `${icon('camera')} 주먹인식 끄기`
     } catch (e) {
@@ -247,32 +233,18 @@ export async function labhandsPage(app) {
     }
   })
 
-  // ── 루프 ──
+  // ── 루프 — 실제 판정은 fistEngineCore 안 루프에서 돈다. 여기선 그 결과를
+  //          그리고, pointer.js와 같은 감각의 hold 링·FPS만 집계한다.
   function loop(now) {
     raf = requestAnimationFrame(loop)
     const dt = Math.min(0.05, (now - last) / 1000)
     last = now
 
-    let isFist = false
-    let score = 0
-    let gestureName = null
-
-    if (gestureOn && recognizer) {
-      const video = $('#lh-video')
-      if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-        lastVideoTime = video.currentTime
-        try {
-          const result = recognizer.recognizeForVideo(video, now)
-          gestureFrames++
-          const g = result.gestures?.[0]?.[0]
-          const lm = result.landmarks?.[0]
-          if (g) { gestureName = g.categoryName; score = g.score }
-          isFist = gestureName === 'Closed_Fist' && score >= FIST_SCORE_MIN
-          drawHand(lm, isFist)
-          $('#lh-gesture-name').textContent = gestureName ?? '(손 없음)'
-          $('#lh-score').textContent = gestureName ? score.toFixed(2) : '–'
-        } catch { /* 프레임 스킵 */ }
-      }
+    if (gestureOn) {
+      const { isFist, score, gestureName, landmarks } = latestFist
+      drawHand(landmarks, isFist)
+      $('#lh-gesture-name').textContent = gestureName ?? '(손 없음)'
+      $('#lh-score').textContent = gestureName ? score.toFixed(2) : '–'
 
       // ── 머무르기(dwell)와 같은 감각의 hold 링 ──
       if (isFist) {
@@ -296,7 +268,6 @@ export async function labhandsPage(app) {
         : (firedCount ? `지금까지 ${firedCount}번 확정` : '')
     }
 
-    poseFrames // (린트용, 실제 카운트는 onLandmarks 콜백에서)
     acc += dt
     if (acc >= 0.5) {
       const pfps = poseFrames / acc
@@ -319,6 +290,7 @@ export async function labhandsPage(app) {
     poseUnsub?.()
     detach?.()
     if (poseAttached && !released) { released = true; poseEngineCore.release() }
-    try { recognizer?.close?.() } catch { /* 이미 닫혔으면 무시 */ }
+    fistUnsub?.(); fistUnsub = null
+    if (fistAcquired) { fistEngineCore.release(); fistAcquired = false }
   })
 }

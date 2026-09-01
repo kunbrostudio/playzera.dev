@@ -23,7 +23,10 @@
 //
 // 반전에 무관한 코드는 그대로 둔다 — gesture(좌우 순서 비교), poseMatcher(각도).
 
-const MP_VERSION = '0.10.14'
+// 다른 tasks-vision 모델(예: fistEngine.js의 GestureRecognizer)도 같은 버전을
+// 써야 한다 — CDN에서 두 버전을 같이 받으면 번들이 쓸데없이 커지고, 버전이
+// 갈리면 한쪽만 고장 나는 조합이 생길 수 있다. 그래서 export한다.
+export const MP_VERSION = '0.10.14'
 const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task'
 
 const EMA_ALPHA = 0.35   // 랜드마크 떨림 제거. 웜업에서 검증된 값 — 바꾸지 말 것.

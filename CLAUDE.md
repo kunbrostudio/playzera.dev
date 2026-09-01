@@ -33,7 +33,8 @@
 src/core/
   router.js       해시 라우팅 + onLeave(정리 훅)
   handSession.js  손 컨트롤 세션 (앱 수명 동안 하나)
-  pointer.js      손목 커서 + 머무르기
+  pointer.js      손목 커서 + 머무르기. 확정은 주먹을 쥐어야 한다(fistEngine.js) —
+                  손을 얹기만 하면 미리보기만 뜨고 로딩은 안 찬다
   swipeGate.js    손을 빨리 옆으로 저으면 페이지 넘김 (허브 레일이 쓴다) — 운동 아님, 감지기 아님
   catalog.js      홈의 페이지·배지·카테고리 규칙 (순수 함수)
   recent.js       이어서 하기 (localStorage)
@@ -48,6 +49,9 @@ src/core/
   resultQueue.js  서버 저장 + 실패 시 큐 (게임팩이 직접 부르지 않는다)
   pose/
     poseEngine.js tasks-vision 래퍼. 카메라 스트림을 참조 카운팅으로 공유
+    fistEngine.js 주먹(Fist) 인식 — GestureRecognizer. poseEngine과 같은 모양
+                  (acquire/release)이지만 별도 엔진이다 — 손 커서 확정에만 쓰고
+                  게임 판정 경로는 안 실어도 된다. pointer.js가 못 켜지면 폴백
     gesture.js    O/X 판정
     tuning.js     제스처 튜닝값 (현장 검증됨 — 함부로 바꾸지 말 것)
     requirements.js 게임별 요구 관절 — 동작에 쓰는 점(move)과 몸 크기 재는 점(scale)을
