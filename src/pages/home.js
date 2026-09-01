@@ -23,7 +23,8 @@
 //   버튼은 카드와 가까이 있으면 오조준되고, 멀리 두면 못 찾는다. 대신 양 끝에
 //   다음/이전 카드를 살짝 잘라 보여준다(`.pz-peek`) — "더 있다"를 버튼 없이
 //   안다. 넘기는 길은 넷: 휠 · 터치 스와이프 · 방향키 · 손 스와이프
-//   (`core/swipeGate.js`) — 전부 `goRail()` 하나로 모인다.
+//   (끝에 손이 닿아야 무장되고 반대로 당겨야 확정된다 — `core/edgeSwipe.js`) —
+//   전부 `goRail()` 하나로 모인다.
 //
 // 게임이 많아지면
 //   좌우 레일은 개수에 약하다(20개면 5쪽, 100개면 25쪽). 그래서 [☷ 전체 보기]로
@@ -303,7 +304,11 @@ export function homePage(app) {
         /* 카드 폭의 절반 안팎이 보여야 "다음 카드가 있다"는 게 실제로 읽힌다.
            너무 좁으면(20~40px) 색 테두리처럼만 보여서 안 보인다는 말이 나왔다. */
         flex: 0 0 clamp(64px, 11vw, 118px); min-width: 0;
-        overflow: hidden; position: relative; pointer-events: none;
+        overflow: hidden; position: relative;
+        /* 손 커서의 스와이프 판정(core/pointer.js의 EdgeSwipeGate)이 여기가
+           끝(무장 자리)인지 elementFromPoint로 찾는다 — pointer-events:none이면
+           찾지 못한다. 클릭 핸들러는 안 달려 있으니 눌러도 아무 일 없다. */
+        pointer-events: auto;
         display: flex; align-items: stretch;
         /* 오른쪽 피크는 카드의 **왼쪽**이 보여야 한다(다음 카드가 이어지는 쪽).
            justify-content로 자식을 컨테이너 시작 쪽에 붙이면 남는 폭(카드가
@@ -330,6 +335,32 @@ export function homePage(app) {
       }
       #pz-peek-right::after { background: linear-gradient(270deg, #150a2e 0%, transparent 32%); }
 
+      /* 스와이프 힌트 — 손이 끝(피크)에 닿아 무장되면 뜬다. "이렇게 당기면
+         넘어간다"를 화살표 방향으로 몸으로 보여준다. 눈에 띄어야 하니 커서
+         링과 같은 강조색(#ffd23e)을 쓰고, 화살표는 당길 방향으로 살짝 튄다 —
+         가만히 있으면 장식처럼 안 읽힌다. */
+      .pz-swipe-hint {
+        position: absolute; top: 50%; z-index: 8;
+        transform: translateY(-50%) scale(0.8);
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        min-width: 64px; padding: 10px 12px 12px; border-radius: 9999px;
+        background: #ffd23e; color: #3a2205;
+        box-shadow: 0 10px 26px rgba(0,0,0,0.5), 0 0 0 4px rgba(255,210,62,0.3);
+        opacity: 0; pointer-events: none;
+        transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+      }
+      .pz-swipe-hint.on { opacity: 1; transform: translateY(-50%) scale(1); }
+      #pz-swipe-hint-left  { left: clamp(2px, 0.6vw, 10px); }
+      #pz-swipe-hint-right { right: clamp(2px, 0.6vw, 10px); }
+      .pz-swipe-hint svg { width: clamp(24px, 3vw, 32px); height: clamp(24px, 3vw, 32px); }
+      .pz-swipe-hint span { font-size: 0.72rem; font-weight: 900; white-space: nowrap; }
+      /* 화살표는 손이 움직여야 할 방향으로 튄다 — 왼쪽 힌트(오른쪽으로 당기면
+         '이전')는 오른쪽으로, 오른쪽 힌트(왼쪽으로 당기면 '다음')는 왼쪽으로. */
+      #pz-swipe-hint-left svg  { animation: pzHintR 0.85s ease-in-out infinite; }
+      #pz-swipe-hint-right svg { animation: pzHintL 0.85s ease-in-out infinite; }
+      @keyframes pzHintR { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(7px); } }
+      @keyframes pzHintL { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-7px); } }
+
       #pz-rail-row {
         flex: 1; min-width: 0;
         display: grid; grid-template-columns: repeat(4, 1fr);
@@ -339,10 +370,15 @@ export function homePage(app) {
       #pz-rail-empty { grid-column: 1 / -1; opacity: 0.55; padding: 24px 0; }
 
 
-      @keyframes pzRowLeft  { from { opacity: 0; transform: translateX(34px); } to { opacity: 1; transform: none; } }
-      @keyframes pzRowRight { from { opacity: 0; transform: translateX(-34px); } to { opacity: 1; transform: none; } }
-      .pz-row-left  { animation: pzRowLeft 0.26s ease-out; }
-      .pz-row-right { animation: pzRowRight 0.26s ease-out; }
+      /* ken이 "이동하는 모습이 잘 보이게" 해달라고 했다 — 예전 34px·0.26s는
+         손 스와이프로 넘길 때 너무 슬쩍 지나가 "넘어갔다"가 잘 안 읽혔다.
+         이동 거리를 화면 폭에 비례해 키우고(clamp 48~110px), 시간도 늘리고,
+         빠르게 튀어나왔다 부드럽게 멈추는 곡선(ease-out-expo류)으로 바꿔
+         카드가 실제로 옆에서 밀려 들어오는 느낌을 준다. */
+      @keyframes pzRowLeft  { from { opacity: 0; transform: translateX(clamp(48px, 6vw, 110px)); } to { opacity: 1; transform: none; } }
+      @keyframes pzRowRight { from { opacity: 0; transform: translateX(clamp(-110px, -6vw, -48px)); } to { opacity: 1; transform: none; } }
+      .pz-row-left  { animation: pzRowLeft 0.34s cubic-bezier(0.16, 1, 0.3, 1); }
+      .pz-row-right { animation: pzRowRight 0.34s cubic-bezier(0.16, 1, 0.3, 1); }
 
       /* ── 게임 카드 ── */
       .pz-card {
@@ -622,7 +658,8 @@ export function homePage(app) {
         #pz-hero-title { font-size: clamp(1.2rem, 3.4vw, 1.8rem); }
       }
       @media (prefers-reduced-motion: reduce) {
-        .pz-hero-anim, .pz-bg-anim, .pz-poster-anim, .pz-row-left, .pz-row-right { animation: none; }
+        .pz-hero-anim, .pz-bg-anim, .pz-poster-anim, .pz-row-left, .pz-row-right,
+        #pz-swipe-hint-left svg, #pz-swipe-hint-right svg { animation: none; }
       }
     </style>
 
@@ -669,12 +706,16 @@ export function homePage(app) {
           <!-- 화살표를 없앴다. 카드 옆에 바짝 붙어 있어 손 커서로 겨누기 어렵다는
                지적이 있었다(180cm 성인 기준) — 버튼을 없애는 대신, 양 끝에 다음/이전
                카드가 살짝 걸쳐 보이게 해서 "더 있다"는 걸 저절로 알게 한다. 넘기는 길은
-               넷: 휠 · 터치 스와이프 · 방향키(이미 있었다) · 손 스와이프(core/swipeGate.js,
-               data-pz-swipe 안에서만 core/pointer.js가 판정한다). -->
-          <div id="pz-rail-wrap" data-pz-swipe>
-            <div id="pz-peek-left" class="pz-peek" aria-hidden="true"></div>
+               넷: 휠 · 터치 스와이프 · 방향키(이미 있었다) · 손 스와이프. 손 스와이프는
+               피크 자리(data-pz-swipe-zone)에 손이 닿아야 무장되고, 반대로 당겨야
+               확정된다(core/edgeSwipe.js·core/pointer.js) — 레일 가운데를 오가는
+               움직임은 걸리지 않는다. -->
+          <div id="pz-rail-wrap">
+            <div id="pz-peek-left" class="pz-peek" aria-hidden="true" data-pz-swipe-zone="left"></div>
             <div id="pz-rail-row"></div>
-            <div id="pz-peek-right" class="pz-peek" aria-hidden="true"></div>
+            <div id="pz-peek-right" class="pz-peek" aria-hidden="true" data-pz-swipe-zone="right"></div>
+            <div id="pz-swipe-hint-left" class="pz-swipe-hint" aria-hidden="true">${icon('right', 1.3)}<span>이전</span></div>
+            <div id="pz-swipe-hint-right" class="pz-swipe-hint" aria-hidden="true">${icon('left', 1.3)}<span>다음</span></div>
           </div>
         </div>
       </section>
@@ -853,8 +894,19 @@ export function homePage(app) {
     renderRail(delta)
   }
 
-  // 화살표는 없다 — 휠 · 터치 스와이프 · 방향키 · 손 스와이프 넷이 전부 goRail()로 모인다
-  $('#pz-rail-wrap').addEventListener('pz-swipe', e => goRail(e.detail.dir))
+  // 화살표는 없다 — 휠 · 터치 스와이프 · 방향키 · 손 스와이프 넷이 전부 goRail()로 모인다.
+  // 손 스와이프는 core/pointer.js가 document에 쏜다(EdgeSwipeGate) — 무장 상태가
+  // 바뀔 때마다 pz-swipe-arm으로 알려주므로 그걸로 화살표 힌트를 켜고 끈다.
+  const hintLeft = $('#pz-swipe-hint-left')
+  const hintRight = $('#pz-swipe-hint-right')
+  const onSwipe = e => goRail(e.detail.dir)
+  const onSwipeArm = e => {
+    const side = e.detail.side
+    hintLeft.classList.toggle('on', side === 'left')
+    hintRight.classList.toggle('on', side === 'right')
+  }
+  document.addEventListener('pz-swipe', onSwipe)
+  document.addEventListener('pz-swipe-arm', onSwipeArm)
 
   // ── 히어로 ──────────────────────────────────────────────────
   const heroGame = () => (selectedId ? byId[selectedId] : featured[heroIdx])
@@ -1178,6 +1230,8 @@ export function homePage(app) {
     offHandChange()
     clearTimeout(resizeTimer)
     document.removeEventListener('visibilitychange', onVisibility)
+    document.removeEventListener('pz-swipe', onSwipe)
+    document.removeEventListener('pz-swipe-arm', onSwipeArm)
     window.removeEventListener('keydown', onKey)
     window.removeEventListener('resize', onResize)
   })

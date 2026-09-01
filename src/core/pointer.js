@@ -21,10 +21,18 @@
 //
 // 주먹 인식이 시작되지 못하면(네트워크 등) 예전처럼 **머무르기만으로** 확정한다
 // — 이 폴백이 없으면 모델 하나 못 받았다고 앱 전체를 아무도 못 누르게 된다.
+//
+// ── 스와이프는 끝에서만 판정한다 ★ ───────────────────────────
+//
+// 예전 `swipeGate.js`는 레일 전체에서 손이 빠르게만 움직이면 페이지가
+// 넘어갔다 — 카드를 보려고 손을 옮기는 것과 넘기려는 것을 못 갈라 "의도와
+// 다르게 계속 넘어간다"는 지적(ken)이 있었다. `edgeSwipe.js`(`EdgeSwipeGate`)로
+// 교체 — 손이 양 끝(피크 카드) 자리에 닿아야 무장되고, 그 방향으로 당겨야만
+// 확정된다. 가운데를 오가는 움직임은 애초에 걸릴 자리가 없다.
 import { poseEngineCore } from './pose/poseEngine.js'
 import { fistEngineCore } from './pose/fistEngine.js'
 import { LM } from './pose/gesture.js'
-import { SwipeGate } from './swipeGate.js'
+import { EdgeSwipeGate } from './edgeSwipe.js'
 
 const DEFAULT_DWELL_MS = 1200   // 게임 카드 기준 (03 설계 §머무르기 시간)
 const EDGE_HYSTERESIS = 12      // px
@@ -118,22 +126,23 @@ function buildCursor() {
 
 /**
  * @param {object}   opts
- * @param {string}   opts.hitAttr   대상 표시 속성 (기본 'data-pz-hit')
- * @param {number}   opts.dwellMs   기본 머무르기 시간. 대상에 data-pz-dwell로 개별 지정 가능
- * @param {string}   opts.swipeAttr 좌우로 휙 저으면 페이지가 넘어가는 영역 표시 속성
- *                                  (기본 'data-pz-swipe'). 이 안에서는 커서가 멈추지 않아도
- *                                  빠르게 옆으로 움직이면 `pz-swipe` 이벤트가 뜬다.
+ * @param {string}   opts.hitAttr      대상 표시 속성 (기본 'data-pz-hit')
+ * @param {number}   opts.dwellMs      기본 머무르기 시간. 대상에 data-pz-dwell로 개별 지정 가능
+ * @param {string}   opts.swipeZoneAttr 페이지 끝 무장 자리 표시 속성(기본 'data-pz-swipe-zone').
+ *                                  값이 'left'|'right'다. 손이 그 자리에 닿으면 무장되고
+ *                                  (`pz-swipe-arm` 이벤트, detail.side), 반대로 당기면
+ *                                  `pz-swipe`(detail.dir)가 뜬다. `EdgeSwipeGate` 참고.
  * @param {Function} opts.onActivate(el) 없으면 el.click()
  */
 export function createHandPointer({
-  hitAttr = 'data-pz-hit', dwellMs = DEFAULT_DWELL_MS, swipeAttr = 'data-pz-swipe', onActivate,
+  hitAttr = 'data-pz-hit', dwellMs = DEFAULT_DWELL_MS, swipeZoneAttr = 'data-pz-swipe-zone', onActivate,
 } = {}) {
   const cursor = buildCursor()
   const ring = cursor.querySelector('.pz-cursor-ring')
   const fx = new OneEuro()
   const fy = new OneEuro()
-  const swipe = new SwipeGate()
-  let swipeZone = null   // 지금 스와이프 판정 중인 영역. 바뀌면 판정을 다시 시작한다
+  const edgeSwipe = new EdgeSwipeGate()
+  let armIndicatorSide = null   // 마지막으로 알린 무장 방향 — 바뀔 때만 이벤트를 낸다
 
   // ── 주먹 게이트 ──
   let isFist = false        // fistEngineCore가 주는 마지막 판정
@@ -225,19 +234,31 @@ export function createHandPointer({
     cursor.classList.add('on')
     cursor.style.transform = `translate(${px}px, ${py}px)`
 
-    // ── 스와이프 영역 ────────────────────────────────────────
-    // 영역이 바뀌면(들어오거나 나가면) 그 전 움직임은 안 센다 —
-    // 다른 버튼을 겨누다 들어온 움직임까지 스와이프로 잡히면 안 된다.
-    const zone = document.elementFromPoint(px, py)?.closest(`[${swipeAttr}]`) ?? null
-    if (zone !== swipeZone) { swipeZone = zone; swipe.reset() }
-    if (zone) {
-      const dir = swipe.push(now, px, window.innerWidth)
-      if (dir) {
-        zone.dispatchEvent(new CustomEvent('pz-swipe', { bubbles: true, detail: { dir } }))
-        // 스와이프와 선택은 동시에 안 일어난다 — 젓는 동작 중에 지나친 카드가 눌리면 안 된다
-        clearTarget()
-        return
-      }
+    // ── 스와이프 — 끝(피크)에 닿으면 무장, 반대로 당기면 확정 ──────
+    // 손이 지금 무장 자리 위에 있으면 그 방향으로 (재)무장한다. 이미 그
+    // 방향으로 무장돼 있으면 기준점은 그대로 둔다 — 무장한 뒤 살짝
+    // 흔들려도 새로 재는 게 아니라 처음 닿은 자리 기준으로 계속 잰다.
+    const edgeSide = document.elementFromPoint(px, py)?.closest(`[${swipeZoneAttr}]`)?.getAttribute(swipeZoneAttr) ?? null
+    if (edgeSide) edgeSwipe.enterZone(edgeSide, px, now)
+
+    const swipeDir = edgeSwipe.armedSide ? edgeSwipe.update(px, window.innerWidth, now) : 0
+
+    // 무장 상태가 바뀌었으면(무장됨↔풀림, 또는 방향이 바뀜) 화면에 알린다 —
+    // 화살표 힌트를 켜고 끄는 건 이 이벤트 하나로 다 표현한다.
+    if (armIndicatorSide !== edgeSwipe.armedSide) {
+      armIndicatorSide = edgeSwipe.armedSide
+      document.dispatchEvent(new CustomEvent('pz-swipe-arm', { detail: { side: armIndicatorSide } }))
+    }
+
+    if (swipeDir) {
+      document.dispatchEvent(new CustomEvent('pz-swipe', { detail: { dir: swipeDir } }))
+      clearTarget()
+      return
+    }
+    if (edgeSwipe.armedSide) {
+      // 무장 중에는 카드 선택 판정을 쉰다 — 당기는 동작 중에 지나친 카드가 눌리면 안 된다
+      clearTarget()
+      return
     }
 
     if (now < cooldownUntil) { clearTarget(); return }
@@ -303,7 +324,13 @@ export function createHandPointer({
     clearTarget()
     // 손을 내렸다 다시 들면 그 자리에서 시작해야 한다 — 이전 위치로 튀지 않게
     fx.reset(); fy.reset()
-    swipe.reset(); swipeZone = null
+    edgeSwipe.reset()
+    // 무장 중에 손을 내렸다면 화살표 힌트도 같이 꺼야 한다 — 아니면 아무도
+    // 안 움직이는데 힌트만 화면에 남는다.
+    if (armIndicatorSide !== null) {
+      armIndicatorSide = null
+      document.dispatchEvent(new CustomEvent('pz-swipe-arm', { detail: { side: null } }))
+    }
   }
 
   // 주먹 인식은 별도 모델이라 로딩에 시간이 걸린다 — 커서 자체는 그걸 기다리지
@@ -345,6 +372,11 @@ export function createHandPointer({
       raised = false
       clearTarget()
       cursor.classList.remove('on')
+      edgeSwipe.reset()
+      if (armIndicatorSide !== null) {
+        armIndicatorSide = null
+        document.dispatchEvent(new CustomEvent('pz-swipe-arm', { detail: { side: null } }))
+      }
     },
     destroy() {
       this.stop()

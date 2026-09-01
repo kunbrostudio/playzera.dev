@@ -35,7 +35,9 @@ src/core/
   handSession.js  손 컨트롤 세션 (앱 수명 동안 하나)
   pointer.js      손목 커서 + 머무르기. 확정은 주먹을 쥐어야 한다(fistEngine.js) —
                   손을 얹기만 하면 미리보기만 뜨고 로딩은 안 찬다
-  swipeGate.js    손을 빨리 옆으로 저으면 페이지 넘김 (허브 레일이 쓴다) — 운동 아님, 감지기 아님
+  edgeSwipe.js    손이 레일 끝(피크 자리)에 닿아야 무장되고, 반대로 당겨야 페이지가
+                  넘어간다 (허브 레일이 쓴다) — 운동 아님, 감지기 아님. 레일 전체에서
+                  속도로만 걸던 옛 swipeGate.js는 오작동이 잦아 이걸로 교체했다
   catalog.js      홈의 페이지·배지·카테고리 규칙 (순수 함수)
   recent.js       이어서 하기 (localStorage)
   player.js       현재 아이 — 계정 전 임시
