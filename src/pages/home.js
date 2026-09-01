@@ -83,9 +83,20 @@ export function homePage(app) {
   const categories = buildCategories(all)
   const featured = buildFeatured(all, HERO_MAX)
 
-  // 레일에 한 번에 몇 장을 놓을지. 좁은 화면에서는 2열이라 4개를 넣으면
-  // 두 줄로 쌓여서 "좌우 한 방향" 원칙이 깨진다.
-  const perPage = () => (window.innerWidth <= 900 ? 2 : PER_PAGE)
+  // 레일에 한 번에 몇 장을 놓을지 — CSS의 #pz-rail-row 열 수와 반드시
+  // 같이 간다. 어긋나면 카드가 두 줄로 쌓여서 "좌우 한 방향" 원칙이 깨진다.
+  //
+  // 예전엔 900px 하나로만 2/4를 갈랐다. 그런데 가로로 누운 폰(예: 844×390)도
+  // 폭이 900 이하라 세로로 선 좁은 폰(예: 390×844)과 똑같이 2개 취급을 받았다
+  // — 가로 공간은 넉넉한데 아깝게 2개만 보였다(ken 지적, 909px 폭 화면과
+  // 비교해서 "다르게 보인다"고 했다). 세로로 선 폰의 폭은 대개 480 아래이므로,
+  // 그 위(가로로 누운 폰·작은 태블릿 세로)는 3열로 한 단계 더 준다.
+  const perPage = () => {
+    const w = window.innerWidth
+    if (w <= 480) return 2
+    if (w <= 900) return 3
+    return PER_PAGE
+  }
 
   let filter = null        // 선택된 태그 (레일·전체 목록이 함께 쓴다)
   let query = ''           // 전체 목록의 검색어
@@ -360,13 +371,19 @@ export function homePage(app) {
       .pz-card.selected .pz-card-title { color: #ffd23e; }
       /* 썸네일·제목·태그 모두 flex 축소를 막는다.
          카드 높이가 모자랄 때 flex가 자식을 눌러버려서 제목이 반만 보였다. */
-      /* 높이는 반드시 명시한다.
-         aspect-ratio + height:auto 로 두면 안쪽 img의 height:100% 가
-         기준 없는 높이를 만나 원본 크기로 커지고, 카드 높이가 이미지 로드
-         시점에 따라 달라진다. 값을 못 박아 두면 그 흔들림이 사라진다. */
+      /* 높이는 반드시 명시한다 — 안 그러면 안쪽 img의 height:100%가 기준
+         없는 높이를 만나 원본 크기로 커지고, 카드 높이가 이미지 로드
+         시점에 따라 달라진다.
+         전에는 16vh(뷰포트 **높이**)로 뒀는데, 폭은 그리드 칸(뷰포트 **폭**)
+         에서 온다 — 폭과 높이가 서로 다른 축을 따라가니 화면 비율이 바뀔
+         때마다 썸네일 박스 모양 자체가 늘어나거나 뭉개졌다(세로로 긴 폰에서는
+         거의 정사각형, 가로로 누운 폰에서는 폭만 넓은 띠). ken 지적 — "비율이
+         변형된 거 같다". aspect-ratio로 폭에서 높이를 계산하면 박스 모양이
+         화면 크기와 무관하게 항상 같다 — /me 페이지의 게임 카드(.g-thumb)와
+         같은 16:10을 썼다. */
       .pz-card-thumb {
         position: relative; flex: none; width: 100%;
-        height: clamp(96px, 16vh, 170px);
+        aspect-ratio: 16 / 10;
         background: rgba(0,0,0,0.3); border-radius: 14px; overflow: hidden;
       }
       .pz-card-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -575,10 +592,18 @@ export function homePage(app) {
             linear-gradient(0deg, #150a2e 0%, rgba(21,10,46,0.6) 22%, transparent 55%);
         }
       }
-      @media (max-width: 900px) {
-        /* 레일은 **한 줄**이어야 한다. 2열로 줄이면서 4개를 넣으면 두 줄로 쌓여
-           세로 이동이 다시 생긴다 — perPage를 함께 2로 줄인다(JS). */
+      /* 레일은 **한 줄**이어야 한다. 열 수를 줄이면서 그만큼(4→3→2) 담는
+         개수도 함께 줄여야 카드가 두 줄로 안 쌓인다 — JS perPage()와 반드시
+         같은 문턱을 쓴다. 예전엔 900px 하나로 2/4만 갈라서, 가로로 누운
+         폰(폭은 넉넉한데 900 이하)이 세로로 선 좁은 폰과 똑같이 2개만
+         받았다(ken 지적). 세로 폰의 폭은 대개 480 아래라 그 위는 3열로 준다. */
+      @media (max-width: 480px) {
         #pz-rail-row { grid-template-columns: repeat(2, 1fr); }
+      }
+      @media (min-width: 481px) and (max-width: 900px) {
+        #pz-rail-row { grid-template-columns: repeat(3, 1fr); }
+      }
+      @media (max-width: 900px) {
         #pz-cat-list { grid-template-columns: 1fr; }
         #pz-all-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
         .pz-peek { flex-basis: clamp(40px, 20vw, 80px); }
