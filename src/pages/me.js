@@ -187,6 +187,15 @@ export function mePage(app) {
         background: radial-gradient(110% 80% at 50% 18%, rgba(58,36,105,0.9) 0%, rgba(21,10,46,0.6) 70%),
                     rgba(255,255,255,0.05);
       }
+      /* 홈 화면의 캐릭터 버튼을 없애면서 여기로 옮겨왔다(ken 요청, 9/1) —
+         일단 텍스트 버튼 하나로. 화려하게 꾸미기보다 자리부터 만든다. */
+      #me-buddy-head { display: flex; justify-content: flex-end; }
+      #me-buddy-go {
+        background: none; border: none; color: #ffd23e; font: inherit;
+        font-size: 0.8rem; font-weight: 800; cursor: pointer; padding: 4px 2px;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #me-buddy-go:hover { text-decoration: underline; }
       #me-buddy-card .pz-bd { flex: 1 1 auto; }
       /* 그림 칸에 **확정 높이**를 준다. max-height만 주면 안 먹는다 —
          안쪽 img의 max-height:100%가 높이 auto인 부모를 기준으로 못 풀어서
@@ -324,6 +333,9 @@ export function mePage(app) {
           </div>
 
           <div class="card" id="me-buddy-card">
+            <div id="me-buddy-head">
+              <button id="me-buddy-go">내 친구 크게 보기 →</button>
+            </div>
             <div id="me-buddy-view"></div>
             <div id="me-buddy-note"></div>
           </div>
@@ -713,6 +725,7 @@ export function mePage(app) {
   window.addEventListener('resize', onResize)
 
   $('#me-back').addEventListener('click', () => navigate('/'))
+  $('#me-buddy-go').addEventListener('click', () => navigate('/buddy'))
   const onKey = e => {
     if (e.key !== 'Escape') return
     if (modal.classList.contains('on')) closeModal()
