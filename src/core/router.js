@@ -41,10 +41,13 @@ const routes = {
 // 아래 load 리스너 등록이 늦어진다 — 첫 화면이 안 그려질 수 있다.
 // /lab3d — 3D 러너 성능 게이트. 포즈와 3D를 **동시에** 돌려 FPS를 잰다.
 //          곡률 세기도 여기서 눈으로 고른다 (docs/10 §5의 0단계)
+// /labhands — 주먹(Fist) 인식 성능·감각 측정. 포즈와 GestureRecognizer를
+//             **동시에** 돌려 FPS가 얼마나 떨어지는지, 인식이 쓸 만한지 잰다.
 if (import.meta.env?.DEV) {
   routes['/lab'] = (app, q) => import('../pages/lab.js').then(m => m.labPage(app, q))
   routes['/lab3d'] = (app, q) => import('../pages/lab3d.js').then(m => m.lab3dPage(app, q))
   routes['/labcam'] = (app, q) => import('../pages/labcam.js').then(m => m.labcamPage(app, q))
+  routes['/labhands'] = (app, q) => import('../pages/labhands.js').then(m => m.labhandsPage(app, q))
 }
 
 // ── 소리가 나도 되는 경로 ────────────────────────────────────
