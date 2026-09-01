@@ -28,6 +28,19 @@ const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/pose_landmark
 
 const EMA_ALPHA = 0.35   // 랜드마크 떨림 제거. 웜업에서 검증된 값 — 바꾸지 말 것.
 
+// 기본 카메라 제약.
+//
+// 16:9로 넓게 잡아야 좌우 이동 인식 범위가 충분히 확보된다.
+// (4:3은 좌우가 상대적으로 좁아 화면 가장자리에서 손실되기 쉽다)
+//
+// ⚠️ **종횡비가 곧 화각이다.** 해상도를 올려도 담기는 범위는 그대로지만,
+// 종횡비를 바꾸면 센서를 자르는 방향이 바뀌어 담기는 범위가 실제로 달라진다.
+// 세로가 더 담기는지는 재봐야 안다 — `#/labcam`.
+export const DEFAULT_VIDEO = {
+  width: { ideal: 640 }, height: { ideal: 360 },
+  aspectRatio: { ideal: 16 / 9 }, facingMode: 'user',
+}
+
 // 랜드마크 인덱스 (gesture.js와 같은 표를 쓴다)
 export { LM } from './gesture.js'
 
@@ -137,6 +150,18 @@ class PoseEngineCore {
     this._refs = 0           // acquire/release 참조 수
     this._startPromise = null
     this.delegate = null     // 'GPU' | 'CPU' — 실제로 무엇으로 떨어졌는지
+
+    // 화면에 물려 있는 <video>들. reopen()이 스트림을 갈아끼울 때 같이 갈아야 한다.
+    // 안 들고 있으면 갈아낀 뒤 화면들이 **죽은 스트림**을 붙들고 검은 화면이 된다.
+    this._attached = new Set()
+
+    // 지금 요청 중인 카메라 제약. reopen()으로 바뀐다.
+    this._constraints = { ...DEFAULT_VIDEO }
+
+    // 미터 좌표(world landmarks). 화면에 발목이 안 보여도 몸 크기를 알 수 있는지가
+    // 요구 관절을 줄일 수 있느냐를 가른다 — 오는지는 `#/labcam`에서 재는 중이다.
+    // 구독 모양을 바꾸지 않으려고 콜백이 아니라 마지막 값으로 둔다.
+    this.lastWorld = null
   }
 
   // ⚠️ setPaused()는 없애 두었다.
@@ -212,18 +237,62 @@ class PoseEngineCore {
   // 같은 스트림을 화면의 <video>에 물린다. 반환값을 호출하면 뗀다.
   attach(videoElement) {
     if (!videoElement) return () => {}
+    this._attached.add(videoElement)
     videoElement.srcObject = this._stream
     videoElement.play?.().catch(() => { /* 자동재생 차단은 muted면 안 난다 */ })
     return () => {
+      this._attached.delete(videoElement)
       if (videoElement.srcObject === this._stream) videoElement.srcObject = null
     }
   }
 
+  // 지금 카메라가 실제로 무엇으로 열렸나. 요청과 다를 수 있다 —
+  // **요청은 ideal이고 기기는 가진 것 중에서 준다.** 그래서 재는 쪽은
+  // 요청값이 아니라 이걸 봐야 한다.
+  get videoTrack() { return this._stream?.getVideoTracks?.()[0] ?? null }
+  get settings() { return this.videoTrack?.getSettings?.() ?? null }
+  get capabilities() {
+    try { return this.videoTrack?.getCapabilities?.() ?? null } catch { return null }
+  }
+  get requested() { return { ...this._constraints } }
+
+  // 카메라를 **다른 제약으로 다시 연다.** 랜드마커는 그대로 둔다 —
+  // 스트림과 무관하고, 다시 만들면 2초 가까이 멈춘다.
+  //
+  // 화면 방향이 바뀌면(세로↔가로) 담기는 범위가 달라지므로 프로덕션에서도 이 길로 온다.
+  // 그래서 측정용으로 따로 만들지 않고 엔진에 둔다 — 재는 길과 쓰는 길이 같아야
+  // 잰 숫자가 실제로 그 뜻이 된다.
+  async reopen(videoConstraints) {
+    if (!this._running) return
+    const prev = this._constraints
+    this._constraints = { ...DEFAULT_VIDEO, ...videoConstraints }
+
+    // **먼저 놓고 연다.** 같은 장치를 놓기 전에 다른 해상도로 열면
+    // `NotReadableError`가 난다 (실제로 겪었다 — `_teardown` 주석).
+    if (this._stream) {
+      for (const t of this._stream.getTracks()) t.stop()
+      this._stream = null
+    }
+    try {
+      await this._openCamera(this._video)
+    } catch (e) {
+      this._constraints = prev          // 못 열었으면 되돌려 놓는다
+      await this._openCamera(this._video).catch(() => {})
+      throw e
+    } finally {
+      for (const v of this._attached) {
+        v.srcObject = this._stream
+        v.play?.().catch(() => {})
+      }
+      this._lastVideoTime = -1
+      this._smoothed = null             // 종횡비가 바뀌면 이전 좌표와 섞으면 안 된다
+    }
+    return this.settings
+  }
+
   async _openCamera(videoElement) {
-    // 16:9로 넓게 잡아야 좌우 이동 인식 범위가 충분히 확보된다.
-    // (4:3은 좌우가 상대적으로 좁아 화면 가장자리에서 손실되기 쉽다)
     this._stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 360 }, aspectRatio: { ideal: 16 / 9 }, facingMode: 'user' },
+      video: this._constraints,
       audio: false,
     })
     videoElement.srcObject = this._stream
@@ -273,6 +342,8 @@ class PoseEngineCore {
     try {
       const result = this._landmarker.detectForVideo(video, performance.now())
       const raw = result.landmarks && result.landmarks[0]
+      // 미터 좌표는 스무딩도 반전도 하지 않고 그대로 둔다 — 지금은 재는 용도다.
+      this.lastWorld = (result.worldLandmarks && result.worldLandmarks[0]) || null
       if (!raw) return
       const lms = this._mirrorAndSmooth(raw)
       for (const cb of this._callbacks) cb(lms)
@@ -332,6 +403,9 @@ class PoseEngineCore {
     this._smoothed = null
     this._lastVideoTime = -1
     this.delegate = null
+    this.lastWorld = null
+    this._attached.clear()
+    this._constraints = { ...DEFAULT_VIDEO }   // 다음에 열 때 기본으로 돌아간다
   }
 }
 

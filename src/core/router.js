@@ -44,6 +44,7 @@ const routes = {
 if (import.meta.env?.DEV) {
   routes['/lab'] = (app, q) => import('../pages/lab.js').then(m => m.labPage(app, q))
   routes['/lab3d'] = (app, q) => import('../pages/lab3d.js').then(m => m.lab3dPage(app, q))
+  routes['/labcam'] = (app, q) => import('../pages/labcam.js').then(m => m.labcamPage(app, q))
 }
 
 // ── 소리가 나도 되는 경로 ────────────────────────────────────
