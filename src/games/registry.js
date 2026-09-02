@@ -74,13 +74,20 @@ export const GAME_REGISTRY = {
   },
 }
 
-// 개발 중에만 더미 카드를 섞는다. 홈의 스크롤·하단 4칸 바·레일 페이징은
-// 목록이 짧으면 확인 자체가 불가능하다. 프로덕션 빌드에서는 트리 셰이킹으로 빠진다.
-if (import.meta.env.DEV) {
-  for (const m of getPlaceholderManifests()) {
-    GAME_REGISTRY[m.id] = { manifest: m, placeholder: true }
-  }
-}
+// 개발 중에만 더미 카드를 섞는 스위치 — 홈의 스크롤·하단 4칸 바·레일
+// 페이징은 목록이 짧으면 확인 자체가 불가능해서 만들었다. 프로덕션
+// 빌드에서는 트리 셰이킹으로 빠진다.
+//
+// 지금은 꺼 둔다(ken 요청, 9/1) — 더미가 재활용해 쓰는 정사각형 아이콘이
+// 실제 게임의 가로 16:9 타이틀 이미지와 섞여 보이면서 "썸네일이 이상하게
+// 보인다"는 혼동을 줬다(STEP 25 대응 중 발견). 페이징·스크롤을 다시
+// 눈으로 확인해야 할 때만 아래 줄을 되살린다 — placeholders.js는 지우지
+// 않았다.
+// if (import.meta.env.DEV) {
+//   for (const m of getPlaceholderManifests()) {
+//     GAME_REGISTRY[m.id] = { manifest: m, placeholder: true }
+//   }
+// }
 
 export const getAll = () =>
   Object.values(GAME_REGISTRY)
