@@ -376,9 +376,23 @@ export async function mountCamera(host, { onFrame, zones = false, enabled = true
  * "몇 번 움직였나"를 나눠 볼 수 있고, `exercise_summary` 뷰가 motion만 걸러 준다.
  * 안 보내면 그 판은 세상에 없던 일이 된다.
  *
+ * ── 자동재생도 `motion=false`다 ★ ────────────────────────────
+ *
+ * `runner/game/autopilot.js`가 대신 진행한 판은 몸을 하나도 안 움직였으니
+ * 키보드 판과 똑같이 **기기에는 안 남긴다**(EXP·배지 없음). 다만 "몇 번
+ * 그냥 재생만 했나"를 키보드 판과 섞어 보면 안 되므로, `inputMode`를
+ * 따로 넘기면 서버 기록의 `input_mode`만 `'auto'`로 갈린다 — 로컬 저장
+ * 여부를 가르는 건 여전히 `motion` 하나뿐이다.
+ *
+ * @param {object} opts
+ * @param {string} opts.gameId
+ * @param {boolean} opts.motion  몸으로 했나 — 이것만 기기 저장(EXP·배지)을 가른다
+ * @param {string} [opts.inputMode]  서버에 남길 `input_mode`. 안 주면
+ *   `motion ? 'motion' : 'keyboard'`로 정한다 — 자동재생처럼 `motion=false`인데
+ *   "키보드로 했다"고 적으면 안 되는 경우에만 명시해서 넘긴다.
  * @returns {(snapshot:object) => object|null}  recordSession의 결과(보상) 또는 null
  */
-export function makeRecorder({ gameId, motion, minActiveSec = 5 }) {
+export function makeRecorder({ gameId, motion, inputMode, minActiveSec = 5 }) {
   const keys = (getManifest(gameId)?.metrics ?? []).filter(k => {
     if (getExercise(k)) return true
     console.warn(`[gameShell] ${gameId}의 metrics에 운동 사전에 없는 키: ${k}`)
@@ -409,7 +423,7 @@ export function makeRecorder({ gameId, motion, minActiveSec = 5 }) {
       extraData: {
         source: gameId,
         // 'motion'만 운동 데이터로 신뢰한다. exercise_summary 뷰가 이 값으로 거른다.
-        input_mode: motion ? 'motion' : 'keyboard',
+        input_mode: inputMode ?? (motion ? 'motion' : 'keyboard'),
         active_sec: exercise.active_sec ?? 0,
         completed: snapshot.cleared != null && snapshot.cleared === (snapshot.rounds ?? snapshot.stones),
         // ⚠️ `exercise` 키가 없으면 뷰의 `WHERE extra_data ? 'exercise'`에 걸려

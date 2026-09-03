@@ -117,7 +117,14 @@ function bakeShade(geo, base, top = 1.25, side = 0.85) {
   return geo
 }
 
-export function createScene(canvas, { dpr = Math.min(2, window.devicePixelRatio || 1) } = {}) {
+/**
+ * @param {HTMLCanvasElement} canvas
+ * @param {object} [o]
+ * @param {number} [o.dpr]
+ * @param {number} [o.speedMult] 러너 속도 설정 배율(`core/runnerSpeed.js`).
+ *   기본 1 — 안 주면 기존 동작과 같다.
+ */
+export function createScene(canvas, { dpr = Math.min(2, window.devicePixelRatio || 1), speedMult = 1 } = {}) {
   // ── 계단현상을 끄고 있었다 ★ ──
   // `antialias: false`에 DPR 상한 1.5. 삼각형을 아무리 늘려도 **모든 모서리가
   // 톱니**로 보였다 — "깨져 보인다"의 절반이 이것이었다.
@@ -377,7 +384,12 @@ export function createScene(canvas, { dpr = Math.min(2, window.devicePixelRatio 
 
   // ── 코스 ──
   // 규칙은 기존 `course.js`가 만든다. 여기서는 **시간을 거리로** 바꿀 뿐이다.
-  let course = buildCourse3d(0)
+  //
+  // `speedMult`는 타이틀 화면의 속도 설정(`core/runnerSpeed.js`)이다 — 씬을
+  // 만들 때 한 번 읽어서 레벨이 바뀌어도(`setLevel`) 계속 같은 배율을 쓴다.
+  // 판 중간에 배속이 바뀌면 "판 안에서 규칙의 크기를 바꾸지 않는다"는
+  // 규칙(CLAUDE.md)에 걸린다 — 애초에 판 중간엔 고를 자리도 없다.
+  let course = buildCourse3d(0, speedMult)
   let now = 0            // 코스 시각(초). 판정의 정본이다
   let run = createRun()
   let onResult = null    // (result, event) — 화면이 배너를 띄운다
@@ -392,7 +404,7 @@ export function createScene(canvas, { dpr = Math.min(2, window.devicePixelRatio 
     get run() { return run },
 
     /** 레벨을 바꾼다. 시각도 되감는다 — 안 되감으면 새 코스가 이미 지나가 있다. */
-    setLevel(i) { course = buildCourse3d(i); now = 0; run = createRun() },
+    setLevel(i) { course = buildCourse3d(i, speedMult); now = 0; run = createRun() },
 
     /** 판정 결과를 받아 화면이 반응한다. 씬은 무엇을 띄울지 모른다. */
     onResult(fn) { onResult = fn },
@@ -505,7 +517,7 @@ export function createScene(canvas, { dpr = Math.min(2, window.devicePixelRatio 
           pose: character.posing,
         }
         for (const { e } of vis) {
-          if (e.done || !atHit(e, now, speed)) continue
+          if (e.done || !atHit(e, now, speed, course.hitWindow)) continue
           const r = run.settle(e, st)
           onResult?.(r, e)
         }

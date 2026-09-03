@@ -27,6 +27,8 @@ import { CUE } from '../runner/ui/cues.js'
 import { sysBarMarkup, ensureSysBarStyle, bindSysBar } from '../runner/ui/systemBar.js'
 import { isBgmMuted, isSfxMuted, toggleBgmMute, toggleSfxMute } from '../runner/audio.js'
 import { POSE_BUTTONS } from '../runner/ui/touchPad.js'
+// 속도 설정 팝업 — 타이틀 화면의 "속도 설정" 버튼이 연다(ken 요청, 9/3).
+import { SPEED_TIERS, getRunnerSpeedId, setRunnerSpeedId, runnerSpeedLabel } from '../../core/runnerSpeed.js'
 
 const STYLE_ID = 'pz-r3-screens-css'
 
@@ -38,11 +40,19 @@ const CSS = `
   font-family: var(--font-main, 'Jua', sans-serif); color: #fff;
   text-align: center; touch-action: none; user-select: none;
 }
-.r3s-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center; }
+/* 배경색을 깔아 둔다(#150a2e, 앱 전반의 어두운 보라). 그림이 크고(장면
+   합성 그림은 몇 MB) 로딩이 아주 잠깐 늦으면, 그 틈에 배경이 완전히
+   투명해져서 뒤에 남아 있던 이전 화면이 비쳐 보인 적이 있었다(9/2) —
+   화면 자체는 늘 opaque해야 한다. */
+.r3s-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center;
+          background-color: #150a2e; }
 /* 가운데 세로로 쌓이는 것들만 위로 올린다.
    **.r3s-corner는 빼야 한다** — position: relative가 절대 위치를 덮어서
-   왼쪽 위에 둔 "게임 목록"이 화면 한가운데로 끌려왔다(8/26). */
-.r3s > *:not(.r3s-bg):not(.r3s-corner) { position: relative; z-index: 1; }
+   왼쪽 위에 둔 "게임 목록"이 화면 한가운데로 끌려왔다(8/26).
+   .r3s-smoke도 같은 이유로 뺐다 — 이 셀렉터가 .r3s-smoke 자체 규칙보다
+   구체적이라(클래스 3개) position: relative가 이겨서 absolute+inset:0이
+   먹히지 않고 연기 층이 문서 흐름에 끼어 대사창을 밀어낼 뻔했다(9/2). */
+.r3s > *:not(.r3s-bg):not(.r3s-corner):not(.r3s-smoke) { position: relative; z-index: 1; }
 
 /* 화면 모서리에 붙는 것 — 2.5D 타이틀과 같은 자리다. */
 .r3s-corner {
@@ -64,6 +74,55 @@ const CSS = `
 /* 왼쪽 위 Home 버튼은 공용이다 — 모양도 자리도 ui/systemBar.js가 갖는다.
    **플레이 중에는 안 보인다.** 거기서 바로 나가면 운동 기록을 저장하는 경로를
    건너뛴다 — 대신 나가기 → 확인창 안에 "Home으로"를 둔다. */
+
+/* ── 속도 설정 ★ ─────────────────────────────────────────────
+   처음엔 "시작" 바로 아래 작은 반투명 글자 버튼이었다. 눈에 잘 안 띈다는
+   말을 듣고(ken, 9/3) 크게·채운 색으로 바꿨다 — 여전히 "시작"보다는
+   작지만(카드 클릭은 선택, 실행은 시작 하나뿐이라는 규칙), 손을 대기 전에도
+   "여기 누를 게 있구나"가 보여야 한다. 색·테두리·눌림 방식은 공용 시스템
+   바의 Home 버튼(ui/systemBar.js의 #pz-home — 흰 테두리 + 채운 색 +
+   진한 그림자, 누르면 아래로 눌리는 느낌)을 그대로 옮겨 왔다 — 앱 안에
+   이미 있는 "채운 알약 버튼"이 그거라, 새로 만들면 톤이 갈린다(ken 요청,
+   9/3: 파란색 + 하얀 글자로).
+   시작+속도를 감싸는 .r3-title-actions가 자리를 잡는다 — 세로가 짧은
+   가로 폰에서는 이 컨테이너만 가로로 바꾼다(아래 미디어 쿼리). */
+.r3-title-actions {
+  display: flex; flex-direction: column; align-items: center;
+  gap: clamp(12px, 2.6vh, 26px);
+}
+#r3-title .speed-btn {
+  min-height: 56px; padding: 0 clamp(22px, 4vw, 34px);
+  font-size: clamp(1rem, 2.2vw, 1.25rem);
+  border: 3px solid #fff;
+  background: linear-gradient(135deg, #0ECAFD, #0057EC);
+  color: #fff;
+  box-shadow: 0 5px 0 #003c9e, 0 10px 22px rgba(0,0,0,.35);
+  opacity: 1; transition: transform .1s, box-shadow .1s;
+}
+#r3-title .speed-btn:active { transform: translateY(3px); box-shadow: none; }
+/* 세로가 짧은 가로 폰(예: SE 가로) — 위아래로 쌓으면 여유가 없다고 해서
+   (ken 스크린샷, 9/3) 시작+속도를 좌우로 나란히 둔다. 다른 화면들이 쓰는
+   같은 기준(max-height: 560px, readyScreen.js·home.js 등)을 그대로 맞췄다 —
+   기준이 갈리면 화면마다 "가로 폰"의 경계가 달라 보인다. */
+@media (max-height: 560px) {
+  #r3-title .logo { width: min(40vw, 300px); }
+  #r3-title .r3-title-actions { flex-direction: row; gap: clamp(14px, 3vw, 30px); }
+  #r3-title .start { width: clamp(120px, 18vw, 190px); }
+  #r3-title .speed-btn {
+    min-height: 48px; padding: 0 clamp(16px, 3vw, 26px);
+    font-size: clamp(.85rem, 1.8vw, 1.05rem);
+  }
+}
+/* 팝업 — 종료 확인창(#pz-confirm)과 같은 상자·버튼을 그대로 쓴다
+   (.pz-confirm-box · .pz-confirm-actions · .pz-btn, ui/systemBar.js).
+   새로 만들면 그 화면과 톤이 갈릴 자리가 생긴다. */
+#r3-speed-popup {
+  position: absolute; inset: 0; z-index: 65;   /* 종료 확인창(60)보다 위 — 둘이 겹칠 일은 없지만 순서는 명확히 */
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 3, 20, .72);
+}
+#r3-speed-popup.hidden { display: none; }
+.r3-speed-opt.on { background: #ffd23e; color: #4a2a00; box-shadow: 0 4px 0 #c99b1e; }
 
 /* 튜토리얼 — 글을 읽어야 하므로 배경을 어둡게 덮는다 */
 #r3-tut .r3s-bg { background-image: linear-gradient(rgba(10,4,28,.84), rgba(10,4,28,.9)), var(--bg); }
@@ -93,7 +152,7 @@ const CSS = `
 .r3s-card .d { font-size: clamp(.82rem, 1.5vw, 1.05rem); opacity: .85; line-height: 1.35; }
 .r3s-card .chk { font-size: clamp(1.2rem, 2.4vw, 1.7rem); height: 1.5em; color: #6ee75a; }
 .r3s-card.done { background: rgba(110,231,90,.18); border-color: #6ee75a; transform: scale(1.03); }
-/* 아래 버튼 줄 — 카메라 준비 화면의 [뒤로][키보드로 하기][시작]과 같은 모양이다.
+/* 아래 버튼 줄 — 카메라 준비 화면의 [뒤로][키보드 모드][시작]과 같은 모양이다.
    화면마다 버튼 생김새가 다르면 아이는 "여기서는 어디를 눌러야 하지"를 매번
    다시 본다. 가로로 두는 것은 여기뿐이다 — 셋이 아니라 둘이라 안 넘친다. */
 .r3s-actions { display: flex; gap: clamp(10px, 1.8vw, 20px); justify-content: center; flex-wrap: wrap; }
@@ -105,9 +164,106 @@ const CSS = `
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
 }
 .r3s-btn:active { transform: scale(.95); }
+
+/* 스토리 대화 화면(storyDialogue.js).
+   **배경 그림 위에 어두운 덮개를 안 씌운다** — 여기 배경은 튜토리얼의 글
+   배경(장식)이 아니라 **그림 자체가 장면**(합성 일러스트)이라, 어둡게
+   깔면 정작 봐야 할 그림이 안 보인다(ken 실사용 확인, 9/2). 대사가 읽히는
+   것은 대사창 자체의 진한 배경(.r3-story-box)이 맡는다. */
+/* 그림을 그대로 깐다 — 덮개 없이. 이게 빠져서 한동안 배경이 통째로
+   안 보인 적이 있었다(9/2) — 어두운 그라데이션을 뺄 때 그 줄 전체를
+   지워버려서 var(--bg) 연결 자체가 같이 없어졌다. */
+#r3-story .r3s-bg { background-image: var(--bg); }
+#r3-story { justify-content: flex-end; }
+.r3-story-box {
+  width: min(94vw, 980px); margin-bottom: clamp(10px, 3vh, 30px);
+  padding: clamp(16px, 2.6vh, 30px) clamp(18px, 3vw, 34px);
+  border-radius: 24px; background: rgba(15,7,34,.88);
+  border: 2px solid #ffd23e;
+  display: flex; flex-direction: row; align-items: center;
+  gap: clamp(12px, 2.4vw, 26px);
+}
+/* 말하는 캐릭터 — 대사창 왼쪽에 붙는다(참고 화면들의 자리와 같다).
+   원본 그림은 정사각형 전신이라, 상자를 가로로 넓게 잡고 object-position이
+   top이 되게 해서 위쪽(얼굴·손)만 보이게 자른다 — 다리는 안 보여도 된다고
+   했다. speaker가 없는 줄(아직 얼굴 그림이 없는 캐릭터)에서는 아예 숨긴다. */
+.r3-story-face {
+  flex: 0 0 auto; display: block;
+  width: clamp(96px, 17vw, 190px); height: clamp(70px, 12.5vw, 138px);
+  object-fit: cover; object-position: top center;
+  border-radius: 20px; border: 3px solid #ffd23e; background: rgba(0,0,0,.25);
+  box-shadow: 0 6px 14px rgba(0,0,0,.4);
+}
+.r3-story-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+                 gap: clamp(12px, 2vh, 20px); }
+.r3-story-line {
+  margin: 0; font-size: clamp(1.2rem, 3vw, 1.9rem); font-weight: 700; line-height: 1.5;
+  min-height: 2.2em; display: flex; align-items: center;
+}
+/* 이전·다음을 **가깝게 붙인다.** 손 제스처로 커서를 조준할 때, 버튼이
+   상자 양 끝에 멀리 떨어져 있으면 오가는 손 이동이 커진다(ken 확인, 9/2) —
+   space-between이었던 걸 가운데로 모으고 간격만 좁게 줬다. */
+.r3-story-actions { display: flex; justify-content: center; gap: clamp(8px, 1.4vw, 14px); }
+.r3-story-actions .r3s-btn {
+  min-height: clamp(52px, 8vh, 76px); font-size: clamp(1rem, 2.4vw, 1.35rem);
+  padding: 0 clamp(20px, 3.6vw, 38px);
+}
+.r3-story-prev:disabled { opacity: .35; pointer-events: none; }
+/* 스킵 — 이전·다음과 같은 줄, 같은 모양(.r3s-btn)이다. 처음엔 화면
+   오른쪽 위에 따로 뗐었는데(버튼 셋이 한 줄이면 헷갈릴까 봐) ken이 대화창
+   버튼들과 나란히 두는 쪽을 원해(9/2) 자리를 옮겼다 — 그래서 이 클래스
+   전용 CSS가 따로 없다, .r3-story-actions .r3s-btn을 그대로 받는다. */
+
+/* 위급한 장면(화산 폭발 등, scene.fx==='quake') — 배경만 흔든다.
+   **대사창·버튼은 안 흔든다** — 손 제스처로 겨누는 자리가 움직이면 눌리지
+   않는다. 진폭을 작게(2~3px) 두고 계속 켜 둔다 — 크게 흔들면 아이가
+   어지러워한다고 해서 세게 흔드는 대신 "계속" 흔드는 쪽을 골랐다(ken 요청, 9/2). */
+@keyframes r3s-quake {
+  0%, 100% { transform: translate(0, 0); }
+  10% { transform: translate(-3px, 1px); }
+  20% { transform: translate(2px, -2px); }
+  30% { transform: translate(-2px, 2px); }
+  40% { transform: translate(3px, 0); }
+  50% { transform: translate(-1px, -2px); }
+  60% { transform: translate(2px, 1px); }
+  70% { transform: translate(-3px, -1px); }
+  80% { transform: translate(1px, 2px); }
+  90% { transform: translate(-2px, 0); }
+}
+.r3s-shake .r3s-bg { animation: r3s-quake .42s infinite linear; }
+@media (prefers-reduced-motion: reduce) {
+  .r3s-shake .r3s-bg { animation: none; }
+}
+/* 연기 — 그림 파일 없이 블러 그라데이션 원 몇 개를 위로 흘려보낸다
+   (CLAUDE.md: 연출을 그림으로 안 늘린다). 자리·크기·속도는 storyDialogue.js가
+   장면마다 흩뜨려서 붙인다. */
+.r3s-smoke { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.r3s-smoke i {
+  position: absolute; bottom: -10%; border-radius: 50%; display: block;
+  background: radial-gradient(circle, rgba(120,120,130,.55), rgba(120,120,130,0) 70%);
+  filter: blur(2px);
+  animation: r3s-smoke-rise linear infinite;
+}
+@keyframes r3s-smoke-rise {
+  0% { transform: translateY(0) scale(.7); opacity: 0; }
+  15% { opacity: .55; }
+  100% { transform: translateY(-70vh) scale(1.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .r3s-smoke i { animation: none; opacity: 0; }
+}
+
+/* 대사 타이핑 커서 — 글자가 한 자씩 나타나는 동안만 깜빡인다(typeLine()이
+   붙였다 뗀다). 심심하게 한 번에 뜨지 않게 하는 게 목적이라, 다 나타난
+   뒤에는 안 보인다. */
+.r3-story-line.r3s-typing::after {
+  content: ''; display: inline-block; width: .08em; height: 1em; margin-left: 2px;
+  background: #ffd23e; vertical-align: -.1em; animation: r3s-caret .8s steps(1) infinite;
+}
+@keyframes r3s-caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 `
 
-function ensureStyle() {
+export function ensureStyle() {
   // 메뉴 버튼 모양은 인게임 시스템 바와 **같은 것**을 쓴다
   ensureSysBarStyle()
   if (document.getElementById(STYLE_ID)) return
@@ -117,8 +273,13 @@ function ensureStyle() {
   document.head.appendChild(s)
 }
 
-/** 화면 하나를 띄우고, 끝나면 지운다. */
-function mount(app, id, html, bg) {
+/**
+ * 화면 하나를 띄우고, 끝나면 지운다.
+ *
+ * **스토리 대화 화면(`storyDialogue.js`)도 이걸 그대로 받아 쓴다** — 타이틀·
+ * 튜토리얼과 같은 `.r3s` 톤을 새로 안 짜려고 export했다.
+ */
+export function mount(app, id, html, bg) {
   ensureStyle()
   const el = document.createElement('div')
   el.className = 'r3s'
@@ -142,6 +303,16 @@ function mount(app, id, html, bg) {
  * `showReadyScreen`이 `mode`를 돌려주는 것과 같은 모양으로 맞췄다.
  * **화면을 떠나는 길이 둘이면 결과도 둘이어야 한다.**
  *
+ * ── 속도 설정 ★ ────────────────────────────────────────────
+ *
+ * "시작" 아래 작은 버튼 — 눌러야 열리는 팝업이라 시작을 가리지 않는다.
+ * 기본 레벨 속도(`runner/config.js`)는 3~5세 기준이라, 7세 이상·초등학생도
+ * 할 수 있게 배율을 고를 자리를 뒀다(ken 요청, 9/3) — "인터랙션 웜업
+ * 달리기" 같은 콘텐츠가 그보다 훨씬 빠르다는 게 이유였다. 고른 값은
+ * `core/runnerSpeed.js`가 기기에 저장한다 — 다음에 같은 기기로 다시
+ * 와도 그대로 남아 있다. 판이 시작한 뒤에는 못 바꾼다(타이틀에서만 고른다) —
+ * "판 안에서 규칙의 크기를 바꾸지 않는다"는 규칙 그대로다.
+ *
  * @returns {Promise<'start'|'hub'>}
  */
 export function showTitle3d(app, manifest) {
@@ -149,6 +320,7 @@ export function showTitle3d(app, manifest) {
     const logo = manifest.logo
       ? `<img class="logo" src="${manifest.logo}" alt="${manifest.title}">`
       : `<h1 style="font-size:clamp(1.6rem,5vw,3rem)">${manifest.title}</h1>`
+    let speedId = getRunnerSpeedId()
     // ── 배경은 **글자 없는 판**이다 ★ ──
     // `hero`는 허브 썸네일이라 그림에 게임 로고가 박혀 있다. 그걸 깔고 그 위에
     // 우리 로고를 또 얹으니 타이틀이 두 겹으로 겹쳐 보였다.
@@ -159,8 +331,27 @@ export function showTitle3d(app, manifest) {
     const el = mount(app, 'r3-title', `
       <div class="r3s-corner r3s-sys">${sysBarMarkup({ home: true, exit: false, ...mutes() })}</div>
       ${logo}
-      <img class="start" id="r3-start" data-pz-hit data-pz-dwell="1200"
-           src="${UI.startButton}" alt="시작">`, manifest.titleBg ?? manifest.hero)
+      <div class="r3-title-actions">
+        <img class="start" id="r3-start" data-pz-hit data-pz-dwell="1200"
+             src="${UI.startButton}" alt="시작">
+        <button class="r3s-btn speed-btn" id="r3-speed-btn" data-pz-hit data-pz-dwell="1200">
+          ${icon('zap')} 속도: <span id="r3-speed-label">${runnerSpeedLabel(speedId)}</span>
+        </button>
+      </div>
+
+      <div id="r3-speed-popup" class="hidden">
+        <div class="pz-confirm-box">
+          <p>속도를 골라 주세요</p>
+          <div class="pz-confirm-actions">
+            ${SPEED_TIERS.map(t => `
+              <button class="pz-btn secondary r3-speed-opt" data-id="${t.id}"
+                      data-pz-hit data-pz-dwell="1000">${t.label}</button>`).join('')}
+            <button class="pz-btn ghost" id="r3-speed-close" data-pz-hit data-pz-dwell="1000">
+              ${icon('close')} 닫기
+            </button>
+          </div>
+        </div>
+      </div>`, manifest.titleBg ?? manifest.hero)
 
     const abort = new AbortController()
     let settled = false
@@ -182,14 +373,33 @@ export function showTitle3d(app, manifest) {
     btn.addEventListener('pointerup', up)
     btn.addEventListener('pointerleave', up)
     btn.addEventListener('click', () => finish('start'))
+
+    // ── 속도 팝업 배선 ──
+    const popup = el.querySelector('#r3-speed-popup')
+    const speedLabel = el.querySelector('#r3-speed-label')
+    const syncSpeedOptions = () => {
+      el.querySelectorAll('.r3-speed-opt').forEach(b => b.classList.toggle('on', b.dataset.id === speedId))
+    }
+    syncSpeedOptions()
+    el.querySelector('#r3-speed-btn').addEventListener('click', () => popup.classList.remove('hidden'))
+    el.querySelector('#r3-speed-close').addEventListener('click', () => popup.classList.add('hidden'))
+    el.querySelectorAll('.r3-speed-opt').forEach(b => {
+      b.addEventListener('click', () => {
+        speedId = b.dataset.id
+        setRunnerSpeedId(speedId)
+        speedLabel.textContent = runnerSpeedLabel(speedId)
+        syncSpeedOptions()
+        popup.classList.add('hidden')
+      })
+    })
   })
 }
 
 /** 지금 음소거 상태 — 아이콘을 켜진 대로 그려야 아이가 헷갈리지 않는다. */
-const mutes = () => ({ bgmMuted: isBgmMuted(), sfxMuted: isSfxMuted() })
+export const mutes = () => ({ bgmMuted: isBgmMuted(), sfxMuted: isSfxMuted() })
 
-/** 소리 버튼의 동작. 앞 화면 둘이 똑같이 쓴다. */
-const soundHandlers = () => ({
+/** 소리 버튼의 동작. 앞 화면 둘 + 스토리 대화 화면이 똑같이 쓴다. */
+export const soundHandlers = () => ({
   onToggleMusic: () => toggleBgmMute(),
   onToggleSfx: () => toggleSfxMute(),
 })
@@ -211,11 +421,15 @@ const soundHandlers = () => ({
  * @param {(cb: Function) => Function} o.subscribe
  *   동작이 감지되면 부를 함수를 받아 간다. 반환값은 구독 해제 함수.
  * @param {boolean} o.keyboard 키보드 모드면 키 안내를 같이 보여준다
+ * @param {1|2} [o.startPage] 어느 장부터 시작하나. 스토리 인트로에서
+ *   "뒤로"를 누르면 **튜토리얼 둘째 장**(방금 마친 장)으로 바로 돌아가야
+ *   한 단계씩 가는 규칙이 맞는다 — 처음 장부터 다시 보여주면 한 번에
+ *   두 단계를 뒤로 보내는 셈이다(`play3d.js`).
  * @returns {Promise<'done'|'back'|'title'|'hub'>} 나가는 길마다 다른 결과 —
- *   `'back'`은 **바로 앞 화면**(카메라 준비)으로, `'title'`은 이 게임의 처음으로,
- *   `'hub'`는 플레이 제라 홈으로.
+ *   `'back'`은 **바로 앞 화면**(카메라 준비, `startPage`가 1일 때 첫 장에서만)으로,
+ *   `'title'`은 이 게임의 처음으로, `'hub'`는 플레이 제라 홈으로.
  */
-export async function showTutorial3d(app, manifest, { subscribe, keyboard = false } = {}) {
+export async function showTutorial3d(app, manifest, { subscribe, keyboard = false, startPage = 1 } = {}) {
   const art = manifest.tutorialArt ?? {}
 
   const page1 = () => tutorialPage(app, manifest, {
@@ -243,6 +457,13 @@ export async function showTutorial3d(app, manifest, { subscribe, keyboard = fals
       key: p.key,
     })),
   })
+
+  // 둘째 장부터 바로 — 여기서 "뒤로"를 누르면 아래 루프로 떨어져 첫 장을
+  // 보여준다. 그것도 이 함수 안에서의 "한 단계"이므로 규칙이 그대로 맞는다.
+  if (startPage === 2) {
+    const b0 = await page2()
+    if (b0 !== 'back') return b0
+  }
 
   // ── "뒤로"는 **한 장씩** 간다 ★ ─────────────────────────────
   // 둘째 장에서 뒤로 누르면 첫 장, 첫 장에서 누르면 카메라 준비 화면이다.

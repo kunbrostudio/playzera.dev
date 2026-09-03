@@ -110,6 +110,212 @@ export function playGameOverJingle() {
   } catch { /* 무시 */ }
 }
 
+// ── 스토리 연출음 (폭발·불꽃·대사 넘김·성공 배경음) ★ ───────────
+//
+// 쥬라기 대탐험의 스토리 장면 전용이지만, 여기 두는 이유는 위 판정음과
+// 같다 — 장면 하나 때문에 새 mp3 파일을 받는 라운드를 또 돌리지 않으려고.
+// 실제 곡·효과음 생성 도구는 이 프로젝트 용도로는 못 쓴다(게임 파이프라인
+// 전용) — 코드로 합성하는 게 유일한 선택이면서, 마침 이미 있는 방식이다.
+
+function noiseBuffer(ctx, sec) {
+  const n = Math.max(1, Math.round(ctx.sampleRate * sec));
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
+// 화산 폭발/지진 — 번개 같은 크랙 + 여러 번 흩어져 터지는 쿵 + 굴러가는
+// 저역 rumble(천둥 꼬리). 한 번의 "쿵"만으로는 심심하다는 요청(ken, 9/2)에
+// 맞춰 타이밍·피치를 매번 흩뜨려서 터질 때마다 다르게 들리게 했고, 전체
+// 볼륨도 키웠다(판정음보다 이 소리가 장면의 주인공이라 더 커도 된다).
+export function playQuakeBoom() {
+  if (!unlocked || sfxMuted) return;
+  try {
+    const ctx = getActx();
+    const t0 = ctx.currentTime;
+
+    // 번개 크랙 — 아주 짧고 날카로운 고역 노이즈 한 번
+    const crack = ctx.createBufferSource();
+    crack.buffer = noiseBuffer(ctx, 0.08);
+    const crackHp = ctx.createBiquadFilter();
+    crackHp.type = 'highpass';
+    crackHp.frequency.setValueAtTime(1800, t0);
+    const crackGain = ctx.createGain();
+    crackGain.gain.setValueAtTime(0.001, t0);
+    crackGain.gain.linearRampToValueAtTime(0.45, t0 + 0.006);
+    crackGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.09);
+    crack.connect(crackHp).connect(crackGain).connect(ctx.destination);
+    crack.start(t0);
+
+    // 연달아 터지는 쿵 2~3번 — 간격·피치를 매번 흩뜨린다("다양하게 터지는 느낌")
+    const booms = 2 + Math.floor(Math.random() * 2);
+    let at = t0 + 0.05;
+    for (let i = 0; i < booms; i++) {
+      const start = at;
+      const peak = 95 - i * 10 + Math.random() * 14;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(peak, start);
+      osc.frequency.exponentialRampToValueAtTime(28 + Math.random() * 10, start + 0.55);
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.75, start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.8);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.85);
+
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer(ctx, 0.7);
+      const nf = ctx.createBiquadFilter();
+      nf.type = 'lowpass';
+      nf.frequency.setValueAtTime(450 + Math.random() * 200, start);
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.001, start);
+      ng.gain.linearRampToValueAtTime(0.34, start + 0.05);
+      ng.gain.exponentialRampToValueAtTime(0.001, start + 0.7);
+      noise.connect(nf).connect(ng).connect(ctx.destination);
+      noise.start(start);
+
+      at += 0.22 + Math.random() * 0.22;
+    }
+
+    // 천둥처럼 뒤에서 길게 우르릉거리는 저역 rumble
+    const rumbleStart = t0 + 0.1;
+    const rumble = ctx.createBufferSource();
+    rumble.buffer = noiseBuffer(ctx, 1.6);
+    const rf = ctx.createBiquadFilter();
+    rf.type = 'lowpass';
+    rf.frequency.setValueAtTime(220, rumbleStart);
+    rf.frequency.linearRampToValueAtTime(130, rumbleStart + 1.6);
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.001, rumbleStart);
+    rg.gain.linearRampToValueAtTime(0.3, rumbleStart + 0.3);
+    rg.gain.exponentialRampToValueAtTime(0.001, rumbleStart + 1.6);
+    rumble.connect(rf).connect(rg).connect(ctx.destination);
+    rumble.start(rumbleStart);
+  } catch { /* 무시 */ }
+}
+
+// 엔딩 폭죽 — 반짝이는 아르페지오 + 톡톡 튀는 스파클
+export function playFirework() {
+  if (!unlocked || sfxMuted) return;
+  try {
+    const ctx = getActx();
+    const t0 = ctx.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5-E5-G5-C6
+    notes.forEach((f, i) => {
+      const start = t0 + i * 0.09;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(f, start);
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.4);
+    });
+    [0.05, 0.22].forEach(delay => {
+      const start = t0 + delay;
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer(ctx, 0.12);
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.setValueAtTime(3500, start);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, start);
+      g.gain.linearRampToValueAtTime(0.14, start + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, start + 0.12);
+      noise.connect(hp).connect(g).connect(ctx.destination);
+      noise.start(start);
+    });
+  } catch { /* 무시 */ }
+}
+
+// 게임 시작 신호 — 인트로 마지막 장면에서 한 번(`scene.stinger === 'start'`).
+// 짧고 씩씩한 상승음 3개 + 끝에 힘주는 스퀘어 파형 한 음. 폭발음(트라이앵글·
+// 저역 위주)과 톤이 달라서 뒤이어 울려도 안 묻힌다.
+export function playGameStart() {
+  if (!unlocked || sfxMuted) return;
+  try {
+    const ctx = getActx();
+    const t0 = ctx.currentTime;
+    const notes = [392.00, 493.88, 587.33, 783.99]; // G4-B4-D5-G5
+    notes.forEach((f, i) => {
+      const last = i === notes.length - 1;
+      const start = t0 + i * 0.11;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = last ? 'square' : 'triangle';
+      osc.frequency.setValueAtTime(f, start);
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(last ? 0.22 : 0.18, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + (last ? 0.5 : 0.16));
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + (last ? 0.52 : 0.18));
+    });
+  } catch { /* 무시 */ }
+}
+
+// 대사 줄이 바뀔 때 — 짧은 "톡" 한 번
+export function playLineBlip() {
+  if (!unlocked || sfxMuted) return;
+  try {
+    const ctx = getActx();
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(720, t0);
+    gain.gain.setValueAtTime(0.001, t0);
+    gain.gain.linearRampToValueAtTime(0.14, t0 + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.09);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.1);
+  } catch { /* 무시 */ }
+}
+
+// 엔딩 배경음악 — 귀여운 성공 멜로디 루프. 실제 파일 대신 장조 5음계를
+// 실로폰처럼(트라이앵글 파형) 튕겨서 만든다. `bgmMuted`는 다음 마디
+// 시작(약 2.9초 주기)에 반영된다 — 정교한 실시간 음소거보다 훨씬 간단하고,
+// 엔딩 화면에서 음소거를 튕기는 일은 드물어서 그 정도면 충분하다.
+let victoryTimer = null;
+export function startVictoryLoop() {
+  if (victoryTimer) return;
+  const bar = () => {
+    if (unlocked && !bgmMuted) {
+      try {
+        const ctx = getActx();
+        const t0 = ctx.currentTime;
+        const melody = [523.25, 659.25, 783.99, 1046.50, 880.00, 783.99, 659.25, 523.25];
+        melody.forEach((f, i) => {
+          const start = t0 + i * 0.34;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(f, start);
+          gain.gain.setValueAtTime(0.001, start);
+          gain.gain.linearRampToValueAtTime(0.16, start + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, start + 0.3);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(start);
+          osc.stop(start + 0.32);
+        });
+      } catch { /* 무시 */ }
+    }
+    victoryTimer = setTimeout(bar, 2900);
+  };
+  bar();
+}
+export function stopVictoryLoop() {
+  if (victoryTimer) { clearTimeout(victoryTimer); victoryTimer = null; }
+}
+
 export function isBgmMuted() { return bgmMuted; }
 export function toggleBgmMute() {
   bgmMuted = !bgmMuted;

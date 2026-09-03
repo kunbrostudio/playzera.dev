@@ -29,10 +29,24 @@ export const HIT_WINDOW = 2.2
  * 매 프레임 다시 계산한다. z를 저장해 두고 빼 나가면 부동소수 오차가 쌓여
  * 레벨 끝에서 타이밍이 어긋난다.
  */
-export function buildCourse3d(levelIdx) {
-  const { events, duration, approachSec, speed } = buildCourse(levelIdx)
+/**
+ * @param {number} levelIdx
+ * @param {number} [speedMult] 그대로 `buildCourse`에 넘긴다(`core/runnerSpeed.js`).
+ */
+export function buildCourse3d(levelIdx, speedMult = 1) {
+  const { events, duration, approachSec, speed } = buildCourse(levelIdx, speedMult)
   return {
     speed, duration, approachSec,
+    // ── 판정 창도 같은 배율로 넓힌다 ★ ──────────────────────────
+    // `atHit`이 보는 실제 시간 폭은 `hitWindow / (speed × UNITS_PER_SPEED)`다.
+    // `speed`에 이미 `speedMult`가 곱해져 있으니, 여기서 `hitWindow`도 같은
+    // 배율로 곱하면 배율이 **분자·분모에서 서로 지워져 초 단위 폭이 그대로
+    // 남는다** — "매우 빠르게"를 골라도 화면은 훨씬 빨리 흐르는데 정작
+    // 맞혀야 하는 순간의 여유(초)는 레벨 자체의 것과 같다. 배속은 **속도감을
+    // 위한 것**이지 손가락 반응 속도 시험이 아니다(ken 요청, 9/3 — "매우
+    // 빠르게가 너무 느려" 뒤에 나온 요청이라, 배율을 크게 올려도 이 보정이
+    // 없으면 판정이 사실상 불가능해진다).
+    hitWindow: HIT_WINDOW * speedMult,
     // 얕은 복사를 쓴다. 원본을 고치면 기존 게임에 영향이 간다.
     events: events.map((e, i) => ({ ...e, id: i, done: false, lane: e.lane })),
     /** 지금 시각 기준으로 이 이벤트가 몇 유닛 앞인가. 음수면 뒤로 지나갔다. */
@@ -68,9 +82,12 @@ export function visibleEvents(course, now, far) {
  * 이 이벤트를 지금 판정해야 하나.
  *
  * 시간으로 본다 — z로 보면 speed가 바뀔 때 창의 폭이 같이 변한다.
+ *
+ * @param {number} [window] 판정 창(유닛). 기본은 `HIT_WINDOW` — 안 주면 예전과
+ *   같다. 배속을 곱한 코스는 `course.hitWindow`를 넘긴다(위 `buildCourse3d`).
  */
-export const atHit = (e, now, speed) =>
-  Math.abs(e.hitTime - now) * speed * UNITS_PER_SPEED <= HIT_WINDOW
+export const atHit = (e, now, speed, window = HIT_WINDOW) =>
+  Math.abs(e.hitTime - now) * speed * UNITS_PER_SPEED <= window
 
 /**
  * 큐브가 막는 레인을 **스폰 시점에** 정한다.
@@ -89,8 +106,13 @@ export function assignCubeLane(e, charLane, lanes = 3, rnd = Math.random) {
   //
   // 빈 칸 중에서 뽑아 이벤트에 적어 둔다. 한 번 정하면 안 바뀌므로 팻말이
   // 도중에 반대쪽으로 뒤집히지도 않는다. 2D 러너도 같은 방식이다(`e.hintLane`).
+  //
+  // **한 칸 거리만 고른다.** charLane과 다르기만 하면 된다고 뒀더니(예: 3칸
+  // 트랙에서 0칸이 막히면 1·2칸이 둘 다 후보), 가운데를 건너뛰고 반대쪽
+  // 끝까지 두 칸을 한 번에 움직이는 회피가 가끔 나왔다 — 아이가 실제로
+  // 몸으로 한 칸씩 옮겨 피하는 동작과 안 맞는다(ken 요청, 9/2).
   const free = []
-  for (let i = 0; i < lanes; i++) if (i !== charLane) free.push(i)
+  for (let i = 0; i < lanes; i++) if (Math.abs(i - charLane) === 1) free.push(i)
   e.hintLane = free.length ? free[Math.floor(rnd() * free.length)] : charLane
 }
 

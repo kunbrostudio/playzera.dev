@@ -148,6 +148,82 @@ describe('코스 — 규칙은 기존 것을 쓴다 ★', () => {
     }
   })
 
+  describe('★ 속도 설정 배율 (ken 요청, 9/3)', () => {
+    it('speed에는 곱하고 approachSec은 그대로 둔다 — 반응 여유는 안 줄인다', async () => {
+      const { buildCourse } = await import('../src/games/runner/game/course.js')
+      const base = buildCourse(0)
+      const fast = buildCourse(0, 1.6)
+      expect(fast.speed).toBeCloseTo(base.speed * 1.6, 6)
+      expect(fast.approachSec).toBe(base.approachSec)
+    })
+
+    it('배율이 세지면 같은 판이 더 빨리 끝난다 — 간격도 같이 줄어든다', async () => {
+      const { buildCourse } = await import('../src/games/runner/game/course.js')
+      const base = buildCourse(0)
+      const fast = buildCourse(0, 1.6)
+      expect(fast.events.length).toBe(base.events.length)   // 장애물 개수는 그대로
+      expect(fast.duration).toBeLessThan(base.duration)     // 빨리 끝난다
+    })
+
+    it('안 주면(기본 1) 예전과 완전히 같다 — 순수 함수라 다른 테스트를 안 깬다', async () => {
+      const { buildCourse } = await import('../src/games/runner/game/course.js')
+      const a = buildCourse(0)
+      const b = buildCourse(0, 1)
+      expect(b).toEqual(a)
+    })
+
+    it('course3d까지 그대로 전달된다', async () => {
+      const { buildCourse3d } = await import('../src/games/runner3d/course3d.js')
+      const base = buildCourse3d(0)
+      const fast = buildCourse3d(0, 1.3)
+      expect(fast.speed).toBeCloseTo(base.speed * 1.3, 6)
+    })
+
+    it('★ 판정 창(hitWindow)도 같은 배율로 넓어져 — 실제 초 단위 여유는 그대로다', async () => {
+      // ken이 "매우 빠르게가 너무 느리다"고 다시 요청해서 배율을 크게
+      // 올렸다(1.6 → 2.5). 배율을 올려도 순간 판정이 불가능해지지 않는
+      // 이유가 이 보정이다 — hitWindow가 speed와 같은 배율로 커져서
+      // window(units) / (speed(units/sec)) = 초 단위 여유가 배율과
+      // 무관하게 일정해야 한다.
+      const { buildCourse3d, HIT_WINDOW } = await import('../src/games/runner3d/course3d.js')
+      for (const mult of [1, 1.3, 2.5]) {
+        const c = buildCourse3d(0, mult)
+        expect(c.hitWindow).toBeCloseTo(HIT_WINDOW * mult, 6)
+        const windowSec = c.hitWindow / c.speed
+        const baseWindowSec = (HIT_WINDOW * 1) / buildCourse3d(0, 1).speed
+        expect(windowSec, `배율 ${mult}에서 초 단위 여유가 달라졌다`).toBeCloseTo(baseWindowSec, 6)
+      }
+    })
+
+    it('atHit은 배율 없이 부르면(기본 HIT_WINDOW) 예전과 같다', async () => {
+      const { atHit, HIT_WINDOW } = await import('../src/games/runner3d/course3d.js')
+      const { UNITS_PER_SPEED } = await import('../src/games/runner3d/scene.js')
+      const e = { hitTime: 10 }
+      // 판정 창 경계 — 딱 안쪽/바깥쪽
+      const speed = 1.6
+      const insideNow = 10 - (HIT_WINDOW - 0.01) / (speed * UNITS_PER_SPEED)
+      const outsideNow = 10 - (HIT_WINDOW + 0.5) / (speed * UNITS_PER_SPEED)
+      expect(atHit(e, insideNow, speed)).toBe(true)
+      expect(atHit(e, outsideNow, speed)).toBe(false)
+    })
+
+    it('★ play3d.js는 배속이 곱해진 course.speed로 화면을 굴린다', async () => {
+      // `view.update(dt, speed)`의 speed가 `CONFIG.levels[level].speed`(배속 전
+      // 원본)면, 배경·프롭은 원래 속도로 흐르는데 장애물의 실제 z 위치는
+      // `course.speed`(배속 반영)로 계산돼 **둘이 어긋난다** — 배속을 올려도
+      // 화면이 그만큼 안 빨라진 것처럼 보인 원인이었다. 소스에서 이 자리를
+      // 직접 본다 — 카메라·three.js가 얽혀 있어 루프를 통째로 실행하긴 무겁다.
+      const fs = await import('node:fs')
+      const src = fs.readFileSync('src/games/runner3d/play3d.js', 'utf8')
+      const noComments = s => s.split('\n')
+        .filter(l => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n')
+      expect(noComments(src), 'view.update가 배속 전 원본 speed를 쓴다')
+        .not.toMatch(/view\.update\(dt,\s*CONFIG\.levels\[level\]\.speed\)/)
+      expect(noComments(src), 'view.update가 course.speed를 안 쓴다')
+        .toMatch(/view\.update\(dt,\s*view\.course\.speed\)/)
+    })
+  })
+
   it('원본을 건드리지 않는다 — 기존 게임에 영향이 가면 안 된다', async () => {
     const { buildCourse } = await import('../src/games/runner/game/course.js')
     const { buildCourse3d, assignCubeLane } = await import('../src/games/runner3d/course3d.js')
@@ -225,6 +301,111 @@ describe('코스 — 규칙은 기존 것을 쓴다 ★', () => {
       assignCubeLane(r, 2)
       expect(r.hintLane).toBeLessThan(2)        // 오른쪽 끝이 막혔으면 왼쪽
     }
+  })
+
+  it('★ 회피는 언제나 한 칸이다 — 가운데를 건너뛰어 반대편으로 안 간다(ken 지적, 9/2)', async () => {
+    const { assignCubeLane } = await import('../src/games/runner3d/course3d.js')
+    // 3칸 트랙에서 한 칸 거리가 아닌 유일한 조합은 0↔2다. 그게 안 나오는지
+    // charLane 0·1·2 전부에서 여러 번 뽑아 확인한다.
+    for (const charLane of [0, 1, 2]) {
+      for (let i = 0; i < 40; i++) {
+        const e = { type: 'cube', lane: null }
+        assignCubeLane(e, charLane)
+        expect(Math.abs(e.hintLane - charLane), `charLane=${charLane} → hintLane=${e.hintLane}`).toBe(1)
+      }
+    }
+  })
+})
+
+describe('포즈 사인판 — 양쪽 다 나온다 ★', () => {
+  // 채점(`poseMatch.js`의 `mirrorFeatures`)은 원래 좌우 어느 쪽이든 통과시킨다.
+  // 그런데 사인판·캐릭터 시범이 늘 한쪽만 보여주면 아이는 반대쪽을 할 생각을
+  // 못 한다. 여기서는 **번갈아 뒤집히는지**를 본다 — 어느 쪽이 "정답"인지가
+  // 아니라, 한쪽으로 쏠리지 않는지가 핵심이다(8/26에 큐브가 그랬다).
+
+  it('팔벌리기(armsopen)는 좌우 대칭이라 절대 안 뒤집는다', async () => {
+    const { buildCourse } = await import('../src/games/runner/game/course.js')
+    for (let lv = 0; lv < 5; lv++) {
+      const c = buildCourse(lv)
+      for (const e of c.events.filter(e => e.pose === 'armsopen')) {
+        expect(e.mirror, `레벨${lv}`).toBeFalsy()
+      }
+    }
+  })
+
+  it('런지·옆구리늘리기는 나올 때마다 번갈아 뒤집힌다', async () => {
+    const { buildCourse } = await import('../src/games/runner/game/course.js')
+    // 사이클이 여럿인 레벨(3~5, 0-idx 2~4)에서 같은 자세가 여러 번 나온다.
+    for (const lv of [2, 3, 4]) {
+      const c = buildCourse(lv)
+      for (const pose of ['lunge', 'forwardbend']) {
+        const mirrors = c.events.filter(e => e.pose === pose).map(e => !!e.mirror)
+        expect(mirrors.length, `레벨${lv}·${pose}`).toBeGreaterThan(1)
+        // 바로 옆 사이클과는 반대쪽이어야 한다 — 매번 같은 쪽이면
+        // "번갈아"가 아니라 그냥 고정이다.
+        for (let i = 1; i < mirrors.length; i++) {
+          expect(mirrors[i], `레벨${lv}·${pose} ${i}번째`).toBe(!mirrors[i - 1])
+        }
+      }
+    }
+  })
+
+  it('레벨마다 시작하는 쪽이 다르다 — 짧은 레벨(1·2)도 서로 갈린다', async () => {
+    const { buildCourse } = await import('../src/games/runner/game/course.js')
+    // 레벨 1·2(0-idx 0·1)는 사이클이 하나뿐이라 그 안에서는 못 번갈이지만,
+    // 레벨을 이어서 하면(1→2→3…) 최소한 그 사이에서는 갈려야 고르게 섞인다.
+    const first = lv => buildCourse(lv).events.find(e => e.pose === 'lunge').mirror
+    expect(!!first(0)).not.toBe(!!first(1))
+  })
+
+  it('같은 레벨은 다시 만들어도 항상 같은 순서다 — 무작위가 아니다', async () => {
+    const { buildCourse } = await import('../src/games/runner/game/course.js')
+    const a = buildCourse(3).events.filter(e => e.type === 'poseSign').map(e => e.mirror)
+    const b = buildCourse(3).events.filter(e => e.type === 'poseSign').map(e => e.mirror)
+    expect(b).toEqual(a)
+  })
+})
+
+describe('사인판·캐릭터가 뒤집힌 방향을 실제로 보여준다 ★', () => {
+  // 방향을 정하기만 하고 그리는 쪽이 안 따라가면 아무 의미가 없다. 인스턴스의
+  // 변환 행렬과 캐릭터 스프라이트의 스케일을 직접 풀어서 x가 뒤집혔는지 본다.
+
+  it('obstacles3d — mirror가 있는 사인판만 scale.x가 음수다', async () => {
+    const { createObstacles } = await import('../src/games/runner3d/obstacles3d.js')
+    const { eventX } = await import('../src/games/runner3d/course3d.js')
+    const obs = createObstacles(m => m)   // withCurve는 여기선 그대로 통과시킨다
+
+    const plain = { type: 'poseSign', pose: 'lunge', lane: 0, mirror: false }
+    const flipped = { type: 'poseSign', pose: 'lunge', lane: 0, mirror: true }
+    obs.sync([{ e: plain, z: -10 }, { e: flipped, z: -20 }], 3, eventX)
+
+    // 반환값(`meshes`)은 키 없이 배열로 오므로, 이 사인판만 인스턴스가
+    // 둘(정방향 1 + 반전 1)이라는 것으로 골라낸다.
+    const lungeMesh = obs.meshes.find(m => m.count === 2)
+    expect(lungeMesh, '런지 인스턴스 두 개짜리 메시를 못 찾았다').toBeTruthy()
+
+    const mat = new THREE.Matrix4()
+    const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scale = new THREE.Vector3()
+    lungeMesh.getMatrixAt(0, mat); mat.decompose(pos, quat, scale)
+    expect(scale.x, '안 뒤집힌 것').toBeCloseTo(1, 6)
+    lungeMesh.getMatrixAt(1, mat); mat.decompose(pos, quat, scale)
+    expect(scale.x, '뒤집힌 것').toBeCloseTo(-1, 6)
+
+    obs.dispose()
+  })
+
+  it('character — setPose가 mirror를 받아 scale.x를 뒤집게 짜여 있다', async () => {
+    // `createCharacter`는 실제 PNG를 `Image`로 읽어 아틀라스를 굽는다(`buildAtlas`) —
+    // 이 프로젝트의 테스트 환경(Node, DOM 없음)에는 이미지 디코더가 없어 실행할
+    // 수 없다(`docs/04`: 그림·카메라·좌우반전처럼 브라우저에서만 확인되는 것은
+    // 추측하지 않고 확인을 요청한다 — 실기기 확인은 `#/lab3d`). 여기서는 대신
+    // **배선이 실제로 있는지**를 소스에서 확인한다 — 위 obstacles3d 테스트와
+    // 짝이다(사인판은 실행해서, 캐릭터는 읽어서 검증).
+    const fs = await import('node:fs')
+    const src = fs.readFileSync('src/games/runner3d/character.js', 'utf8')
+    expect(src, 'setPose가 mirror 인자를 안 받는다').toMatch(/setPose\(p,\s*mirror/)
+    expect(src, 'apply()가 pose 반전을 안 쓴다').toMatch(/pose\s*&&\s*poseMirror/)
+    expect(src, '스케일에 반전을 안 곱한다').toContain('s * flip')
   })
 })
 
@@ -462,9 +643,14 @@ describe('게임팩으로 묶기 ★', () => {
     // `if (motion)` 블록만 잘라 본다 — 키보드 쪽에 있는 것으로는 안 된다.
     // 끝은 키보드 매핑(`POSE_KEY`)이 시작하는 자리다.
     const from = src.indexOf('if (motion)')
-    const motion = src.slice(from, src.indexOf('const POSE_KEY', from))
+    const motion = src.slice(from, from + 2000)
     expect(motion.length, '모션 블록을 못 찾았다').toBeGreaterThan(0)
-    expect(motion, 'onLandmarks 안에서 자세를 채점하지 않는다').toContain('matchPose')
+    // `jointScores`가 `matchPose`를 대체했다(9/2) — 총점만 필요했을 때는
+    // `matchPose`로 충분했는데, 런지·옆구리늘리기를 좌우 반전해서 보여주려면
+    // **어느 쪽으로 맞았나**(`mirrored`)도 있어야 해서 상세 채점으로 바꿨다.
+    // 채점 자체(관절각·문턱)는 그대로다 — `poseMatch.js`의 `matchDetail`을
+    // 부르는 얇은 이름만 다르다.
+    expect(motion, 'onLandmarks 안에서 자세를 채점하지 않는다').toContain('jointScores')
     // 채점기는 2D 러너와 **한 벌**이어야 한다
     expect(src).toContain("from '../runner/input/poseMatcher.js'")
   })

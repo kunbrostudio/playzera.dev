@@ -778,7 +778,7 @@ async function showSoloGame(app, gameId, manifest, ready) {
 
   let lastLandmarks = null
 
-  // 아이가 "키보드로 하기"를 골랐으면 **카메라를 열지 않는다.**
+  // 아이가 "키보드 모드"를 골랐으면 **카메라를 열지 않는다.**
   // 지금까지는 준비 화면이 없어서 무조건 열었는데, 이제는 고를 수 있게 물어봤다.
   // 물어봐 놓고 무시하면 물어본 의미가 없고, 카메라를 켜둔 만큼 발열도 는다.
   if (ready?.mode === 'keyboard') {

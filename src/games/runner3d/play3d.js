@@ -22,7 +22,10 @@ import { hasReward, mountReward } from '../../progress/rewardView.js'
 import { CONFIG } from '../runner/config.js'
 // 자세 채점은 **2D 러너와 같은 것**을 쓴다. 두 벌이 되면 반드시 어긋나고,
 // 아이는 같은 동작을 게임마다 다르게 판정받는다.
-import { matchPose } from '../runner/input/poseMatcher.js'
+// `jointScores`는 총점 옆에 `mirrored`(어느 쪽으로 맞았나)도 준다 —
+// 런지·옆구리늘리기처럼 좌우가 있는 자세에서 캐릭터가 아이가 실제로
+// 하는 쪽을 그대로 보여주는 데 쓴다(아래 카메라 판정, `character.js`의 `setPose`).
+import { matchPose, jointScores } from '../runner/input/poseMatcher.js'
 import { hudMarkup, ensureHudStyle, updateHud } from '../runner/ui/hud.js'
 // 방향 힌트·카운트다운·배너 그림은 러너들이 같이 쓴다(`_shared/`).
 import {
@@ -37,7 +40,15 @@ import {
   toggleBgmMute, toggleSfxMute, playMissBuzz, playGameOverJingle,
 } from '../runner/audio.js'
 import { ACTION } from './judge.js'
+// 자동재생 — 카메라도 손도 없이 코스를 미리 보고 대신 진행한다(ken 요청 9/2).
+// 러너를 모르는 순수 로직이라 여기서는 캐릭터를 감싸 넘기기만 한다.
+import { createAutopilot } from '../runner/game/autopilot.js'
+// 속도 설정 — 타이틀 화면에서 고른 배율을 씬을 만들 때 한 번 읽는다(ken 요청, 9/3).
+import { runnerSpeedMultiplier } from '../../core/runnerSpeed.js'
 import { showTitle3d, showTutorial3d } from './screens.js'
+// 스토리 대화는 **이 게임(쥬라기 대탐험)만** 쓴다. `manifest.story`가 없으면
+// 아래에서 전부 건너뛴다 — 엔진은 여전히 스토리가 있는지 모른다.
+import { showStoryScene } from './storyDialogue.js'
 import { markPlayed } from '../../core/recent.js'
 
 const LEVELS = CONFIG.levels.length
@@ -205,6 +216,10 @@ export function makeRunner3dPlay(manifest) {
   // 그건 준비 화면이 잡아 둔 참조로 충분하다(`ready`가 아직 안 놓았다).
   let ready = null
   let motion = false
+  // 카메라도 손도 없이 자동조종이 대신 진행하는 판인지(`runner/game/autopilot.js`,
+  // ken 요청 9/2). 카메라 준비 화면에서 고른다 — "카메라가 없을 때"의
+  // 대체가 아니라 항상 나란히 뜨는 선택지다(`readyScreen.js`의 `allowAuto`).
+  let auto = false
   title: for (;;) {
     // **결과를 받는다.** 콜백으로 빼 뒀더니 허브를 눌러도 약속이 안 풀려
     // 여기서 영원히 멈췄다 — 화면은 비고 그 아래 직전 게임의 배경이 드러났다.
@@ -212,7 +227,7 @@ export function makeRunner3dPlay(manifest) {
     playSfx('button_press')
     markPlayed(manifest.id)
 
-    for (;;) {
+    ready_loop: for (;;) {
       // 칸 수 선택은 안 붙인다. 이 게임은 3칸 고정이다 — 코스(`course.js`)가
       // 3칸을 전제로 짜여 있고, 그걸 바꾸면 밸런스가 다른 게임이 된다.
       // 준비 화면에 **이 게임의 세계**를 깐다. 기본 보라색은 어느 게임에도 안
@@ -221,23 +236,100 @@ export function makeRunner3dPlay(manifest) {
       ready = await showReadyScreen(app, {
         title: '카메라 준비', showZones: true,
         backdrop: manifest.titleBg ?? manifest.hero,
+        allowAuto: true,
       })
       if (ready.mode === 'back') { ready.release(); continue title }
-      motion = ready.mode !== 'keyboard'
+      motion = ready.mode === 'motion'
+      auto = ready.mode === 'auto'
 
-      // ── 튜토리얼 ──
-      // **매 판 띄운다.** `hasSeenTutorial`로 첫 판에만 띄웠더니 한 번 보고
-      // 나면 다시는 안 떴다. 2.5D 러너 셋은 매 판 띄운다 — 넘어가는 데 1초도
-      // 안 걸리고(건너뛰기), 몸으로 하는 게임에서는 **판 시작 전에 한 번
-      // 움직여 보는 것 자체가 준비운동**이다.
-      const way = await showTutorial3d(app, manifest, {
-        keyboard: !motion,
-        subscribe: tutorialInput(motion),
-      })
-      if (way === 'hub') { ready.release(); navigate(backTo); return }
-      if (way === 'title') { ready.release(); continue title }
-      if (way === 'back') { ready.release(); continue }     // 카메라 준비로
-      break title                                           // 'done'
+      // 스토리 인트로에서 "뒤로"를 누르면 튜토리얼 **둘째 장**부터 다시
+      // 보여준다(`tutStart`) — 한 번에 두 단계를 건너뛰지 않게(아래).
+      let tutStart = 1
+      for (;;) {
+        // ── 튜토리얼 ──
+        // **매 판 띄운다.** `hasSeenTutorial`로 첫 판에만 띄웠더니 한 번 보고
+        // 나면 다시는 안 떴다. 2.5D 러너 셋은 매 판 띄운다 — 넘어가는 데 1초도
+        // 안 걸리고(건너뛰기), 몸으로 하는 게임에서는 **판 시작 전에 한 번
+        // 움직여 보는 것 자체가 준비운동**이다.
+        //
+        // ── 자동재생은 건너뛴다 ★ ──────────────────────────────
+        // 튜토리얼은 "아이가 세 동작을 직접 해보는" 화면이다. 자동재생은
+        // 아무도 동작을 안 하니 보여줄 게 없다 — `tutorialInput(motion)`도
+        // 구독할 카메라·키보드가 없어서 그냥 영원히 안 끝난다.
+        const way = auto ? 'done' : await showTutorial3d(app, manifest, {
+          keyboard: !motion,
+          subscribe: tutorialInput(motion),
+          startPage: tutStart,
+        })
+        if (way === 'hub') { ready.release(); navigate(backTo); return }
+        if (way === 'title') { ready.release(); continue title }
+        if (way === 'back') { ready.release(); continue ready_loop }   // 카메라 준비로
+
+        // way === 'done'
+        //
+        // ── 스토리: 인트로 ★ ──────────────────────────────────
+        // 튜토리얼 다음, 판이 시작하기 전이다. **아직 `record`가 없다** —
+        // 여기서 "뒤로"를 눌러도 저장할 운동이 없으니 튜토리얼로 돌아가면
+        // 그만이고(`quit()`을 안 거친다), 확정된 나가기(Home)도 없어서
+        // 인트로에는 홈 대신 **뒤로** 버튼을 쓴다(`backButton`, ken 요청, 9/2).
+        //
+        // 인트로가 여러 장면(평온 → 흔들림 → 폭발 → 다짐)으로 늘어나서
+        // (9/2) 장면 사이도 한 단계씩 뒤로 가게 만들었다 — 첫 장면에서
+        // "뒤로"는 튜토리얼로, 그 뒤 장면에서는 **바로 앞 장면**으로.
+        //
+        // ── 스킵 ★ ──────────────────────────────────────────────
+        // 판을 다시 시작할 때마다(`onAgain`이 `location.reload()`라 인트로도
+        // 매번 새로 뜬다) 같은 이야기를 또 보고 싶지 않을 수 있다(ken 요청,
+        // 9/2). 스킵하면 어느 장면에 있든 **마지막 장면의 마지막 줄**(소년의
+        // 출발 대사 — 게임 시작 신호음이 여기서 난다)로 곧장 건너뛴다.
+        // 장면째 건너뛰면 그 장면의 첫 줄부터 다시 읽어야 해서 "스킵인데도
+        // 덜 스킵됐다"가 된다 — `startLine: 'last'`로 그 장면의 줄까지 건너뛴다.
+        if (manifest.story?.intro) {
+          const introScenes = manifest.story.intro.scenes ?? []
+          let sceneIdx = 0
+          let introBackToTutorial = false
+          let jumpToLastLine = false
+          while (sceneIdx < introScenes.length) {
+            const isLast = sceneIdx === introScenes.length - 1
+            // 스킵은 마지막 장면 앞까지만 — 이미 마지막인데 스킵은 의미가
+            // 없다. 마지막 장면은 대신 "시작" 버튼을 켠다(`startAction`,
+            // ken 요청, 9/2) — 자동 넘김은 그대로다.
+            const introResult = await showStoryScene(
+              app, introScenes[sceneIdx], manifest.story.cast, {
+                backButton: true, skippable: !isLast, startAction: isLast,
+                startLine: jumpToLastLine ? 'last' : undefined,
+                canGoBack: sceneIdx > 0,
+              },
+            )
+            jumpToLastLine = false
+            if (introResult === 'back') {
+              if (sceneIdx === 0) { introBackToTutorial = true; break }
+              sceneIdx--
+              continue
+            }
+            // 대사창 안 "이전"을 장면 첫 줄에서 눌렀다 — 앞 장면의
+            // **마지막 줄**부터 이어받는다(줄이 하나로 이어지는 것처럼).
+            // 위 `backButton`(왼쪽 위 "뒤로")과는 다른 버튼·다른 결과다 —
+            // 그건 장면째 처음으로 되돌아가고, 이건 줄 단위로 한 걸음만 간다.
+            if (introResult === 'prevScene') {
+              sceneIdx--
+              jumpToLastLine = true
+              continue
+            }
+            if (introResult === 'skip') {
+              sceneIdx = introScenes.length - 1
+              jumpToLastLine = true
+              continue
+            }
+            // 나가기(X) → 확인창의 "게임 처음으로" — 튜토리얼의 같은
+            // 버튼과 똑같이 이 게임의 타이틀로 보낸다.
+            if (introResult === 'title') { ready.release(); continue title }
+            sceneIdx++              // 'done' — 다음 장면으로
+          }
+          if (introBackToTutorial) { tutStart = 2; continue }   // 튜토리얼 둘째 장으로
+        }
+        break title
+      }
     }
   }
 
@@ -262,8 +354,8 @@ export function makeRunner3dPlay(manifest) {
       <canvas id="r3-cv"></canvas>
       <div id="r3-flash"></div>
       ${cuesMarkup()}
-      ${hudMarkup()}
-      ${touchPadMarkup()}
+      ${hudMarkup({ auto })}
+      ${auto ? '' : touchPadMarkup()}
       ${sysBarMarkup({ home: false, exit: true })}
     </div>`
 
@@ -277,7 +369,7 @@ export function makeRunner3dPlay(manifest) {
 
   // three는 **여기서만** 부른다 — 허브 번들에 들어가면 안 된다
   const { createScene } = await import('./scene.js')
-  const view = createScene($('#r3-cv'))
+  const view = createScene($('#r3-cv'), { speedMult: runnerSpeedMultiplier() })
   // 하트를 몇 개 그릴지. **판이 시작할 때의 목숨**이 곧 최대치다 —
   // 숫자를 여기 또 적으면 `judge.js`의 기본값과 어긋난다.
   const LIVES = view.run.lives
@@ -289,7 +381,10 @@ export function makeRunner3dPlay(manifest) {
   let level = 0
   let activeMs = 0
   let over = false
-  const record = makeRecorder({ gameId: manifest.id, motion })
+  // 자동재생은 몸을 안 움직였으니 `motion=false`와 똑같이 EXP·배지 없이
+  // 기기에는 안 남긴다 — 다만 서버에는 "그냥 재생만 했다"가 구분되게
+  // `input_mode: 'auto'`로 남긴다(`gameShell.js`).
+  const record = makeRecorder({ gameId: manifest.id, motion, inputMode: auto ? 'auto' : undefined })
 
   // ── HUD ──
   // HUD는 **2D 러너와 같은 코드**가 그린다(`runner/ui/hud.js`).
@@ -306,6 +401,7 @@ export function makeRunner3dPlay(manifest) {
       jumps: r.exercise.jumps,
       squats: r.exercise.squats,
       sideSteps: r.exercise.side_steps,
+      auto,
     })
   }
 
@@ -369,6 +465,20 @@ export function makeRunner3dPlay(manifest) {
     duck:  () => { c()?.duck(true);   view.run.record('duck') },
   }
 
+  // ── 자동재생 ★ ────────────────────────────────────────────
+  // `act.*`가 아니라 캐릭터를 **직접** 움직인다 — `act.*`는 운동량을 세는
+  // 자리라(위 `holdPose` 주석과 같은 이유), 자동재생이 그 길로 들어가면
+  // 몸을 안 움직였는데 운동 기록이 쌓인다. `getCourse`를 매번 다시 읽는
+  // 이유는 `runner/game/autopilot.js`에 적었다 — 레벨이 바뀌면 코스
+  // 객체 자체가 새로 만들어진다.
+  const autopilot = auto ? createAutopilot(() => view.course, {
+    getLane: () => c()?.lane,
+    setLane: l => c()?.setLane(l),
+    jump: () => c()?.jump(),
+    duck: on => on ? c()?.duck(true) : c()?.duckEnd(),
+    setPose: (p, m) => c()?.setPose(p, m),
+  }, { lanes: 3 }) : null
+
   // ── 자세는 **한 곳으로 모은다** ★ ────────────────────────────
   //
   // 키보드와 카메라가 각자 `setPose`를 부르면 운동량을 세는 자리도 둘이 된다.
@@ -378,9 +488,12 @@ export function makeRunner3dPlay(manifest) {
   // 한 팻말에 한 번만 센다. 자세는 누르고 있는 동안 유지되므로, 프레임마다
   // 세면 "1초 서 있기"가 60회가 된다.
   let counted = null
-  function holdPose(p) {
-    c()?.setPose(p)
+  // `mirror`를 안 주면(키보드·화면 버튼) **사인판이 보여준 쪽**을 그대로 쓴다 —
+  // 그 입력들은 실제 몸 방향을 모르니, 사인판과 다른 쪽을 보여줄 근거가 없다.
+  // 카메라 쪽만 실제로 감지한 방향(`jointScores`의 `mirrored`)을 넘겨서 덮어쓴다.
+  function holdPose(p, mirror) {
     const sign = view.askedPose
+    c()?.setPose(p, mirror ?? sign?.mirror ?? false)
     if (p && sign && sign.pose === p && counted !== sign) {
       counted = sign
       // **판정과 따로 센다.** 늦어서 팻말을 놓쳤어도 자세는 잡은 것이고,
@@ -409,8 +522,16 @@ export function makeRunner3dPlay(manifest) {
       // 두 벌이 되면 반드시 어긋나고, 아이는 게임마다 다른 판정을 만난다.
       const sign = view.askedPose
       if (sign) {
-        const ok = matchPose(lms, sign.pose) >= CONFIG.pose.matchThreshold
-        holdPose(ok ? sign.pose : null)
+        // ── 아이가 실제로 어느 쪽으로 하고 있나 ★ ──────────────
+        // 채점(`poseMatch.js`의 `matchTargets`)은 원래 좌우 어느 쪽이든
+        // 통과시킨다 — 사인판이 왼쪽으로 나왔어도 아이가 오른쪽으로 했으면
+        // 그것대로 맞는 것이다. 그런데 캐릭터가 계속 사인판 쪽만 보여주면
+        // 아이 눈에는 "나는 반대로 했는데 캐릭터는 왜 저래"가 된다.
+        // `jointScores`가 채점 도중에 이미 계산해 둔 `mirrored`를 그대로
+        // 받아서 캐릭터가 아이가 실제로 하는 쪽을 보여주게 한다.
+        const detail = jointScores(lms, sign.pose)
+        const ok = detail.total >= CONFIG.pose.matchThreshold
+        holdPose(ok ? sign.pose : null, ok ? detail.mirrored : undefined)
       } else if (c()?.posing) {
         holdPose(null)          // 팻말이 지나갔으면 자세를 푼다
       }
@@ -422,6 +543,9 @@ export function makeRunner3dPlay(manifest) {
   // 키보드는 늘 열어 둔다 — 카메라가 안 되는 아이도 놀 수 있어야 한다.
   // 자세 키를 `e.code`로 읽는 이유는 위 `POSE_KEY` 주석에 있다.
   const onKey = e => {
+    // 자동재생 중에는 입력을 안 받는다 — 여기서 끼어들면 `act.*`가 운동량을
+    // 세고, "몸을 안 움직였으니 기록도 없다"는 자동재생의 약속이 깨진다.
+    if (auto) return
     if (e.code === 'ArrowLeft')  { e.preventDefault(); act.left() }
     if (e.code === 'ArrowRight') { e.preventDefault(); act.right() }
     if (e.code === 'ArrowUp' || e.code === 'Space') { e.preventDefault(); act.jump() }
@@ -430,6 +554,7 @@ export function makeRunner3dPlay(manifest) {
     if (p) { e.preventDefault(); holdPose(p) }
   }
   const onKeyUp = e => {
+    if (auto) return
     if (e.code === 'ArrowDown') c()?.duckEnd()
     if (POSE_KEY[e.code]) holdPose(null)
   }
@@ -467,15 +592,19 @@ export function makeRunner3dPlay(manifest) {
     if (!over && played) finish(false)
     go()
   }
-  bindTouchPad($('#r3'), {
-    left: act.left,
-    right: act.right,
-    jump: act.jump,
-    duckStart: act.duck,
-    duckEnd: () => c()?.duckEnd(),
-    poseDown: holdPose,
-    poseUp: () => holdPose(null),
-  }, padAbort.signal)
+  // 자동재생 화면에는 애초에 버튼을 안 그렸다(위 템플릿) — 누를 게 없는데
+  // 잇기만 하면 죽은 배선이 남는다.
+  if (!auto) {
+    bindTouchPad($('#r3'), {
+      left: act.left,
+      right: act.right,
+      jump: act.jump,
+      duckStart: act.duck,
+      duckEnd: () => c()?.duckEnd(),
+      poseDown: holdPose,
+      poseUp: () => holdPose(null),
+    }, padAbort.signal)
+  }
 
   let started = false
   // ── 한 번이라도 달렸나 ★ ────────────────────────────────────
@@ -514,7 +643,17 @@ export function makeRunner3dPlay(manifest) {
     if (!started || over || paused) { view.render(); return }
 
     activeMs += dt * 1000
-    view.update(dt, CONFIG.levels[level].speed)
+    // `view.course.speed`를 쓴다 — **배속(`core/runnerSpeed.js`)이 이미 곱해진
+    // 값**이다. `CONFIG.levels[level].speed`(배속 전 원본)를 그대로 썼더니
+    // 배경·프롭 스크롤은 원래 속도로 흐르는데 장애물의 실제 z 위치(`course3d.js`의
+    // `zOf`, `course.speed` 사용)는 배속대로 빨리 다가와 **둘이 어긋났다** —
+    // 배속을 올려도 화면이 그만큼 빨라진 것처럼 안 보인 이유가 이것이었다
+    // (ken 지적, 9/3 — "장애물이 다가오는 속도가 엄청 빨랐으면 좋겠어").
+    view.update(dt, view.course.speed)
+    // `view.update()` 다음이다 — 큐브가 레인을 이번 프레임에 막 받았을
+    // 수 있고(`assignCubeLane`), `view.now`도 이번 프레임 것으로 갱신된
+    // 뒤라야 자동조종이 지금 시각을 정확히 본다.
+    autopilot?.update(view.now)
     view.render()
     syncHint()
 
@@ -536,8 +675,39 @@ export function makeRunner3dPlay(manifest) {
         // 멈춰 두면 `firstDelay`가 **배너가 끝난 뒤부터** 흐른다.
         started = false
         playSfx('level_complete')
-        showCue(root, levelCompleteAsset(cleared), 1200).then(() => {
-          if (!left && !over) started = true
+        showCue(root, levelCompleteAsset(cleared), 1200).then(async () => {
+          if (left || over) return
+          // ── 스토리: 아기 공룡 발견 ★ ──────────────────────────
+          // 레벨 완료 배너 **다음**에 온다 — "레벨을 깼다"는 이미 배너가
+          // 말했으니 겹치지 않는다. 이 레벨에서만(`afterLevel`) 뜨고, 장면을
+          // **여러 장 이어서** 보여준다(발견 → 백팩에 업기) — 한 장에 다
+          // 몰면 그림 하나로 두 순간을 표현해야 한다. 다 지나면 그때부터
+          // 백팩 옆에 아기 공룡이 보인다(`character.js`의 `setCarrying`).
+          const found = manifest.story?.found
+          if (found && found.afterLevel === cleared) {
+            const foundScenes = found.scenes ?? []
+            // 인덱스로 도는 이유는 인트로와 같다(위 참고) — "이전"이 컷을
+            // 건너 앞으로 갈 수 있으려면 `for...of`로는 못 되돌아간다.
+            let fIdx = 0
+            let jumpToLastLine = false
+            while (fIdx < foundScenes.length) {
+              const result = await showStoryScene(root, foundScenes[fIdx], manifest.story.cast, {
+                canGoBack: fIdx > 0,
+                startLine: jumpToLastLine ? 'last' : undefined,
+              })
+              jumpToLastLine = false
+              if (left || over) return
+              if (result === 'home') { quit(() => navigate(backTo)); return }
+              // 나가기(X) → "게임 처음으로" — 인게임 시스템 바의 같은
+              // 버튼과 똑같이 `quit(restartGame)`을 쓴다(ken 요청, 9/2).
+              if (result === 'title') { quit(restartGame); return }
+              if (result === 'prevScene') { fIdx--; jumpToLastLine = true; continue }
+              fIdx++
+            }
+            await c()?.setCarrying(manifest.story.carryBubble, true)
+            if (left || over) return
+          }
+          started = true
         })
         hud()
       } else {
@@ -606,7 +776,33 @@ export function makeRunner3dPlay(manifest) {
       // 해냈다"보다 **"우리가 다 왔다"**에 가까운 화면이고, 한쪽만 서면
       // 화면 반이 빈다. 프로필로 갈리는 건 달리는 캐릭터다(`playerSkin`).
       cast: CHEER,
-    }).done.then(() => { if (!left) over_() })
+    }).done.then(async () => {
+      if (left) return
+      // ── 스토리: 엄마에게 돌아가기 ★ ────────────────────────────
+      // 무성 엔딩(`showEnding`) 다음이다. **`record`가 이미 위에서 불렸으니**
+      // 여기서 Home을 눌러도 운동 기록은 이미 저장돼 있다 — `quit()`을
+      // 안 거쳐도 된다.
+      const endingScenes = manifest.story?.ending?.scenes ?? []
+      // 인덱스로 도는 이유는 인트로와 같다(위 참고).
+      let eIdx = 0
+      let jumpToLastLine = false
+      while (eIdx < endingScenes.length) {
+        const result = await showStoryScene($('#r3'), endingScenes[eIdx], manifest.story.cast, {
+          canGoBack: eIdx > 0,
+          startLine: jumpToLastLine ? 'last' : undefined,
+        })
+        jumpToLastLine = false
+        if (left) return
+        if (result === 'home') { navigate(backTo); return }
+        if (result === 'title') { restartGame(); return }
+        if (result === 'prevScene') { eIdx--; jumpToLastLine = true; continue }
+        eIdx++
+      }
+      // 모든 미션을 다 깼을 때는 다시하기 버튼이 있는 결과 화면(`over_`)
+      // 대신 곧장 쥬라기 게임의 처음(인트로)으로 되돌린다(ken 요청, 9/2) —
+      // "한 번 더"가 이미 쓰는 길과 같다.
+      restartGame()
+    })
   }
 
   // 정리는 **맨 위의 목록**에 쌓는다(`cleanups`). 라우터는 `onLeave`를 하나만

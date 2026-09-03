@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import { showTitle3d, showTutorial3d } from '../src/games/runner3d/screens.js'
 import { CUE } from '../src/games/runner/ui/cues.js'
+import { SPEED_TIERS, getRunnerSpeedId } from '../src/core/runnerSpeed.js'
 
 const manifest = {
   id: 'test-runner', title: '테스트 러너',
@@ -95,6 +96,67 @@ describe('3D 러너 앞 화면 ★', () => {
       await Promise.resolve()
       expect(got, `${id}에서 안 풀렸다`).toBe(want)
     }
+  })
+
+  describe('★ 속도 설정 (ken 요청, 9/3)', () => {
+    beforeEach(() => localStorage.clear())   // 팝업이 기기에 남긴 값이 다음 테스트로 안 새게
+
+    it('기본은 "보통" — 안 골랐으면 배율 1이다', () => {
+      const app = host()
+      showTitle3d(app, manifest)
+      expect(app.querySelector('#r3-speed-label').textContent).toBe('보통')
+      expect(getRunnerSpeedId()).toBe('normal')
+    })
+
+    it('버튼을 누르면 팝업이 뜨고, 처음엔 닫혀 있다', () => {
+      const app = host()
+      showTitle3d(app, manifest)
+      const popup = app.querySelector('#r3-speed-popup')
+      expect(popup.classList.contains('hidden'), '처음부터 열려 있다').toBe(true)
+      app.querySelector('#r3-speed-btn').click()
+      expect(popup.classList.contains('hidden'), '눌러도 안 열린다').toBe(false)
+    })
+
+    it('★ 단계를 고르면 저장되고, 이름이 바뀌고, 팝업이 닫힌다', () => {
+      const app = host()
+      showTitle3d(app, manifest)
+      app.querySelector('#r3-speed-btn').click()
+      app.querySelector('.r3-speed-opt[data-id="veryFast"]').click()
+      expect(getRunnerSpeedId(), '기기에 안 남았다').toBe('veryFast')
+      expect(app.querySelector('#r3-speed-label').textContent).toBe('매우 빠르게')
+      expect(app.querySelector('#r3-speed-popup').classList.contains('hidden'), '안 닫혔다').toBe(true)
+    })
+
+    it('고른 단계에만 표시(.on)가 붙는다', () => {
+      const app = host()
+      showTitle3d(app, manifest)
+      app.querySelector('#r3-speed-btn').click()
+      app.querySelector('.r3-speed-opt[data-id="fast"]').click()
+      app.querySelector('#r3-speed-btn').click()
+      for (const t of SPEED_TIERS) {
+        const on = app.querySelector(`.r3-speed-opt[data-id="${t.id}"]`).classList.contains('on')
+        expect(on, `${t.id}의 on 상태가 잘못됐다`).toBe(t.id === 'fast')
+      }
+    })
+
+    it('닫기 버튼으로도 팝업이 닫힌다 — 아무것도 안 골라도', () => {
+      const app = host()
+      showTitle3d(app, manifest)
+      app.querySelector('#r3-speed-btn').click()
+      app.querySelector('#r3-speed-close').click()
+      expect(app.querySelector('#r3-speed-popup').classList.contains('hidden')).toBe(true)
+      expect(getRunnerSpeedId(), '안 골랐는데 값이 바뀌었다').toBe('normal')
+    })
+
+    it('아이 화면이므로 속도 버튼도 손 커서로 눌린다', () => {
+      const app = host()
+      showTitle3d(app, manifest)
+      expect(app.querySelector('#r3-speed-btn').hasAttribute('data-pz-hit')).toBe(true)
+      app.querySelector('#r3-speed-btn').click()
+      for (const el of app.querySelectorAll('.r3-speed-opt')) {
+        expect(el.hasAttribute('data-pz-hit'), `${el.dataset.id}에 손 커서가 없다`).toBe(true)
+      }
+    })
   })
 
   it('인트로에도 햄버거 메뉴가 있다 — 종료 버튼은 안 보인다', async () => {

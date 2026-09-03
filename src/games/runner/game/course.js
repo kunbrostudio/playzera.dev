@@ -2,12 +2,35 @@
 // 1사이클: 회피 큐브 6 → 허들 6(점프/숙이기 교차) → 포즈 사인판 3
 import { CONFIG } from '../config.js';
 
-export function buildCourse(levelIdx) {
+// 좌우가 있는 자세만 방향을 바꾼다. 팔벌리기(armsopen)는 좌우 대칭인 T포즈라
+// 뒤집어도 똑같이 보이므로 대상에서 뺀다.
+const MIRROR_POSES = new Set(['lunge', 'forwardbend']);
+
+/**
+ * @param {number} levelIdx
+ * @param {number} [speedMult] 러너 속도 설정 배율(`core/runnerSpeed.js`).
+ *   기본 1 — 안 주면 기존 동작과 완전히 같다(순수 함수 유지, 테스트가
+ *   `buildCourse(0)`만 불러도 깨지지 않는다). `speed`에만 곱한다 —
+ *   `approachSec`(반응 여유)는 그대로 둔다. 이유는 `core/runnerSpeed.js`에.
+ */
+export function buildCourse(levelIdx, speedMult = 1) {
   const level = CONFIG.levels[levelIdx];
   const C = CONFIG.course;
-  const speed = level.speed;
+  const speed = level.speed * speedMult;
   const events = [];
   let t = C.firstDelay;
+
+  // ── 포즈 사인판 좌우 번갈아 보여주기 ★ ──────────────────────
+  // 채점(`core/pose/poseMatch.js`의 `mirrorFeatures`)은 원래 아이가 어느 쪽으로
+  // 하든 통과시킨다 — 그런데 사인판 그림과 캐릭터 시범은 늘 한쪽만 보여줬다.
+  // 그러면 아이는 반대쪽을 할 생각을 아예 못 한다. 자세마다 나올 때마다
+  // 번갈아 뒤집어서 두 쪽 다 몸을 쓰게 한다.
+  //
+  // 시작값을 레벨 번호로 삼는다 — 사이클이 하나뿐인 레벨(1·2)도 서로 다른
+  // 쪽에서 시작해서, 레벨을 이어 하면(1→5) 전체적으로 고르게 섞인다.
+  // 레벨 하나만 다시 해도(같은 levelIdx) 항상 같은 순서라 예측 가능하고
+  // 테스트할 수 있다 — 무작위로 두면 "이번엔 왜 이쪽이지"를 아무도 답 못 한다.
+  const mirrorSeed = { lunge: levelIdx, forwardbend: levelIdx };
 
   for (let cyc = 0; cyc < level.cycles; cyc++) {
     // 1) 회피 큐브 6개 — 차단 레인은 미리 정하지 않고, 스폰 시점(화면에 나타나는 순간)의
@@ -31,7 +54,8 @@ export function buildCourse(levelIdx) {
 
     // 3) 포즈 사인판 3개 — 런지 → 상체숙이기 → 팔벌리기
     for (const pose of CONFIG.pose.types) {
-      events.push({ type: 'poseSign', pose, lane: 0, hitTime: t });
+      const mirror = MIRROR_POSES.has(pose) && (mirrorSeed[pose]++ % 2 === 1);
+      events.push({ type: 'poseSign', pose, lane: 0, hitTime: t, mirror });
       t += C.poseGap / speed;
     }
     // 다음 사이클로 넘어갈 때만 여유 시간 추가 — 마지막 사이클 뒤에 붙이면 레벨 완료 배너가

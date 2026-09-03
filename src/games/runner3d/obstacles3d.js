@@ -57,10 +57,25 @@ export const POSE_MODELS = {
   armsopen: 'sign_armsopen',
 }
 
+/**
+ * 좌우가 있어서 `course.js`가 뒤집어 보낼 수 있는 사인판. ★
+ *
+ * 뒤집을 때 인스턴스의 `scale.x`를 -1로 준다(아래 `sync`). 그런데 면이
+ * 하나만 있는 물건을 한 축만 음수로 스케일하면 **감김 순서가 뒤집혀서**
+ * 기본 앞면 컬링(`FrontSide`)에서 사라진다 — 반전판이 통째로 안 보이게
+ * 된다. 그래서 이 둘만 양면(`DoubleSide`)으로 그린다. 대칭이라 안 뒤집는
+ * 팔벌리기(armsopen)는 그대로 둔다.
+ */
+const MIRRORABLE_POSE_KEYS = new Set(['pose:lunge', 'pose:forwardbend'])
+
 const MAX_PER_KIND = 8   // 한 화면에 이보다 많이 뜰 일이 없다
 
 export function createObstacles(withCurve) {
   const mat = withCurve(new THREE.MeshBasicMaterial({ vertexColors: true, fog: true }))
+  // 위 `MIRRORABLE_POSE_KEYS` 설명대로, 뒤집힐 수 있는 사인판 전용 재질이다.
+  const matMirrorable = withCurve(new THREE.MeshBasicMaterial({
+    vertexColors: true, fog: true, side: THREE.DoubleSide,
+  }))
   const dummy = new THREE.Object3D()
   const meshes = {}
 
@@ -88,12 +103,13 @@ export function createObstacles(withCurve) {
   // 자세 팻말은 자세마다 다른 메시를 쓴다. 기본(`poseSign`)은 모델이 없을 때의 자리다.
   for (const [pose, file] of Object.entries(POSE_MODELS)) {
     const src = meshes.poseSign
-    const m = new THREE.InstancedMesh(src.geometry, mat, MAX_PER_KIND)
+    const key = 'pose:' + pose
+    const m = new THREE.InstancedMesh(src.geometry, MIRRORABLE_POSE_KEYS.has(key) ? matMirrorable : mat, MAX_PER_KIND)
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     m.frustumCulled = false
     m.count = 0
     m.userData.boxY = KINDS.poseSign.y
-    meshes['pose:' + pose] = m
+    meshes[key] = m
   }
 
   // ── 진짜 모델 ──
@@ -114,8 +130,10 @@ export function createObstacles(withCurve) {
       // 안 씌우면 그 장애물만 평평한 세계에 서 있게 된다.
       const map = g.userData?.pzMap
       if (map) {
-        // 알파 없는 JPEG다 — 반투명으로 그리면 가장자리만 지저분해진다
-        m.material = withCurve(new THREE.MeshBasicMaterial({ map, fog: true }))
+        // 알파 없는 JPEG다 — 반투명으로 그리면 가장자리만 지저분해진다.
+        // 뒤집힐 수 있는 사인판은 양면으로 — 위 `MIRRORABLE_POSE_KEYS` 참고.
+        const side = MIRRORABLE_POSE_KEYS.has(key) ? THREE.DoubleSide : THREE.FrontSide
+        m.material = withCurve(new THREE.MeshBasicMaterial({ map, fog: true, side }))
       }
       m.instanceMatrix.needsUpdate = true
     }
@@ -140,7 +158,8 @@ export function createObstacles(withCurve) {
         if (!m || n[key] >= MAX_PER_KIND) continue
         dummy.position.set(xOf(e, lanes), m.userData.boxY, z)
         dummy.rotation.set(0, 0, 0)
-        dummy.scale.setScalar(1)
+        // `course.js`가 정한 좌우 방향 — x만 뒤집는다(위 `MIRRORABLE_POSE_KEYS`).
+        dummy.scale.set(e.mirror ? -1 : 1, 1, 1)
         dummy.updateMatrix()
         m.setMatrixAt(n[key]++, dummy.matrix)
       }
@@ -154,6 +173,7 @@ export function createObstacles(withCurve) {
     dispose() {
       for (const m of Object.values(meshes)) { m.geometry.dispose(); m.dispose() }
       mat.dispose()
+      matMirrorable.dispose()
     },
   }
 }

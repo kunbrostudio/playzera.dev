@@ -150,10 +150,16 @@ export function ensureSysBarStyle(doc = document) {
  * @param {boolean} [o.exit] 오른쪽 위 나가기 버튼 (튜토리얼·플레이)
  * @param {boolean} [o.bgmMuted] 지금 음소거 상태 — 아이콘을 맞춰 그린다
  * @param {boolean} [o.sfxMuted]
+ * @param {string} [o.homeLabel] 왼쪽 위 버튼 글자. **버튼 이름은 가는 곳이다**
+ *   (CLAUDE.md) — 실제로는 항상 `onHome`에 걸리지만, 부르는 쪽이 그게
+ *   허브로 가는 길인지 방금 화면으로 돌아가는 길인지에 맞춰 글자를 바꾼다
+ *   (스토리 인트로의 "뒤로"가 그렇다 — `runner3d/storyDialogue.js`).
  */
-export function sysBarMarkup({ home = false, exit = true, bgmMuted = false, sfxMuted = false } = {}) {
+export function sysBarMarkup({
+  home = false, exit = true, bgmMuted = false, sfxMuted = false, homeLabel = '← Home',
+} = {}) {
   return `
-  <button id="pz-home" class="${home ? '' : 'hidden'}" data-pz-hit data-pz-dwell="1000">← Home</button>
+  <button id="pz-home" class="${home ? '' : 'hidden'}" data-pz-hit data-pz-dwell="1000">${homeLabel}</button>
 
   <div id="pz-topbar">
     <div class="pz-menu-wrap">

@@ -78,6 +78,35 @@ const POSE_FRAME = {
 export const laneX = (i, lanes = 3) => (i - (lanes - 1) / 2) * LANE_W
 
 /**
+ * 등에 업은 아기 공룡 "말풍선" — **쥬라기 대탐험 스토리 전용, 다른 테마는
+ * 안 부른다.** ★
+ *
+ * ── 왜 캐릭터 그림을 새로 안 그리나 ────────────────────────────
+ *
+ * 안고 뛰는 포즈를 프로필(남·여)마다 다시 그리면 공수가 기존 12장의 두 배로
+ * 는다. 대신 작은 그림 한 장을 캐릭터의 자식 오브젝트로 붙인다 — 달리기·
+ * 점프·숙이기 컷은 전혀 안 바뀐다.
+ *
+ * ── 왜 자식으로 붙이나 ──────────────────────────────────────
+ *
+ * 캐릭터 메시(`mesh`)에 `add()`하면 위치·자세 전환에 따른 좌우 튐을 따로
+ * 계산할 필요가 없다 — 부모가 매 프레임 `apply()`로 자기 위치를 옮기면
+ * 자식은 로컬 좌표만 유지한 채 그대로 따라온다.
+ *
+ * 자리는 눈대중이다(백팩이 있는 등 위쪽, 살짝 오른쪽) — 실제 그림이 들어오면
+ * 화면에서 보고 다시 잰다(`CLAUDE.md`: 브라우저에서만 확인되는 것은 추측하지
+ * 않는다).
+ */
+async function loadImage(url) {
+  return new Promise((res, rej) => {
+    const im = new Image()
+    im.onload = () => res(im)
+    im.onerror = () => rej(new Error(`[runner3d] 이미지 없음: ${url}`))
+    im.src = url
+  })
+}
+
+/**
  * 컷을 **한 장으로** 묶는다.
  *
  * 그림마다 가로세로가 다르므로(435×900 ~ 886×900) 칸 폭을 가장 넓은 것에 맞추고
@@ -125,6 +154,11 @@ export async function createCharacter(withCurve, skin, lanes = 3) {
     // 완전히 투명한 픽셀은 아예 버린다 — 정렬 문제를 줄인다
     alphaTest: 0.35,
     fog: true,
+    // 런지·옆구리늘리기 자세를 좌우 반전해서 보여줄 때(아래 `setPose`) x를
+    // 음수로 스케일한다. 판 하나짜리 빌보드를 한 축만 뒤집으면 감김 순서가
+    // 뒤집혀 기본 앞면 컬링에서 통째로 사라지므로 양면으로 그린다
+    // (`runner3d/obstacles3d.js`의 사인판과 같은 이유).
+    side: THREE.DoubleSide,
   }))
 
   const H = CHAR.height
@@ -139,6 +173,11 @@ export async function createCharacter(withCurve, skin, lanes = 3) {
   let duckT = -1
   let duckHeld = false
   let pose = null                       // 'lunge' | 'forwardbend' | 'armsopen'
+  // 사인판이 좌우 반전으로 나왔거나(`course.js`), 카메라가 아이의 실제 동작을
+  // 보고 반대쪽이 더 잘 맞는다고 판단했을 때(`poseMatch.js`의 `mirrored`) 켠다.
+  let poseMirror = false
+  let bubble = null                     // { mesh, tex } — 로드된 뒤에만 생긴다
+  let carrying = false
 
   /** 공중 높이. 올라갔다 내려온다. */
   const jumpY = () => (jumpT < 0 ? 0 : Math.sin(Math.PI * (jumpT / CHAR.jumpSec)) * CHAR.jumpHeight)
@@ -157,7 +196,8 @@ export async function createCharacter(withCurve, skin, lanes = 3) {
     // **가로세로를 같이 줄인다.** 세로만 줄이면 아이가 납작해져 다른 캐릭터로 보인다.
     // 그림 안의 비율은 아틀라스가 이미 지키고 있으니 여기서는 통째로만 조절한다.
     const s = SCALE[f]
-    mesh.scale.set(s, s, 1)
+    const flip = pose && poseMirror ? -1 : 1
+    mesh.scale.set(s * flip, s, 1)
     // 발이 바닥에 붙어야 한다. 판의 중심은 절반 높이이므로 배율을 곱해 올린다.
     mesh.position.set(x, (H * s) / 2 + jumpY(), 0)
   }
@@ -188,8 +228,51 @@ export async function createCharacter(withCurve, skin, lanes = 3) {
     },
     duckEnd() { duckHeld = false },
 
-    /** 자세 유지(요가 구간). null이면 해제. */
-    setPose(p) { pose = p },
+    /**
+     * 자세 유지(요가 구간). null이면 해제.
+     *
+     * @param {string|null} p
+     * @param {boolean} mirror 좌우 반전해서 보여줄지 — 사인판이 뒤집혀 나왔거나
+     *   (`course.js`) 카메라가 본 아이의 실제 자세가 반대쪽일 때(`play3d.js`).
+     */
+    setPose(p, mirror = false) { pose = p; poseMirror = mirror },
+
+    /**
+     * 아기 공룡을 업었나 켜고 끈다. **처음 켤 때만** 그림을 불러온다 —
+     * 판마다 새로 만들 필요는 없다.
+     *
+     * @param {string} url 말풍선 그림. 없으면(로드 실패 포함) 조용히 아무 일도
+     *   안 한다 — 이 그림은 스토리 연출이지 판정이 아니라서, 없다고 게임이
+     *   멈추면 안 된다(`buildAtlas`의 캐릭터 그림과 다르게 필수가 아니다).
+     * @param {boolean} on
+     */
+    async setCarrying(url, on) {
+      carrying = on
+      if (on && !bubble && url) {
+        try {
+          const im = await loadImage(url)
+          const tex = new THREE.Texture(im)
+          tex.colorSpace = THREE.SRGBColorSpace
+          tex.needsUpdate = true
+          const bH = H * 0.34
+          const bW = bH * (im.naturalWidth / im.naturalHeight)
+          const bmat = withCurve(new THREE.MeshBasicMaterial({
+            map: tex, transparent: true, depthWrite: false, alphaTest: 0.1, fog: true,
+          }))
+          const bmesh = new THREE.Mesh(new THREE.PlaneGeometry(bW, bH), bmat)
+          // 로컬 좌표 — 원점은 캐릭터 판의 중심(허리 높이 근처). 등 위쪽,
+          // 백팩이 있는 자리로 살짝 오른쪽.
+          bmesh.position.set(H * ratio * 0.26, H * 0.30, 0.05)
+          bmesh.renderOrder = 6
+          mesh.add(bmesh)
+          bubble = { mesh: bmesh, tex }
+        } catch (e) {
+          console.warn(e.message)
+          return
+        }
+      }
+      if (bubble) bubble.mesh.visible = carrying
+    },
 
     update(dt) {
       runT += dt
@@ -212,6 +295,9 @@ export async function createCharacter(withCurve, skin, lanes = 3) {
       apply()
     },
 
-    dispose() { mesh.geometry.dispose(); tex.dispose(); mat.dispose() },
+    dispose() {
+      mesh.geometry.dispose(); tex.dispose(); mat.dispose()
+      if (bubble) { bubble.mesh.geometry.dispose(); bubble.mesh.material.dispose(); bubble.tex.dispose() }
+    },
   }
 }

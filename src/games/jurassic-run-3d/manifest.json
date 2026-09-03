@@ -50,5 +50,123 @@
     "lunge": "/assets/runner/jurassic/image/obs_sign_stretch_lunge.png",
     "forwardbend": "/assets/runner/jurassic/image/obs_sign_stretch_forwardbend.png",
     "armsopen": "/assets/runner/jurassic/image/obs_sign_stretch_armsopen.png"
+  },
+  "story": {
+    "cast": {
+      "mom": {
+        "worried": "/assets/runner/jurassic/image/story_face_mom_worried.png",
+        "joy": "/assets/runner/jurassic/image/story_face_mom_joy.png"
+      },
+      "player": {
+        "boy": {
+          "default": "/assets/runner/jurassic/image/story_face_player_boy_default.png",
+          "worried": "/assets/runner/jurassic/image/story_face_player_boy_worried.png",
+          "happy": "/assets/runner/jurassic/image/story_face_player_boy_happy.png"
+        },
+        "girl": {
+          "default": "/assets/runner/jurassic/image/story_face_player_girl_default.png",
+          "worried": "/assets/runner/jurassic/image/story_face_player_girl_worried.png",
+          "happy": "/assets/runner/jurassic/image/story_face_player_girl_happy.png"
+        }
+      }
+    },
+    "intro": {
+      "scenes": [
+        {
+          "bg": {
+            "boy": "/assets/runner/jurassic/image/story_scene_intro_calm_v2.png",
+            "girl": "/assets/runner/jurassic/image/story_scene_intro_calm_girl.png"
+          },
+          "lines": [
+            "쥬라기 공원에 놀러 온 평화로운 오후예요.",
+            { "text": "안녕! 오늘 나랑 같이 신나게 놀자!", "speaker": "mom", "mood": "joy" }
+          ]
+        },
+        {
+          "bg": {
+            "boy": "/assets/runner/jurassic/image/story_scene_intro_tremor_v2.png",
+            "girl": "/assets/runner/jurassic/image/story_scene_intro_tremor_girl.png"
+          },
+          "fx": "quake",
+          "lines": [
+            { "text": "어라...? 갑자기 땅이 흔들리는 것 같아요!", "speaker": "mom", "mood": "worried" },
+            { "text": "화산이... 심상치 않아 보여요!", "speaker": "mom", "mood": "worried" }
+          ]
+        },
+        {
+          "bg": {
+            "boy": "/assets/runner/jurassic/image/story_scene_intro.png",
+            "girl": "/assets/runner/jurassic/image/story_scene_intro_girl_v2.png"
+          },
+          "fx": "quake",
+          "lines": [
+            { "text": "얘야, 큰일났어! 우리 아기가 안 보여!", "speaker": "mom", "mood": "worried" },
+            { "text": "화산이 흔들리면서 커다란 돌들이 무너졌어...", "speaker": "mom", "mood": "worried" },
+            { "text": "제발 우리 아기 공룡을 찾아줄래?", "speaker": "mom", "mood": "worried" }
+          ]
+        },
+        {
+          "bg": "/assets/runner/jurassic/image/story_scene_intro_resolve.png",
+          "fx": "quake",
+          "stinger": "start",
+          "lines": [
+            { "text": "걱정 마세요! 제가 꼭 찾아올게요!", "speaker": "player", "mood": "happy" },
+            { "text": "정말 고마워... 부디 조심해!", "speaker": "mom", "mood": "worried" },
+            { "text": "좋아, 가자! 출발!", "speaker": "player", "mood": "happy" }
+          ]
+        }
+      ]
+    },
+    "found": {
+      "afterLevel": 3,
+      "scenes": [
+        {
+          "bg": {
+            "boy": "/assets/runner/jurassic/image/story_scene_found.png",
+            "girl": "/assets/runner/jurassic/image/story_scene_found_girl.png"
+          },
+          "fx": "quake",
+          "lines": [
+            { "text": "앗, 저기 바위 틈에 아기 공룡이 있어요!", "speaker": "player", "mood": "happy" },
+            { "text": "무서워서 벌벌 떨고 있네요.", "speaker": "player", "mood": "worried" }
+          ]
+        },
+        {
+          "bg": {
+            "boy": "/assets/runner/jurassic/image/story_scene_carry.png",
+            "girl": "/assets/runner/jurassic/image/story_scene_carry_girl.png"
+          },
+          "lines": [
+            { "text": "괜찮아! 내가 업고 엄마한테 데려다줄게!", "speaker": "player", "mood": "happy" }
+          ]
+        }
+      ]
+    },
+    "carryBubble": "/assets/runner/jurassic/image/story_baby_bubble.png",
+    "ending": {
+      "scenes": [
+        {
+          "bg": {
+            "boy": "/assets/runner/jurassic/image/story_scene_ending.png",
+            "girl": "/assets/runner/jurassic/image/story_scene_ending_girl.png"
+          },
+          "fx": "confetti",
+          "lines": [
+            { "text": "얘야! 드디어 우리 아기를 찾아줬구나!", "speaker": "mom", "mood": "joy" },
+            { "text": "정말 고마워요! 너는 우리 가족의 영웅이야!", "speaker": "mom", "mood": "joy" }
+          ]
+        },
+        {
+          "bg": {
+            "boy": "/assets/runner/jurassic/image/story_scene_ending2.png",
+            "girl": "/assets/runner/jurassic/image/story_scene_ending2_girl.png"
+          },
+          "fx": "confetti",
+          "lines": [
+            { "text": "우리 다시 만나서 정말 기뻐요! 또 놀러 올게요!", "speaker": "player", "mood": "happy" }
+          ]
+        }
+      ]
+    }
   }
 }

@@ -279,8 +279,11 @@ export function createBackdrop({ camHeight, camBack, k }) {
       pos[b + 9] = cx - s; pos[b + 10] = cy + s; pos[b + 11] = zCrater
       for (let v = 0; v < 4; v++) {
         const c = i * 16 + v * 4
-        // 올라갈수록 옅어진다 — 김이 식는 느낌
-        const w = 1 - a * 0.12
+        // 화산재 색 — 흰 김이 아니라 짙은 잿빛으로(ken 요청, 9/2). 텍스처
+        // (`puffTexture()`)는 흰 원반 그대로 두고 정점 색만 어둡게 곱한다 —
+        // 구름(`createClouds`)이 같은 텍스처를 빌려 쓰지만 색 버퍼는 따로라
+        // 안 건드린다. 올라갈수록 살짝 더 옅어진다 — 흩어지는 느낌.
+        const w = 0.4 - a * 0.08
         col[c] = w; col[c + 1] = w; col[c + 2] = w; col[c + 3] = al
       }
     }

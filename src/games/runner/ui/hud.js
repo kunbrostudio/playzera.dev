@@ -68,8 +68,11 @@ export function ensureHudStyle(doc = document) {
  * 이 이름들로 붙어 있다.
  *
  * @param {boolean} hidden 처음에 숨겨 둘지 (2D는 타이틀 화면에서 감춘다)
+ * @param {boolean} auto   자동재생 중인지. 운동 카운트 자리를 "자동재생 중"
+ *   표시로 바꾼다 — 몸을 안 움직였는데 점프·앉기·피하기가 0으로 박혀
+ *   있으면 "왜 안 오르지" 하고 오해하기 쉽다(`runner/game/autopilot.js`).
  */
-export function hudMarkup({ hidden = false } = {}) {
+export function hudMarkup({ hidden = false, auto = false } = {}) {
   const h = hidden ? ' hidden' : ''
   return `
   <div id="hud-left" class="${h.trim()}">
@@ -78,8 +81,13 @@ export function hudMarkup({ hidden = false } = {}) {
   </div>
   <div id="hud" class="${h.trim()}">
     <div id="hud-lives"></div>
-    <div id="hud-counts">${icon('zap')} 점프 0&nbsp;&nbsp;&nbsp;${icon('down')} 앉기 0&nbsp;&nbsp;&nbsp;${icon('run')} 피하기 0</div>
+    <div id="hud-counts">${auto ? autoCountsMarkup() : countsMarkup({})}</div>
   </div>`
+}
+
+/** 자동재생 중 운동 카운트 자리에 대신 넣는 표시. */
+function autoCountsMarkup() {
+  return `${icon('zap')} 자동재생 중`
 }
 
 /** 목숨 하트 — 남은 만큼 채우고 나머지는 비운다. */
@@ -99,8 +107,11 @@ export function countsMarkup({ jumps = 0, squats = 0, sideSteps = 0 } = {}) {
  * 값을 그린다. 없는 칸은 건너뛴다 — 게임마다 있는 값이 다르다.
  *
  * @param {ParentNode} root 찾을 범위 (문서 전체여도 된다)
+ * @param {boolean} [auto] 자동재생 중이면 운동 카운트 칸을 안 건드린다 —
+ *   매 프레임 0으로 덮어써서 `hudMarkup({auto:true})`가 넣어 둔
+ *   "자동재생 중" 표시를 지우면 안 된다.
  */
-export function updateHud(root, { level, stars, lives, maxLives, jumps, squats, sideSteps }) {
+export function updateHud(root, { level, stars, lives, maxLives, jumps, squats, sideSteps, auto = false }) {
   const q = s => root.querySelector(s)
   const lv = q('#hud-level')
   if (lv && level != null) lv.textContent = `LEVEL ${level}`
@@ -108,6 +119,7 @@ export function updateHud(root, { level, stars, lives, maxLives, jumps, squats, 
   if (st && stars != null) st.innerHTML = `${icon('star')} ${stars}`
   const lifeEl = q('#hud-lives')
   if (lifeEl && lives != null) lifeEl.innerHTML = livesMarkup(lives, maxLives ?? lives)
+  if (auto) return
   const counts = q('#hud-counts')
   if (counts) counts.innerHTML = countsMarkup({ jumps, squats, sideSteps })
 }
