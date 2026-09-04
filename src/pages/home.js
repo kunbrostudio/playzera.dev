@@ -37,6 +37,7 @@ import { getAll, getEntry } from '../games/registry.js'
 import { getRecentIds, markPlayed } from '../core/recent.js'
 import { handSession } from '../core/handSession.js'
 import { bindHandButton } from '../core/handControl.js'
+import { bindRemoteButton } from '../core/remote/bindRemoteButton.js'
 import {
   PER_PAGE, RECENT_MAX,
   isNew, playersLabel, buildCategories, buildFeatured,
@@ -151,6 +152,14 @@ export function homePage(app) {
       .pz-btn:hover  { background: rgba(255,255,255,0.18); border-color: #ffd23e; }
       .pz-btn:active { transform: scale(0.95); }
       .pz-btn.primary { background: rgba(255,210,62,0.9); color: #3a2205; border-color: transparent; }
+      /* 리모컨이 연결돼 있을 때 — 이 기기가 조종당하는 쪽이든(remoteSession)
+         조종하는 쪽이든(controller) 똑같이 켠다(bindRemoteButton.js, STEP 66) */
+      .pz-btn.pz-remote-live { background: #ff4d4d; border-color: transparent; color: #fff;
+        animation: pz-remote-pulse 1.8s ease-in-out infinite; }
+      @keyframes pz-remote-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255,77,77,0.55); }
+        50% { box-shadow: 0 0 0 9px rgba(255,77,77,0); }
+      }
 
       /* ── 히어로 (고정) ── */
       #pz-hero {
@@ -650,6 +659,7 @@ export function homePage(app) {
         <button id="pz-logo">PLAY ZERA</button>
         <div id="pz-head-right">
           <button class="pz-btn" id="pz-hand" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('hand')} <span id="pz-hand-label">손으로 고르기</span></button>
+          <button class="pz-btn" id="pz-remote" aria-label="리모컨 연결">${icon('qrcode')}</button>
           <button class="pz-btn" id="pz-account">${icon('user')} <span>제라</span></button>
           <button class="pz-btn" id="pz-menu">${icon('menu')}</button>
         </div>
@@ -1165,6 +1175,13 @@ export function homePage(app) {
   // '제라' = **부모 화면 입구**(docs/06 §5). 아이 선택(계정)은 그 뒤에 붙는다.
   $('#pz-account').addEventListener('click', () => navigate('/me'))
   $('#pz-menu').addEventListener('click', () => toast('설정 메뉴는 준비 중이에요'))
+  // qrcode 라이브러리·팝업 마크업을 홈 첫 로딩에 안 끼워 넣으려고 동적 import한다
+  // (registry.js의 게임팩 로더와 같은 이유) — `bindRemoteButton`이 클릭
+  // 시점에만 불러온다. 버튼 자체는 이 기기가 리모컨에 연결돼 있는지(주
+  // 디바이스로든 조종하는 쪽으로든)에 따라 빨간 펄스로 바뀐다(STEP 66).
+  // 화면을 나가도(onLeave) 리모컨 세션 자체는 안 끊는다 — 페어링이 계속
+  // 살아 있어야 아이가 게임 중일 때도 부모가 끄기를 누를 수 있다.
+  const offRemoteButton = bindRemoteButton({ el: $('#pz-remote') })
 
   // ── 정리 ────────────────────────────────────────────────────
   const onVisibility = () => {
@@ -1177,6 +1194,7 @@ export function homePage(app) {
     clearTimeout(toastTimer)
     stopHeroVideo()
     offHandChange()
+    offRemoteButton()
     clearTimeout(resizeTimer)
     document.removeEventListener('visibilitychange', onVisibility)
     document.removeEventListener('pz-swipe', onSwipe)

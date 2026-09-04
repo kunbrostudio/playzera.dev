@@ -47,13 +47,13 @@ export const PALETTE = {
 }
 
 /** 잔디 — 작게 반복한다. 결이 촘촘해야 속도가 읽힌다. */
-function grassTexture() {
+function grassTexture(palette = PALETTE) {
   const S = 128
   const cv = document.createElement('canvas'); cv.width = cv.height = S
   const g = cv.getContext('2d')
-  g.fillStyle = PALETTE.grass; g.fillRect(0, 0, S, S)
+  g.fillStyle = palette.grass; g.fillRect(0, 0, S, S)
   for (let i = 0; i < 90; i++) {
-    g.fillStyle = i % 3 ? PALETTE.grassLit : PALETTE.grassDark
+    g.fillStyle = i % 3 ? palette.grassLit : palette.grassDark
     const x = Math.random() * S, y = Math.random() * S
     g.fillRect(x, y, 2 + Math.random() * 4, 1 + Math.random())
   }
@@ -96,12 +96,12 @@ function grassTexture() {
  * 올려 적어야 한다 — 그건 화면을 보면서 할 일이다. 지금은 잔디만 맞췄다.
  * 여기 적어 두는 이유는 이게 **버그가 아니라 미룬 것**임을 남기기 위해서다.
  */
-function trackTexture() {
+function trackTexture(palette = PALETTE) {
   const W = 384, H = 384
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H
   const g = cv.getContext('2d')
 
-  g.fillStyle = PALETTE.stoneDark; g.fillRect(0, 0, W, H)
+  g.fillStyle = palette.stoneDark; g.fillRect(0, 0, W, H)
 
   // ── 돌 포장 ──
   // 격자를 만들되 꼭짓점을 흔든다. 반듯하면 타일 바닥이지 돌길이 아니다.
@@ -116,10 +116,10 @@ function trackTexture() {
       const w = cw * (0.82 + jx(c + 3, r) * 0.5)
       const h = ch * (0.82 + jx(c, r + 3) * 0.5)
       const tone = 0.78 + jx(c + 7, r + 7) * 0.6
-      g.fillStyle = shade(PALETTE.stone, tone)
+      g.fillStyle = shade(palette.stone, tone)
       round(g, x, y, w, h, 6); g.fill()
       // 윗변만 밝게 — 돌이 도톰해 보인다
-      g.strokeStyle = shade(PALETTE.stoneLit, 1); g.lineWidth = 1.6
+      g.strokeStyle = shade(palette.stoneLit, 1); g.lineWidth = 1.6
       g.beginPath(); g.moveTo(x + 5, y + 1.2); g.lineTo(x + w - 5, y + 1.2); g.stroke()
     }
   }
@@ -130,14 +130,14 @@ function trackTexture() {
   for (const f of [0.28, 0.5, 0.72]) {
     const gr = g.createLinearGradient(W * f - 26, 0, W * f + 26, 0)
     gr.addColorStop(0, 'rgba(255,196,120,0)')
-    gr.addColorStop(0.5, PALETTE.gloss)
+    gr.addColorStop(0.5, palette.gloss)
     gr.addColorStop(1, 'rgba(255,196,120,0)')
     g.fillStyle = gr; g.fillRect(W * f - 26, 0, 52, H)
   }
 
   // ── 가운데 셰브론 ──
   const AR = 4                                   // 한 장에 네 개 — 촘촘해야 흐름이 보인다
-  g.fillStyle = PALETTE.arrow
+  g.fillStyle = palette.arrow
   for (let i = 0; i < AR; i++) {
     const y = (i / AR) * H
     const w = W * 0.13, t = H * 0.045, d = H * 0.055
@@ -152,7 +152,7 @@ function trackTexture() {
   // 트랙을 **3등분**한다. 아이가 "내가 어느 칸에 있나"를 알아야 좌우 이동이
   // 게임이 된다(2D 러너에서 배운 것, STEP 15). 참고 아트처럼 실선이다 —
   // 점선은 돌 무늬에 묻힌다.
-  g.strokeStyle = PALETTE.lane; g.lineWidth = 3.5
+  g.strokeStyle = palette.lane; g.lineWidth = 3.5
   for (const f of [1 / 3, 2 / 3]) {
     g.beginPath(); g.moveTo(W * f, 0); g.lineTo(W * f, H); g.stroke()
   }
@@ -161,10 +161,10 @@ function trackTexture() {
   for (const x of [3, W - 3]) {
     const gr = g.createLinearGradient(x - 16, 0, x + 16, 0)
     gr.addColorStop(0, 'rgba(255,150,40,0)')
-    gr.addColorStop(0.5, PALETTE.edgeGlow)
+    gr.addColorStop(0.5, palette.edgeGlow)
     gr.addColorStop(1, 'rgba(255,150,40,0)')
     g.fillStyle = gr; g.fillRect(x - 16, 0, 32, H)
-    g.strokeStyle = PALETTE.edge; g.lineWidth = 5
+    g.strokeStyle = palette.edge; g.lineWidth = 5
     g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke()
   }
 
@@ -234,25 +234,25 @@ export function extrudeStrips(sections, length, tiles, seg = 80) {
   return geo
 }
 
-function curbTexture() {
+function curbTexture(palette = PALETTE) {
   const W = 128, H = 256
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H
   const g = cv.getContext('2d')
   const BLOCKS = 8, bh = H / BLOCKS
   for (let i = 0; i < BLOCKS; i++) {
-    g.fillStyle = i % 2 ? PALETTE.curbA : PALETTE.curbB
+    g.fillStyle = i % 2 ? palette.curbA : palette.curbB
     g.fillRect(0, i * bh, W, bh - 2)
     g.fillStyle = 'rgba(0,0,0,0.25)'
     g.fillRect(0, i * bh + bh - 2, W, 2)             // 블록 사이 홈
     // 바깥 끝은 풀 — 연석이 잔디에 박혀 있는 것으로 읽힌다.
     // (u 0.34~1 이 윗면이고, 그중 바깥 15%가 여기다)
-    g.fillStyle = PALETTE.curbTop
+    g.fillStyle = palette.curbTop
     g.fillRect(W * 0.87, i * bh, W * 0.13, bh)
     g.fillStyle = 'rgba(255,255,255,0.16)'
     g.fillRect(0, i * bh, W, 3)                      // 윗면 하이라이트
     // 세 칸에 한 번 보석 — 규칙적이면 무늬, 드물어야 장식이다
     if (i % 3 === 1) {
-      g.fillStyle = PALETTE.gem
+      g.fillStyle = palette.gem
       g.beginPath(); g.ellipse(W / 2, i * bh + bh / 2, 11, 9, 0, 0, Math.PI * 2); g.fill()
       g.fillStyle = 'rgba(255,255,255,0.5)'
       g.beginPath(); g.ellipse(W / 2 - 3, i * bh + bh / 2 - 3, 4, 3, 0, 0, Math.PI * 2); g.fill()
@@ -270,13 +270,22 @@ function curbTexture() {
 /**
  * @param {(m:THREE.Material)=>THREE.Material} withCurve 곡률을 심는 함수
  * @param {number} length 판 길이(유닛)
+ * @param {object} [opts]
+ * @param {typeof PALETTE} [opts.palette] 색을 통째로 바꿔 낀다(기본 쥬라기 팔레트).
+ *   `backdrop.js`가 STEP 37에서 `art`/`groundColor`로 하늘을 테마별로 바꿔
+ *   낄 수 있게 연 것과 같은 이유 — 트랙(돌길)·연석 구조는 재사용하되 색만
+ *   테마에 맞게 다시 칠할 수 있다(예: 오디세이 런의 대리석 신전 바닥).
+ * @param {boolean} [opts.grass] 잔디 판을 만들지 말지(기본 true). 트랙
+ *   바깥을 물로 채우는 테마(섬)는 잔디 판 자체가 필요 없다 — 굳이 만들어
+ *   숨기지 않고 아예 생성을 건너뛴다(텍스처 하나·draw call 하나를 아낀다).
  */
-export function createGround(withCurve, length) {
-  const grassMap = grassTexture()
-  const trackMap = trackTexture()
-  const curbMap = curbTexture()
+export function createGround(withCurve, length, opts = {}) {
+  const { palette = PALETTE, grass: showGrass = true } = opts
+  const grassMap = showGrass ? grassTexture(palette) : null
+  const trackMap = trackTexture(palette)
+  const curbMap = curbTexture(palette)
 
-  const grassMat = withCurve(new THREE.MeshBasicMaterial({ map: grassMap, fog: true }))
+  const grassMat = grassMap ? withCurve(new THREE.MeshBasicMaterial({ map: grassMap, fog: true })) : null
   const trackMat = withCurve(new THREE.MeshBasicMaterial({ map: trackMap, fog: true }))
   // 손으로 만든 띠라 앞뒤 감김을 장담할 수 없다. 양면으로 두면 한 면이
   // 통째로 사라지는 일이 없다 — 폴리가 몇 개 안 되니 값도 안 든다.
@@ -292,7 +301,7 @@ export function createGround(withCurve, length) {
     m.frustumCulled = false
     return m
   }
-  const grass = mk(140, grassMat, 0)
+  const grass = grassMat ? mk(140, grassMat, 0) : null
   // 아주 조금 띄운다. 같은 높이면 z-파이팅으로 지글거린다.
   const track = mk(TRACK_W, trackMat, 0.02)
 
@@ -314,13 +323,13 @@ export function createGround(withCurve, length) {
   curb.frustumCulled = false
 
   return {
-    meshes: [grass, track, curb],
+    meshes: grass ? [grass, track, curb] : [track, curb],
 
     /** @param {number} dz 이번 프레임에 다가온 거리 */
     update(dz) {
       // **더한다.** 빼면 땅만 앞으로 밀려간다(위 주석).
       const dv = dz / length
-      grassMap.offset.y += dv * grassMap.repeat.y
+      if (grassMap) grassMap.offset.y += dv * grassMap.repeat.y
       trackMap.offset.y += dv * trackMap.repeat.y
       // ── 연석은 **빼야** 한다 ★ ──
       //
@@ -333,8 +342,9 @@ export function createGround(withCurve, length) {
 
     dispose() {
       for (const m of this.meshes) m.geometry.dispose()
-      grassMap.dispose(); trackMap.dispose(); curbMap.dispose()
-      grassMat.dispose(); trackMat.dispose(); curbMat.dispose()
+      if (grassMap) { grassMap.dispose(); grassMat.dispose() }
+      trackMap.dispose(); curbMap.dispose()
+      trackMat.dispose(); curbMat.dispose()
     },
   }
 }

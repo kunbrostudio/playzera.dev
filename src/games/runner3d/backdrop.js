@@ -135,8 +135,20 @@ function puffTexture() {
  * @param {number} o.camHeight
  * @param {number} o.camBack   카메라 z. 띠는 카메라를 중심으로 둘러야 한다
  * @param {number} o.k         곡률. 지면선 높이를 정한다
+ * @param {{sky?:string, ridge?:string, volcano?:string}} [o.art] 기본은 쥬라기
+ *   그림 셋(`BACKDROP_ART`). **오디세이 런(9/3)** — 바다에는 능선·화산이
+ *   안 어울려서, 하늘만 빌려 쓰고 나머지는 뺄 수 있게 열었다. 어느 하나가
+ *   없으면(undefined) 그 층만 건너뛴다 — 이미 파일이 없을 때(로드 실패)와
+ *   같은 길을 탄다.
+ * @param {string} [o.groundColor] 지면선 아래를 채우는 색. 기본은 잔디
+ *   (`PANORAMA.grass`, 육지 테마와 같아야 접힘선에서 색이 안 갈린다).
+ *   바다는 물빛을 넘겨준다.
+ * @param {boolean} [o.smoke] 화산재 연기. 화산이 없으면 끌 자리가 없는
+ *   연기가 하늘에 그냥 떠 있게 된다 — 기본은 켜져 있고(쥬라기), 바다는 끈다.
  */
-export function createBackdrop({ camHeight, camBack, k }) {
+export function createBackdrop({
+  camHeight, camBack, k, art = BACKDROP_ART, groundColor = PANORAMA.grass, smoke: smokeOn = true,
+}) {
   const P = PANORAMA
   const R = P.radius
 
@@ -164,7 +176,7 @@ export function createBackdrop({ camHeight, camBack, k }) {
   grad.addColorStop(0, P.skyTop)
   grad.addColorStop(1, P.skyHorizon)
   g.fillStyle = grad; g.fillRect(0, 0, cv.width, groundPx)
-  g.fillStyle = P.grass; g.fillRect(0, groundPx, cv.width, texH - groundPx)
+  g.fillStyle = groundColor; g.fillRect(0, groundPx, cv.width, texH - groundPx)
 
   const tex = new THREE.CanvasTexture(cv)
   tex.colorSpace = THREE.SRGBColorSpace
@@ -178,8 +190,10 @@ export function createBackdrop({ camHeight, camBack, k }) {
   let craterLocal = { x: 0, y: uOf(P.ridgeDeg) * 1.4 }
 
   ;(async () => {
+    // 없는 층은 아예 안 받는다(undefined) — 파일이 있는데 실패한 경우와
+    // 같은 길(`load`가 null을 돌려줌)로 합쳐서 아래 `if`가 그대로 먹는다.
     const [sky, ridge, volcano] = await Promise.all(
-      [BACKDROP_ART.sky, BACKDROP_ART.ridge, BACKDROP_ART.volcano].map(load))
+      [art.sky, art.ridge, art.volcano].map(u => u ? load(u) : Promise.resolve(null)))
 
     // 하늘 — **덮기(cover)로 넣는다.** 상자에 맞춰 늘이면 구름이 눌린다
     // (`CLAUDE.md`). 밑에 깔아 둔 그라데이션이 못 덮은 데를 받쳐 준다.
@@ -231,69 +245,81 @@ export function createBackdrop({ camHeight, camBack, k }) {
   // 그룹의 국소 y=0 이 **지면선**이다. 곡률이 바뀌면 그룹만 오르내린다.
   wall.position.y = (groundPx / pxPerUnit) - H / 2
 
-  // ── 연기 ──
-  const N = 8
-  const puffTex = puffTexture()
-  const pg = new THREE.BufferGeometry()
-  const pos = new Float32Array(N * 4 * 3)
-  const col = new Float32Array(N * 4 * 4)          // itemSize 4 → 정점 알파가 켜진다
-  const uv = new Float32Array(N * 4 * 2)
-  const idx = []
-  for (let i = 0; i < N; i++) {
-    uv.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8)
-    const b = i * 4
-    idx.push(b, b + 1, b + 2, b, b + 2, b + 3)
-  }
-  pg.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-  pg.setAttribute('color', new THREE.BufferAttribute(col, 4))
-  pg.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
-  pg.setIndex(idx)
-  const smoke = new THREE.Mesh(pg, new THREE.MeshBasicMaterial({
-    map: puffTex, transparent: true, vertexColors: true,
-    depthWrite: false, fog: false, side: THREE.DoubleSide,
-  }))
-  smoke.frustumCulled = false
-  smoke.renderOrder = -19
-
-  // 크기는 8/20에 눈으로 키웠다 — 처음 값(1.6→5.2)은 화산에 견줘 잘아서
-  // 연기가 아니라 먼지처럼 보였다.
-  const SMOKE = { life: 6.5, rise: 17, from: 2.8, to: 8.4, drift: 2.6 }
-  // 주기를 고르게 어긋뜨린다. 무작위로 두면 뭉치는 순간이 생긴다.
-  const phase = Array.from({ length: N }, (_, i) => (i / N) * SMOKE.life)
-  const sway = Array.from({ length: N }, () => 0.6 + Math.random() * 0.8)
-  let t = 0
-
-  const zCrater = -(R - 6)   // 벽보다 살짝 앞 — 연기가 산에 박히면 안 된다
-  const drawSmoke = () => {
+  // ── 연기 — 화산이 있을 때만 ★ ──
+  //
+  // 화산 없이 연기만 켜면(`smokeOn`이 기본값 그대로인데 `art.volcano`가
+  // 없는 경우) `craterLocal`이 기본값(`{x:0, y: 능선 높이×1.4}`)에 그대로
+  // 남아, 아무 산도 없는 하늘에 잿빛 뭉치가 떠 있게 된다 — 오디세이 런의
+  // 바다 하늘이 그럴 뻔했다. 그래서 **화산 이미지가 없으면 연기 자체를
+  // 안 만든다**(단순히 안 그리는 게 아니라 지오메트리도 안 만든다 — 바다
+  // 배경에서 draw call을 아낄 수 있어서다).
+  const wantSmoke = smokeOn && !!art.volcano
+  let smoke = null, drawSmoke = () => {}, disposeSmoke = () => {}, t = 0
+  if (wantSmoke) {
+    const N = 8
+    const puffTex = puffTexture()
+    const pg = new THREE.BufferGeometry()
+    const pos = new Float32Array(N * 4 * 3)
+    const col = new Float32Array(N * 4 * 4)          // itemSize 4 → 정점 알파가 켜진다
+    const uv = new Float32Array(N * 4 * 2)
+    const idx = []
     for (let i = 0; i < N; i++) {
-      const a = ((t + phase[i]) % SMOKE.life) / SMOKE.life
-      const cx = craterLocal.x + Math.sin(a * 3.1 * sway[i]) * SMOKE.drift * a
-      const cy = craterLocal.y + a * SMOKE.rise
-      const s = (SMOKE.from + (SMOKE.to - SMOKE.from) * a) / 2
-      // 올라오며 진해졌다가 흩어진다. 끝에서 뚝 끊기면 사라지는 게 보인다.
-      const al = Math.min(1, a / 0.18) * Math.max(0, 1 - Math.max(0, a - 0.45) / 0.55) * 0.82
-      const b = i * 12
-      pos[b + 0] = cx - s; pos[b + 1] = cy - s; pos[b + 2] = zCrater
-      pos[b + 3] = cx + s; pos[b + 4] = cy - s; pos[b + 5] = zCrater
-      pos[b + 6] = cx + s; pos[b + 7] = cy + s; pos[b + 8] = zCrater
-      pos[b + 9] = cx - s; pos[b + 10] = cy + s; pos[b + 11] = zCrater
-      for (let v = 0; v < 4; v++) {
-        const c = i * 16 + v * 4
-        // 화산재 색 — 흰 김이 아니라 짙은 잿빛으로(ken 요청, 9/2). 텍스처
-        // (`puffTexture()`)는 흰 원반 그대로 두고 정점 색만 어둡게 곱한다 —
-        // 구름(`createClouds`)이 같은 텍스처를 빌려 쓰지만 색 버퍼는 따로라
-        // 안 건드린다. 올라갈수록 살짝 더 옅어진다 — 흩어지는 느낌.
-        const w = 0.4 - a * 0.08
-        col[c] = w; col[c + 1] = w; col[c + 2] = w; col[c + 3] = al
-      }
+      uv.set([0, 0, 1, 0, 1, 1, 0, 1], i * 8)
+      const b = i * 4
+      idx.push(b, b + 1, b + 2, b, b + 2, b + 3)
     }
-    pg.attributes.position.needsUpdate = true
-    pg.attributes.color.needsUpdate = true
+    pg.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    pg.setAttribute('color', new THREE.BufferAttribute(col, 4))
+    pg.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+    pg.setIndex(idx)
+    smoke = new THREE.Mesh(pg, new THREE.MeshBasicMaterial({
+      map: puffTex, transparent: true, vertexColors: true,
+      depthWrite: false, fog: false, side: THREE.DoubleSide,
+    }))
+    smoke.frustumCulled = false
+    smoke.renderOrder = -19
+
+    // 크기는 8/20에 눈으로 키웠다 — 처음 값(1.6→5.2)은 화산에 견줘 잘아서
+    // 연기가 아니라 먼지처럼 보였다.
+    const SMOKE = { life: 6.5, rise: 17, from: 2.8, to: 8.4, drift: 2.6 }
+    // 주기를 고르게 어긋뜨린다. 무작위로 두면 뭉치는 순간이 생긴다.
+    const phase = Array.from({ length: N }, (_, i) => (i / N) * SMOKE.life)
+    const sway = Array.from({ length: N }, () => 0.6 + Math.random() * 0.8)
+
+    const zCrater = -(R - 6)   // 벽보다 살짝 앞 — 연기가 산에 박히면 안 된다
+    drawSmoke = () => {
+      for (let i = 0; i < N; i++) {
+        const a = ((t + phase[i]) % SMOKE.life) / SMOKE.life
+        const cx = craterLocal.x + Math.sin(a * 3.1 * sway[i]) * SMOKE.drift * a
+        const cy = craterLocal.y + a * SMOKE.rise
+        const s = (SMOKE.from + (SMOKE.to - SMOKE.from) * a) / 2
+        // 올라오며 진해졌다가 흩어진다. 끝에서 뚝 끊기면 사라지는 게 보인다.
+        const al = Math.min(1, a / 0.18) * Math.max(0, 1 - Math.max(0, a - 0.45) / 0.55) * 0.82
+        const b = i * 12
+        pos[b + 0] = cx - s; pos[b + 1] = cy - s; pos[b + 2] = zCrater
+        pos[b + 3] = cx + s; pos[b + 4] = cy - s; pos[b + 5] = zCrater
+        pos[b + 6] = cx + s; pos[b + 7] = cy + s; pos[b + 8] = zCrater
+        pos[b + 9] = cx - s; pos[b + 10] = cy + s; pos[b + 11] = zCrater
+        for (let v = 0; v < 4; v++) {
+          const c = i * 16 + v * 4
+          // 화산재 색 — 흰 김이 아니라 짙은 잿빛으로(ken 요청, 9/2). 텍스처
+          // (`puffTexture()`)는 흰 원반 그대로 두고 정점 색만 어둡게 곱한다 —
+          // 구름(`createClouds`)이 같은 텍스처를 빌려 쓰지만 색 버퍼는 따로라
+          // 안 건드린다. 올라갈수록 살짝 더 옅어진다 — 흩어지는 느낌.
+          const w = 0.4 - a * 0.08
+          col[c] = w; col[c + 1] = w; col[c + 2] = w; col[c + 3] = al
+        }
+      }
+      pg.attributes.position.needsUpdate = true
+      pg.attributes.color.needsUpdate = true
+    }
+    disposeSmoke = () => { pg.dispose(); puffTex.dispose(); smoke.material.dispose() }
   }
 
   // ── 그룹 ──
   const group = new THREE.Group()
-  group.add(wall, smoke)
+  group.add(wall)
+  if (smoke) group.add(smoke)
   group.position.z = camBack
 
   const place = kk => { group.position.y = camHeight - R * foldTan(kk, camHeight) }
@@ -310,7 +336,7 @@ export function createBackdrop({ camHeight, camBack, k }) {
 
     dispose() {
       geo.dispose(); tex.dispose(); mat.dispose()
-      pg.dispose(); puffTex.dispose(); smoke.material.dispose()
+      disposeSmoke()
     },
   }
 }
@@ -369,11 +395,15 @@ export function makeCloudField(rnd = Math.random) {
  * **draw call 하나**, 그림 파일은 없다.
  *
  * @param {(m:THREE.Material)=>THREE.Material} withCurve
+ * @param {string} [tint] 구름 색. 기본은 흰색(쥬라기 낮 하늘). **오디세이 런(9/3)**
+ *   — 어두운 톤 하늘엔 흰 뭉게구름이 안 어울려서, 정점 색에 곱할 색을 열었다.
+ *   텍스처(`puffTexture`)는 그대로 흰 원반이고 곱해서 물들이는 것뿐이라 그림은 하나다.
  */
-export function createClouds(withCurve) {
+export function createClouds(withCurve, tint = '#ffffff') {
   const C = CLOUDS
   const N = C.count * C.puffs
   const tex = puffTexture()
+  const tintColor = new THREE.Color(tint)
   const geo = new THREE.BufferGeometry()
   const pos = new Float32Array(N * 4 * 3)
   const col = new Float32Array(N * 4 * 4)
@@ -412,7 +442,7 @@ export function createClouds(withCurve) {
         pos[b + 9] = cx - s; pos[b + 10] = cy + s; pos[b + 11] = c.z
         for (let v = 0; v < 4; v++) {
           const k = q * 16 + v * 4
-          col[k] = col[k + 1] = col[k + 2] = 1
+          col[k] = tintColor.r; col[k + 1] = tintColor.g; col[k + 2] = tintColor.b
           col[k + 3] = p.a * fade
         }
         q++

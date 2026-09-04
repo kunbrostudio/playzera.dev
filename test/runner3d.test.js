@@ -108,6 +108,90 @@ describe('프롭 되돌리기', () => {
     expect(row.mesh.isInstancedMesh).toBe(true)
     expect(row.mesh.count).toBe(40)
   })
+
+  // ★ 오디세이 런(9/3) — faceTrack 기준 방향(0)이 모델마다 다르게 "정면"일
+  // 수 있어(glTF엔 정해진 축이 없다), 코드가 아니라 데이터로 뒤집을 수 있어야 한다.
+  it('rotOffset — faceTrack 기준 방향을 데이터로 돌린다', () => {
+    const row = make({ faceTrack: true, rotOffset: Math.PI })
+    for (const it of row.items) {
+      const wrapped = ((it.rot % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
+      expect(Math.abs(wrapped - Math.PI)).toBeLessThanOrEqual(0.5 + 1e-9)
+    }
+  })
+
+  // ★ 오디세이 런(9/3) — 부표처럼 물 위에 뜬 프롭만 켠다. 육지 야자수·
+  // 바위는 그대로 고정이어야 하므로 **기본값(bob 없음)이 안 바뀌는지**부터 본다.
+  describe('bob — 물에 뜬 것만 까딱인다', () => {
+    it('안 주면(기본값) 시간이 지나도 y는 그대로 0이다', () => {
+      const row = make()
+      const mat = new THREE.Matrix4()
+      const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3()
+      for (let i = 0; i < 30; i++) row.update(1, 12, 0.1)
+      for (let i = 0; i < row.items.length; i++) {
+        row.mesh.getMatrixAt(i, mat); mat.decompose(pos, q, s)
+        expect(pos.y).toBe(0)
+      }
+    })
+
+    it('bob을 켜면 시간에 따라 y가 흔들린다', () => {
+      const row = make({ bob: { amp: 0.08, rate: 1.2 } })
+      const mat = new THREE.Matrix4()
+      const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3()
+      row.mesh.getMatrixAt(0, mat); mat.decompose(pos, q, s)
+      const y0 = pos.y
+      row.update(0, 12, 0.4)   // dz=0 — 자리는 안 바뀌고 시간만 흐른다
+      row.mesh.getMatrixAt(0, mat); mat.decompose(pos, q, s)
+      expect(pos.y).not.toBeCloseTo(y0, 6)
+      expect(Math.abs(pos.y)).toBeLessThanOrEqual(0.08 + 1e-9)
+    })
+
+    it('물건마다 위상이 달라 다 같이 까딱이지 않는다', () => {
+      const row = make({ bob: { amp: 0.1, rate: 1.5 }, count: 8 })
+      row.update(0, 12, 0.7)
+      const mat = new THREE.Matrix4()
+      const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3()
+      const ys = row.items.map((_, i) => {
+        row.mesh.getMatrixAt(i, mat); mat.decompose(pos, q, s)
+        return pos.y
+      })
+      // 전부 같은 값이면 위상이 안 흩어진 것이다
+      expect(new Set(ys.map(v => v.toFixed(4))).size).toBeGreaterThan(1)
+    })
+  })
+
+  describe('sway — "살아있는" 느낌이 필요한 것만 좌우로 튼다', () => {
+    it('안 주면(기본값) 시간이 지나도 각도는 처음 그대로다', () => {
+      const row = make()
+      const mat = new THREE.Matrix4()
+      const pos = new THREE.Vector3(), q0 = new THREE.Quaternion(), s = new THREE.Vector3()
+      row.mesh.getMatrixAt(0, mat); mat.decompose(pos, q0, s)
+      row.update(0, 12, 0.5)
+      const q1 = new THREE.Quaternion()
+      row.mesh.getMatrixAt(0, mat); mat.decompose(pos, q1, s)
+      expect(q1.angleTo(q0)).toBeCloseTo(0, 6)
+    })
+
+    it('sway를 켜면 시간에 따라 각도가 흔들린다', () => {
+      const row = make({ sway: { amp: 0.3, rate: 1.1 } })
+      const mat = new THREE.Matrix4()
+      const pos = new THREE.Vector3(), q0 = new THREE.Quaternion(), s = new THREE.Vector3()
+      row.mesh.getMatrixAt(0, mat); mat.decompose(pos, q0, s)
+      row.update(0, 12, 0.4)
+      const q1 = new THREE.Quaternion()
+      row.mesh.getMatrixAt(0, mat); mat.decompose(pos, q1, s)
+      expect(q1.angleTo(q0)).toBeGreaterThan(0)
+    })
+
+    it('bob과 같이 켜면 둘 다 동시에 움직인다', () => {
+      const row = make({ bob: { amp: 0.1, rate: 1.0 }, sway: { amp: 0.2, rate: 1.3 } })
+      row.update(0, 12, 0.6)
+      const mat = new THREE.Matrix4()
+      const pos = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3()
+      row.mesh.getMatrixAt(0, mat); mat.decompose(pos, q, s)
+      expect(pos.y).not.toBe(0)
+      expect(q.angleTo(new THREE.Quaternion())).toBeGreaterThan(0)
+    })
+  })
 })
 
 describe('레인', () => {

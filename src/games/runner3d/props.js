@@ -36,10 +36,37 @@ export class PropRow {
    * @param {{place:Function}} [o.placer] 쪽마다 하나. 이미 놓인 것과 안 겹치게 잡아 준다
    * @param {number} [o.radius] 이 물건이 차지하는 반지름 (겹침 판정용)
    * @param {boolean} [o.faceTrack] **앞뒤가 있는 물건**은 아무렇게나 안 돌린다
+   * @param {number} [o.rotOffset] `faceTrack`의 기준 방향(0)이 실제로 어느
+   *   쪽을 보는지는 **모델마다 다르다** — glTF에 "정면 축은 이거다"라는
+   *   규칙이 없어서, 원본을 만든 쪽이 어느 축을 앞으로 두고 내보냈느냐에
+   *   달렸다. 0으로 뒀을 때 등을 보이면 π를 준다(180도 반대). 기본 0.
+   * @param {number} [o.rotJitter] `faceTrack`이 `rotOffset` 둘레로 흔드는
+   *   폭(라디안). 기본 1.0(±0.5rad≈±28.6도) — 같은 물건이 여러 개(예:
+   *   범선 5척) 있을 때 전부 똑같이 줄 세운 것처럼 안 보이게 하는 값이다.
+   *   **`count`가 1~2뿐인 랜드마크(신상 등)에는 안 맞는다** — 인스턴스가
+   *   하나면 "여러 개가 똑같아 보인다"를 막을 이유가 없는데, 흔들림
+   *   자체가 그 하나의 방향을 어렵게 맞춘 `rotOffset`에서 최대 ±28.6도
+   *   벗어나게 만든다(신상이 좌우 중 한쪽만 옆모습으로 보이던 원인 —
+   *   좌우가 각자 `new PropRow`라 독립된 난수를 뽑아서, 우연히 한쪽만
+   *   불리한 값이 나왔다). 그런 물건은 0으로 꺼서 튜닝한 각도 그대로
+   *   고정한다.
+   * @param {{amp:number, rate:number}} [o.bob] **물 위에 뜬 물건**만 준다(부표 등).
+   *   `null`(기본)이면 육지 프롭처럼 자리에 고정 — 잔디 위 야자수·바위는 이걸
+   *   켤 이유가 없다. 물건마다 위상을 `x·z`에서 뽑아 흔든다(`DinoRow`와 같은
+   *   이유 — 다 같은 박자로 까딱이면 살아 있는 게 아니라 기계로 보인다).
+   * @param {{amp:number, rate:number}} [o.sway] **살아 있는 느낌**이 필요한
+   *   물건만 준다(인어 등) — 좌우로 몸을 트는 각도(yaw)를 흔든다. `bob`과
+   *   같은 발상이고 독립적으로 같이 켤 수 있다(둥실+뒤척임). 뼈대 없이
+   *   몸 전체를 흔드는 것이라 `DinoRow`보다 거칠지만, 프롭 하나를 통째로
+   *   깎아 부위별로 다시 내보낼 파이프라인(Blender)이 없을 때 쓰는 저비용 대안이다.
    */
   constructor({ geometry, material, count, span, side, near, spread, scale = 1,
-    placer = null, radius = 1.4, faceTrack = false, rnd = Math.random }) {
+    placer = null, radius = 1.4, faceTrack = false, rotOffset = 0, rotJitter = 1.0, bob = null, sway = null,
+    rnd = Math.random }) {
     this.span = span
+    this.bob = bob
+    this.sway = sway
+    this.t = 0
     this.mesh = new THREE.InstancedMesh(geometry, material, count)
     // 매 프레임 행렬을 고친다 — three에게 미리 알려 두면 최적화를 건너뛴다
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
@@ -55,7 +82,7 @@ export class PropRow {
     this.items = rowSpots({ count, span, side, near, spread, scale, radius, placer, rnd })
       .map(p => ({
         ...p,
-        rot: faceTrack ? (rnd() - 0.5) * 1.0 : rnd() * Math.PI * 2,
+        rot: faceTrack ? rotOffset + (rnd() - 0.5) * rotJitter : rnd() * Math.PI * 2,
       }))
     this._m = new THREE.Matrix4()
     this._q = new THREE.Quaternion()
@@ -67,8 +94,11 @@ export class PropRow {
   /**
    * @param {number} dz 이번 프레임에 다가온 거리 = speed × dt
    * @param {number} behind 카메라 뒤 이만큼 지나가면 되돌린다
+   * @param {number} [dt] `bob`을 켰을 때만 쓴다 — 시간을 밖에서 받는다
+   *   (`감지기는 시간을 밖에서 받는다`와 같은 이유, 합성 프레임 테스트 가능해진다)
    */
-  update(dz, behind = 12) {
+  update(dz, behind = 12, dt = 0) {
+    if (this.bob || this.sway) this.t += dt
     for (const it of this.items) {
       it.z += dz
       // while이다. 프레임이 크게 튀면(탭 복귀) 한 번 빼는 걸로 모자란다.
@@ -80,8 +110,18 @@ export class PropRow {
   sync() {
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i]
-      this._v.set(it.x, 0, it.z)
-      this._q.setFromAxisAngle(UP, it.rot)
+      // 위상을 x·z에서 뽑는다 — 따로 저장 안 해도 물건마다 다른 값이라
+      // 다 같이 까딱이지 않는다.
+      const y = this.bob
+        ? Math.sin(this.t * this.bob.rate + it.x * 0.7 + it.z * 0.13) * this.bob.amp
+        : 0
+      // sway는 bob과 다른 위상 조합을 써서 — 켤 때 같은 물건이 같은 순간에
+      // 오르내리며 동시에 트는 게 아니라 어긋나게 움직인다(더 "살아있게" 읽힌다).
+      const yaw = this.sway
+        ? it.rot + Math.sin(this.t * this.sway.rate + it.z * 0.19 + it.x * 0.11) * this.sway.amp
+        : it.rot
+      this._v.set(it.x, y, it.z)
+      this._q.setFromAxisAngle(UP, yaw)
       this._s.setScalar(it.s)
       this._m.compose(this._v, this._q, this._s)
       this.mesh.setMatrixAt(i, this._m)

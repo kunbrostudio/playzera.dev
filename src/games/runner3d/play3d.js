@@ -280,10 +280,16 @@ export function makeRunner3dPlay(manifest) {
         // ── 스킵 ★ ──────────────────────────────────────────────
         // 판을 다시 시작할 때마다(`onAgain`이 `location.reload()`라 인트로도
         // 매번 새로 뜬다) 같은 이야기를 또 보고 싶지 않을 수 있다(ken 요청,
-        // 9/2). 스킵하면 어느 장면에 있든 **마지막 장면의 마지막 줄**(소년의
-        // 출발 대사 — 게임 시작 신호음이 여기서 난다)로 곧장 건너뛴다.
-        // 장면째 건너뛰면 그 장면의 첫 줄부터 다시 읽어야 해서 "스킵인데도
-        // 덜 스킵됐다"가 된다 — `startLine: 'last'`로 그 장면의 줄까지 건너뛴다.
+        // 9/2). 처음엔 스킵하면 **마지막 장면의 마지막 줄**(소년의 출발
+        // 대사 — 시작 버튼이 있는 화면)로 건너뛰었는데, 아이패드 실사용
+        // 테스트에서 사용자가 스킵을 누르면 그냥 곧장 게임이 시작되길
+        // 기대한다는 게 확인됐다(ken 요청, 9/4) — 마지막 장면조차 다시
+        // 보여주지 않고 **곧장 게임을 시작한다.** `sceneIdx`를 장면
+        // 배열 길이로 밀어 두면 while 조건이 그대로 거짓이 되어 루프를
+        // 빠져나가고, 그 아래 title 블록을 마저 벗어나는 줄로 이어져
+        // 'done'으로 인트로를 다 본 것과 같은 길을 탄다 — 게임 시작
+        // 신호음(stinger)은 마지막 장면 자체를 건너뛰므로 이번엔 안
+        // 울린다(스킵이니 자연스럽다).
         if (manifest.story?.intro) {
           const introScenes = manifest.story.intro.scenes ?? []
           let sceneIdx = 0
@@ -317,8 +323,7 @@ export function makeRunner3dPlay(manifest) {
               continue
             }
             if (introResult === 'skip') {
-              sceneIdx = introScenes.length - 1
-              jumpToLastLine = true
+              sceneIdx = introScenes.length   // 루프 조건을 거짓으로 만들어 곧장 게임 시작
               continue
             }
             // 나가기(X) → 확인창의 "게임 처음으로" — 튜토리얼의 같은

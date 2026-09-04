@@ -47,10 +47,14 @@ describe('isFullBodyVisible', () => {
 // STEP 4-0에서 엔진이 거울 좌표로 통일됐다.
 // 아이가 자기 오른쪽으로 가면 x가 커지고, 화면에서도 오른쪽 칸이 켜져야 한다.
 describe('zoneDetector — 거울 좌표 기준', () => {
+  // STEP 60에서 칸 폭이 bodyHeight(코~발목) 비율로 바뀌어, 골반만으로는
+  // 부족하다 — `fullBody()`와 같은 몸 크기(코 y=0.10, 발목 y=0.92)를 쓴다.
+  // 이 값에서는 칸 폭이 원래(1/3)보다 조금 좁아질 뿐이라 아래 x값들의
+  // 기대 칸은 그대로다 — 우연이 아니라 경계와 여유를 다시 계산해서 맞춘 것.
   const feed = (xs) => {
     const seen = []
     const d = createZoneDetector({ onZoneChange: z => seen.push(z) })
-    for (const x of xs) d.update([...Array(23), { x, y: 0.5 }, { x, y: 0.5 }])
+    for (const x of xs) d.update(fullBody({ 23: { x }, 24: { x } }))
     return { seen, zone: d.getCurrentZone() }
   }
 

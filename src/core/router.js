@@ -23,6 +23,8 @@ import { playPage } from '../pages/play.js'
 import { startPage } from '../pages/start.js'
 import { buddyPage } from '../pages/buddy.js'
 import { mePage } from '../pages/me.js'
+import { remotePage } from '../pages/remote.js'
+import { controller } from './remote/controller.js'
 import * as bgm from './bgm.js'
 
 const routes = {
@@ -33,6 +35,7 @@ const routes = {
   '/start': startPage,   // 첫 실행 — 프로필·알 고르기
   '/buddy': buddyPage,   // 내 친구 (아이 화면)
   '/me': mePage,         // 마이페이지 (부모 화면 — 손 커서를 붙이지 않는다)
+  '/remote': remotePage, // 부모 리모컨 (다른 디바이스에서 QR로 들어온다 — 손 커서 없음)
 }
 
 // 개발용 화면. 개발용 더미 게임과 같은 규칙으로 **DEV에서만** 열린다.
@@ -43,11 +46,24 @@ const routes = {
 //          곡률 세기도 여기서 눈으로 고른다 (docs/10 §5의 0단계)
 // /labhands — 주먹(Fist) 인식 성능·감각 측정. 포즈와 GestureRecognizer를
 //             **동시에** 돌려 FPS가 얼마나 떨어지는지, 인식이 쓸 만한지 잰다.
+// /lab-sea — 오디세이 런 바다+배 프로토타입. 물이 "달리는" 느낌이 나는지·
+//            로프 레인 회피가 육지와 같은 느낌인지·성능이 버티는지를
+//            정식 테마 통합(더 큰 리팩터) 전에 도형으로 먼저 본다.
+// /lab-island — 오디세이 런 키클롭스 섬(육지) 프로토타입. 쥬라기 트랙
+//               바닥(`ground.js`)을 대리석 팔레트로 다시 칠하고, 트랙
+//               바깥을 `lab-sea`의 물로 채운 조합이 맞는지 먼저 본다.
+// /lab-ithaca — 오디세이 런 이타카(마지막 스테이지) 프로토타입. 트랙은
+//               `lab-island`와 같되 트랙 바깥을 물 대신 사막/흙 팔레트로
+//               칠하고, 키클롭스 섬에 잘못 놓였던 8종(기사·개·염소·보물·
+//               여신상 둘·목마)을 좌우 배경으로 옮겨 심는다.
 if (import.meta.env?.DEV) {
   routes['/lab'] = (app, q) => import('../pages/lab.js').then(m => m.labPage(app, q))
   routes['/lab3d'] = (app, q) => import('../pages/lab3d.js').then(m => m.lab3dPage(app, q))
   routes['/labcam'] = (app, q) => import('../pages/labcam.js').then(m => m.labcamPage(app, q))
   routes['/labhands'] = (app, q) => import('../pages/labhands.js').then(m => m.labhandsPage(app, q))
+  routes['/lab-sea'] = (app, q) => import('../pages/labsea.js').then(m => m.labseaPage(app, q))
+  routes['/lab-island'] = (app, q) => import('../pages/labisland.js').then(m => m.labislandPage(app, q))
+  routes['/lab-ithaca'] = (app, q) => import('../pages/labithaca.js').then(m => m.labithacaPage(app, q))
 }
 
 // ── 소리가 나도 되는 경로 ────────────────────────────────────
@@ -81,6 +97,19 @@ const LEGACY = {
 let _cleanup = null
 export function onLeave(fn) { _cleanup = fn }
 
+// ── 화면 전환 알림 ────────────────────────────────────────────
+//
+// `onLeave`와 다르다 — 한 번 쓰고 버리는 정리 훅이 아니라, **앱이 사는 동안
+// 계속 듣는** 구독자용이다(여럿 등록 가능). 지금은 리모컨 세션
+// (`core/remote/session.js`)이 "지금 주 디바이스가 뭘 하고 있나"를 부모
+// 폰에 실시간으로 알리는 데 쓴다 — 리모컨은 페이지가 아니라 앱 전체의
+// 상태를 알아야 하므로 특정 화면이 아니라 라우터가 알려주는 게 맞다.
+const _routeListeners = new Set()
+export function onRouteChange(fn) {
+  _routeListeners.add(fn)
+  return () => _routeListeners.delete(fn)
+}
+
 function parseHash() {
   const hash = window.location.hash.replace('#', '') || '/'
   const [path, qs] = hash.split('?')
@@ -109,9 +138,21 @@ function render() {
 
   app.innerHTML = ''
   page(app, query)
+
+  for (const fn of _routeListeners) {
+    try { fn({ path, query }) } catch (e) { console.warn('[router] onRouteChange 구독자 오류:', e) }
+  }
 }
 
+// **리모컨(폰)이 조종 중일 때는 이 앱의 화면 전환 통로가 이 함수 하나다.**
+// 허브의 히어로 버튼도, 게임의 Home 버튼도 결국 여기를 부른다 — 그래서
+// `controller.active`일 때 로컬 이동 대신 주 디바이스로 명령만 보내면,
+// 폰 화면 자체(허브 마크업)는 한 줄도 안 고치고 "플랫폼 그대로 조종"이
+// 된다(`core/remote/controller.js` 상단 주석 참고, STEP 66). 폰 자신의
+// 화면은 그대로 허브에 머문다 — 뒤에서 실제로 뭘 하는지는 실제 플레이가
+// 일어나는 주 디바이스 화면으로 봐야 한다.
 export function navigate(path) {
+  if (controller.active) { controller.sendNavigate(path); return }
   window.location.hash = path
 }
 

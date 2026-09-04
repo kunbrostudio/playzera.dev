@@ -324,7 +324,14 @@ export function showReadyScreen(app, {
     const finish = mode => {
       if (settled) return
       settled = true
-      if (mode === 'motion') lastMotionAt = Date.now()
+      if (mode === 'motion') {
+        lastMotionAt = Date.now()
+        // 지금 이 화면이 추적하고 있던 사람을 "이 아이"로 확정한다 — O자세
+        // 성공이든 이어서 하기(QUICK_RESUME)든, 둘 다 몸으로 시작을 확인한
+        // 순간이다. 확정 뒤에는 다른 사람(돕는 보호자 등)이 더 중앙에 있거나
+        // 크게 잡혀도 게임 중 그쪽으로 안 넘어간다 (personLock.js).
+        poseEngineCore.confirmLock()
+      }
       if (raf) cancelAnimationFrame(raf)
       unsub?.()
       detach?.()

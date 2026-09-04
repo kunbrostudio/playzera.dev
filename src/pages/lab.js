@@ -18,6 +18,7 @@ import { createPipOverlay } from '../core/pose/pipOverlay.js'
 import { handErrorMessage } from '../core/handControl.js'
 import { HighKneesDetector, HIGH_KNEES } from '../core/pose/detectors/highKnees.js'
 import { BalanceDetector, BALANCE } from '../core/pose/detectors/balance.js'
+import { RowDetector, ROW_TUNING } from '../core/pose/detectors/row.js'
 import { getExercise } from '../progress/exercises.js'
 import { matchTargets, matchDetail } from '../core/pose/poseMatch.js'
 import { YOGA_POSES, YOGA_THRESHOLD } from '../core/pose/poses.js'
@@ -39,6 +40,23 @@ const LABS = {
         ['오른 무릎', d.right.up ? '들림' : '내림'],
       ],
       cfg: HIGH_KNEES,
+    }),
+  },
+  // 오디세이 런(프로토타입)이 쓸 새 동작 — 양팔을 벌렸다 모으면 1회.
+  // 실제 노 젓기는 몸 앞뒤(카메라 쪽) 동작인데, z(깊이)는 다른 감지기도
+  // 안 믿는 값이라 좌우 벌림으로 바꿔 잰다(`row.js` 주석). 문턱값은
+  // 아직 눈대중이라, 실제로 저어 보면서 `pullOut`·`pullHysteresis`를
+  // 조정하는 게 이 화면의 목적이다.
+  row: {
+    label: '로우(노 젓기)',
+    make: () => new RowDetector(),
+    read: d => ({
+      big: d.count,
+      unit: '회',
+      rows: [
+        ['지금', d._pulled ? '당기기(벌림)' : '뻗기(모음)'],
+      ],
+      cfg: ROW_TUNING,
     }),
   },
   balance: {

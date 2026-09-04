@@ -46,6 +46,9 @@ export const DEFAULT_VIDEO = {
 
 // 랜드마크 인덱스 (gesture.js와 같은 표를 쓴다)
 export { LM } from './gesture.js'
+import { isArmsUpCircle } from './gesture.js'
+import { GESTURE } from './tuning.js'
+import { createPersonLock } from './personLock.js'
 
 // 캘리브레이션 전 "전신이 화면 안에 다 들어와 있는지" 체크 — 코~발목까지 주요 관절이
 // 1) MediaPipe가 보고하는 신뢰도(visibility)가 충분히 높고, 2) 정규화 좌표가 화면 범위(0~1) 안에
@@ -165,7 +168,24 @@ class PoseEngineCore {
     // 요구 관절을 줄일 수 있느냐를 가른다 — 오는지는 `#/labcam`에서 재는 중이다.
     // 구독 모양을 바꾸지 않으려고 콜백이 아니라 마지막 값으로 둔다.
     this.lastWorld = null
+
+    // ── 여러 사람 중 "그 아이 한 명"만 골라 낸다 ★ ────────────────
+    // `numPoses`를 1보다 크게 열어 두고(아래 `_createLandmarker`), 매 프레임
+    // 후보 중 하나를 이 모듈이 고른다 — 로직은 `personLock.js` 참고.
+    // 구독자(zoneDetector·moves·poseMatch…)는 지금처럼 "한 사람"만 받는다,
+    // 바뀌는 건 그 한 사람을 **고르는 방법**뿐이다.
+    this._personLock = createPersonLock({ gestureCheck: lms => isArmsUpCircle(lms, GESTURE) })
   }
+
+  /**
+   * 지금 고른 사람을 "이 사람"으로 확정한다.
+   *
+   * 언제가 확정할 순간인지는 이 엔진이 모른다 — 화면이 안다. 카메라 준비
+   * 화면(`readyScreen.js`)이 O자세 유지에 성공한 순간(또는 이어하기 순간)
+   * 이걸 불러서, 그 순간 이 엔진이 내주고 있던 사람의 위치를 잠근다. 잠긴
+   * 뒤로는 다른 사람이 더 중앙에 있거나 크게 잡혀도 넘어가지 않는다.
+   */
+  confirmLock() { this._personLock.confirmLock() }
 
   // ⚠️ setPaused()는 없애 두었다.
   //
@@ -316,7 +336,12 @@ class PoseEngineCore {
     const create = delegate => vision.PoseLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate },
       runningMode: 'VIDEO',
-      numPoses: 1,
+      // 2명까지 받는다 — 아이 혼자가 아니라 돕는 보호자까지 잡히는 경우를
+      // 감안한 최소값이다. 더 올리면 그만큼 매 프레임 더 계산해야 해서
+      // FPS가 떨어진다(실기기 미검증 — `#/lab3d`류로 재고 나서 올릴지 정한다).
+      // 실제 사람 고르기는 `personLock.js`가 한다 — 이 값은 "MediaPipe가
+      // 몇 명까지 후보로 내주느냐"일 뿐이다.
+      numPoses: 2,
     })
 
     // GPU가 먼저지만 실패하면 CPU로 내려간다.
@@ -344,10 +369,15 @@ class PoseEngineCore {
 
     try {
       const result = this._landmarker.detectForVideo(video, performance.now())
-      const raw = result.landmarks && result.landmarks[0]
+      const candidates = result.landmarks || []
+      // 여럿 잡혀도 "그 아이 한 명"만 고른다 — 나머지 코드는 이전처럼 한
+      // 사람만 받는다는 전제를 그대로 지킨다. 시각은 밖(여기)에서 넘긴다.
+      const raw = this._personLock.select(candidates, performance.now())
+      if (!raw) { this.lastWorld = null; return }
       // 미터 좌표는 스무딩도 반전도 하지 않고 그대로 둔다 — 지금은 재는 용도다.
-      this.lastWorld = (result.worldLandmarks && result.worldLandmarks[0]) || null
-      if (!raw) return
+      // 고른 사람과 같은 인덱스의 world landmarks를 짝지어 준다.
+      const idx = candidates.indexOf(raw)
+      this.lastWorld = (result.worldLandmarks && result.worldLandmarks[idx]) || null
       const lms = this._mirrorAndSmooth(raw)
       for (const cb of this._callbacks) cb(lms)
     } catch {
@@ -409,6 +439,7 @@ class PoseEngineCore {
     this.lastWorld = null
     this._attached.clear()
     this._constraints = { ...DEFAULT_VIDEO }   // 다음에 열 때 기본으로 돌아간다
+    this._personLock.reset()   // 다음 세션은 처음부터 다시 고른다
   }
 }
 

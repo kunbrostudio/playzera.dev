@@ -200,19 +200,23 @@ const CSS = `
   margin: 0; font-size: clamp(1.2rem, 3vw, 1.9rem); font-weight: 700; line-height: 1.5;
   min-height: 2.2em; display: flex; align-items: center;
 }
-/* 이전·다음을 **가깝게 붙인다.** 손 제스처로 커서를 조준할 때, 버튼이
-   상자 양 끝에 멀리 떨어져 있으면 오가는 손 이동이 커진다(ken 확인, 9/2) —
-   space-between이었던 걸 가운데로 모으고 간격만 좁게 줬다. */
-.r3-story-actions { display: flex; justify-content: center; gap: clamp(8px, 1.4vw, 14px); }
+/* 이전·다음은 서로 가깝게 붙이고(손 제스처로 오갈 때 이동이 작게,
+   ken 확인 9/2), 스킵은 반대쪽 끝으로 뗀다 — 아이패드 실사용에서 셋이
+   한데 뭉쳐 있으니 스킵과 다음/이전을 헷갈렸다(ken 요청, 9/4). 텍스트
+   (r3-story-body)와 왼쪽 정렬을 맞추려고 이전·다음 묶음을 그대로 왼쪽에
+   두고, actions를 space-between으로 벌려 스킵만 오른쪽 끝으로 보낸다 —
+   자식이 nav 하나뿐(스킵이 없는 장면)이어도 flex-start라 왼쪽 자리는
+   그대로 유지된다. */
+.r3-story-actions { display: flex; justify-content: space-between; align-items: center; }
+.r3-story-nav { display: flex; gap: clamp(8px, 1.4vw, 14px); }
 .r3-story-actions .r3s-btn {
   min-height: clamp(52px, 8vh, 76px); font-size: clamp(1rem, 2.4vw, 1.35rem);
   padding: 0 clamp(20px, 3.6vw, 38px);
 }
 .r3-story-prev:disabled { opacity: .35; pointer-events: none; }
-/* 스킵 — 이전·다음과 같은 줄, 같은 모양(.r3s-btn)이다. 처음엔 화면
-   오른쪽 위에 따로 뗐었는데(버튼 셋이 한 줄이면 헷갈릴까 봐) ken이 대화창
-   버튼들과 나란히 두는 쪽을 원해(9/2) 자리를 옮겼다 — 그래서 이 클래스
-   전용 CSS가 따로 없다, .r3-story-actions .r3s-btn을 그대로 받는다. */
+/* 스킵 — 이전·다음과 같은 모양(r3s-btn)이지만 이제 같은 묶음은 아니다.
+   actions의 두 번째 flex 자식이라 위 space-between이 오른쪽 끝으로
+   밀어 준다 — 이 클래스 전용 CSS는 여전히 필요 없다. */
 
 /* 위급한 장면(화산 폭발 등, scene.fx==='quake') — 배경만 흔든다.
    **대사창·버튼은 안 흔든다** — 손 제스처로 겨누는 자리가 움직이면 눌리지

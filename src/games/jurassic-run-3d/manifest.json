@@ -78,7 +78,7 @@
             "girl": "/assets/runner/jurassic/image/story_scene_intro_calm_girl.png"
           },
           "lines": [
-            "쥬라기 공원에 놀러 온 평화로운 오후예요.",
+            { "text": "우와, 드디어 쥬라기 공원이다! 진짜 신난다!", "speaker": "player", "mood": "happy" },
             { "text": "안녕! 오늘 나랑 같이 신나게 놀자!", "speaker": "mom", "mood": "joy" }
           ]
         },

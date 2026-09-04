@@ -108,7 +108,9 @@ function bgFor(bg) {
  *   눈에 보이는 버튼만 뺐다.
  * @param {boolean} [o.skippable] 스킵 버튼을 보여준다. 인트로의 마지막
  *   장면 앞까지만 켠다 — 매 판 다시 보는 화면이라 반복 피로가 있다(ken 요청,
- *   9/2). 결과가 `'skip'`으로 온다. 이전·다음과 같은 줄, 같은 모양이다.
+ *   9/2). 결과가 `'skip'`으로 온다(STEP 61부터 곧장 게임을 시작시킨다,
+ *   `play3d.js`). 같은 줄이지만 이전·다음과는 반대쪽 끝(오른쪽 정렬)이다
+ *   — 아이패드 실사용에서 셋이 뭉쳐 있으니 헷갈렸다(ken 요청, 9/4).
  *   마지막 장면에는 안 켠다 — 이미 끝인데 스킵은 의미가 없다(ken 요청, 9/2),
  *   대신 `startAction`을 쓴다.
  * @param {boolean} [o.startAction] 이 장면의 **마지막 줄**에서 "다음" 대신
@@ -116,8 +118,10 @@ function bgFor(bg) {
  *   판을 시작시킬 때 쓴다(ken 요청, 9/2). 자동 넘김은 그대로 살아 있다 —
  *   글자만 바뀐다, 동작은 같다.
  * @param {'last'} [o.startLine] 첫 줄이 아니라 **마지막 줄부터** 보여준다.
- *   스킵이 마지막 장면의 마지막 줄(출발 신호)로 곧장 건너뛸 때 쓴다
- *   (`play3d.js`).
+ *   대사창 안 "이전"이 장면 첫 줄에서 앞 장면으로 넘어갈 때, 그 장면의
+ *   마지막 줄부터 이어받아 줄이 하나로 이어지는 것처럼 보이게 한다
+ *   (`play3d.js`의 `prevScene` 처리). 스킵(`'skip'`)은 STEP 61부터 장면을
+ *   다시 보여주지 않고 곧장 게임을 시작해서 더는 이 옵션을 안 쓴다.
  * @param {boolean} [o.canGoBack] 이 장면 **앞에 이어지는 장면이 있는지**.
  *   대사창 안의 "이전" 버튼은 줄 단위로 뒤로 간다 — 지금 장면의 첫 줄(`i===0`)에서
  *   더 갈 데가 있으려면 **이 장면 앞에 다른 장면이 있어야** 한다. 없으면(전체
@@ -148,12 +152,14 @@ export function showStoryScene(
         <div class="r3-story-body">
           <p class="r3-story-line" id="r3-story-line"></p>
           <div class="r3-story-actions">
-            <button class="r3s-btn r3-story-prev" id="r3-story-prev" data-pz-hit data-pz-dwell="1200">
-              ${icon('back')} 이전
-            </button>
-            <button class="r3s-btn r3-story-next" id="r3-story-next" data-pz-hit data-pz-dwell="1200">
-              다음 ${icon('play')}
-            </button>
+            <div class="r3-story-nav">
+              <button class="r3s-btn r3-story-prev" id="r3-story-prev" data-pz-hit data-pz-dwell="1200">
+                ${icon('back')} 이전
+              </button>
+              <button class="r3s-btn r3-story-next" id="r3-story-next" data-pz-hit data-pz-dwell="1200">
+                다음 ${icon('play')}
+              </button>
+            </div>
             ${skippable ? `
             <button class="r3s-btn r3-story-skip" id="r3-story-skip" data-pz-hit data-pz-dwell="1200">
               스킵 ${icon('play')}
