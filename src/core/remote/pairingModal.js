@@ -21,12 +21,9 @@
 // 그때는 이미 연결된 상태로 열리므로 자동으로 안 닫히고 "연결 끊기"
 // 버튼을 보여준다(아래 `wasConnected` 판단 참고).
 //
-// **"조종 중" 패널에 "화면 보기" 토글이 있다**(STEP 71, ken 요청 9/4 —
-// STEP 65에서 만들고 STEP 66에서 놓을 자리가 없어 꺼 뒀던 걸 되살렸다).
-// 신호 로직은 `core/remote/controller.js`가 갖는다 — 이 모듈은 그 위에
-// 켜고 끄는 버튼 + `<video>`만 얹는다. 패널이 닫히면 켜져 있던 미러링도
-// 같이 끈다(계속 떠 있는 화면이 아니므로 — STEP 65의 "안 보는데 인코딩만
-// 도는" 걱정을 다시 만들지 않으려는 것).
+// **"화면 보기"(미러링) 토글은 걷어냈다**(STEP 73). 태블릿이 화면이고
+// 폰은 입력이라는 구조로 정리하면서 미러링 자체를 지웠다 — 이유는
+// `session.js` 머리말 참고. 이 패널에 있던 토글·`<video>`도 같이 뺐다.
 //
 // **QR을 카메라로 찍는 것도 이 팝업 안에서 할 수 있다**(ken 요청, 9/4).
 // 지금까지는 폰의 OS 카메라 앱(사진 촬영 시 QR 인식)으로만 스캔할 수
@@ -74,12 +71,7 @@ function openControllerPanel(root) {
       <button id="pz-remote-close" aria-label="닫기">${icon('close', 1)}</button>
       <div id="pz-remote-title">${icon('qrcode')} 리모컨으로 조종 중</div>
       <div id="pz-remote-status" class="ok">지금 이 기기로 다른 화면을 조종하고 있어요</div>
-      <div id="pz-mirror-video-wrap" hidden>
-        <video id="pz-mirror-video" autoplay playsinline muted></video>
-        <div id="pz-mirror-wait">화면을 받는 중이에요…</div>
-      </div>
       <div id="pz-remote-actions">
-        <button class="pz-remote-btn accent" id="pz-mirror-toggle">${icon('camera', 0.95)} 화면 보기</button>
         <button class="pz-remote-btn warn" id="pz-remote-disconnect">연결 끊기</button>
       </div>
     </div>
@@ -87,43 +79,13 @@ function openControllerPanel(root) {
   root.appendChild(wrap)
   const $ = s => wrap.querySelector(s)
 
-  // 패널을 여는 동안만 켜 둔다 — 계속 떠 있는 화면이 아니라서, 닫힐 때
-  // 켜져 있었으면 같이 끈다("화면 보기"를 끄는 걸 잊고 나가면 주
-  // 디바이스가 아무도 안 보는데 인코딩을 계속 도는 STEP 65의 걱정이
-  // 그대로 재현된다).
-  let mirroring = false
-  const close = () => { if (mirroring) controller.stopMirror(); wrap.remove() }
+  const close = () => wrap.remove()
   $('#pz-remote-close').addEventListener('click', close)
   wrap.addEventListener('click', e => { if (e.target === wrap) close() })
   $('#pz-remote-disconnect').addEventListener('click', () => {
     controller.disconnect()
     close()
   })
-
-  $('#pz-mirror-toggle').addEventListener('click', () => {
-    mirroring = !mirroring
-    const btn = $('#pz-mirror-toggle')
-    const videoWrap = $('#pz-mirror-video-wrap')
-    btn.classList.toggle('accent', !mirroring)
-    btn.classList.toggle('go', mirroring)
-    btn.innerHTML = mirroring ? `${icon('camera', 0.95)} 화면 끄기` : `${icon('camera', 0.95)} 화면 보기`
-    videoWrap.hidden = !mirroring
-    if (mirroring) {
-      $('#pz-mirror-wait').hidden = false
-      controller.requestMirror(onMirrorStream)
-    } else {
-      controller.stopMirror()
-    }
-  })
-
-  function onMirrorStream(stream) {
-    const video = $('#pz-mirror-video')
-    const wait = $('#pz-mirror-wait')
-    if (!video) return   // 그새 패널이 닫혔다
-    video.srcObject = stream
-    if (stream) { video.play().catch(() => {}); if (wait) wait.hidden = true }
-    else if (wait) wait.hidden = false
-  }
 }
 
 // ── 내가 QR을 여는 주 디바이스일 때(기존 1단계 흐름) ────────────────
@@ -346,7 +308,7 @@ const MODAL_STYLE = `
       #pz-remote-modal { position: fixed; inset: 0; z-index: 2000;
         display: flex; align-items: center; justify-content: center;
         background: rgba(10, 4, 24, 0.72); font-family: var(--font-main, 'Jua', sans-serif); }
-      #pz-remote-card { width: min(88vw, 380px); background: #1c1240; color: #fff;
+      #pz-remote-card { width: min(88vw, 380px); background: var(--pz-bg-veil-3, #1c1240); color: #fff;
         border-radius: 24px; padding: 28px 24px; text-align: center;
         box-shadow: 0 20px 60px rgba(0,0,0,0.5); position: relative; }
       #pz-remote-close { position: absolute; top: 12px; right: 12px;
@@ -362,24 +324,19 @@ const MODAL_STYLE = `
       #pz-remote-code { font-size: 1.6rem; font-weight: 900; letter-spacing: 0.25em;
         margin-bottom: 16px; }
       #pz-remote-status { font-size: 0.95rem; font-weight: 800; min-height: 1.4em; margin: 14px 0; }
-      #pz-remote-status.ok { color: #8dff7a; }
-      #pz-remote-status.warn { color: #ffd23e; }
+      #pz-remote-status.ok { color: var(--pz-green-a, #8dff7a); }
+      #pz-remote-status.warn { color: var(--pz-gold, #ffd23e); }
       #pz-remote-actions { display: flex; flex-direction: column; gap: 10px; }
-      .pz-remote-btn { min-height: 50px; border-radius: 9999px; border: 2px solid rgba(255,255,255,0.25);
+      .pz-remote-btn { min-height: 50px; border-radius: var(--pz-radius-pill, 9999px); border: 2px solid rgba(255,255,255,0.25);
         background: rgba(255,255,255,0.10); color: #fff; font: inherit; font-weight: 900;
         font-size: 1rem; cursor: pointer; }
-      .pz-remote-btn.go { background: #ffd23e; color: #4a2a00; border-color: transparent; }
-      .pz-remote-btn.warn { background: #ff6b6b; color: #3a0a0a; border-color: transparent; }
-      .pz-remote-btn.accent { background: linear-gradient(135deg, #0ECAFD, #0057EC);
+      .pz-remote-btn.go { background: var(--pz-gold, #ffd23e); color: var(--pz-gold-text, #4a2a00); border-color: transparent; }
+      .pz-remote-btn.warn { background: var(--pz-red, #ff6b6b); color: #3a0a0a; border-color: transparent; }
+      .pz-remote-btn.accent { background: linear-gradient(135deg, var(--pz-blue-start, #0ECAFD), var(--pz-blue-end, #0057EC));
         color: #fff; border-color: transparent; width: 100%; }
       #pz-remote-divider { margin-top: 18px; margin-bottom: 10px; font-size: 0.8rem;
         font-weight: 700; opacity: 0.5; }
       #pz-scan-video-wrap { width: 100%; aspect-ratio: 1; border-radius: 16px; overflow: hidden;
         background: #000; margin-bottom: 4px; }
       #pz-scan-video-wrap video { width: 100%; height: 100%; object-fit: cover; }
-      #pz-mirror-video-wrap { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: 16px;
-        overflow: hidden; background: #000; margin: 14px 0; display: flex;
-        align-items: center; justify-content: center; }
-      #pz-mirror-video-wrap video { width: 100%; height: 100%; object-fit: contain; }
-      #pz-mirror-wait { position: absolute; font-size: 0.85rem; opacity: 0.7; padding: 0 16px; text-align: center; }
     </style>`

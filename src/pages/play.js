@@ -9,7 +9,14 @@
 
 import { navigate } from '../core/router.js'
 import { GAME_REGISTRY } from '../games/registry.js'
+import { showLoadingScreen } from '../core/loadingScreen.js'
 
+// 게임 코드(청크)를 내려받는 동안 공용 로딩 화면을 띄운다 — **모든
+// 게임에 적용되는 공통 규칙**이라 게임마다 따로 안 켠다(ken 요청, 9/5).
+// `render(app, query)`가 끝난 뒤 바로 놓지만, 그 화면이 자기 배경
+// 그림을 더 기다려야 하면(`runner3d/screens.js`의 `mount()`처럼) 그
+// 화면이 같은 로딩 화면을 참조 카운팅으로 이어받아 계속 띄워 둔다 —
+// 여기서 놓는다고 화면이 바로 사라지는 게 아니다.
 export async function playPage(app, query) {
   const id = query.id
   const entry = GAME_REGISTRY[id]
@@ -24,12 +31,17 @@ export async function playPage(app, query) {
     return
   }
 
-  const mod = await entry.play()
-  const render = mod.default
-  if (typeof render !== 'function') {
-    console.warn(`[play] ${id}의 플레이 화면에 default export가 없어요`)
-    navigate('/')
-    return
+  const loading = showLoadingScreen()
+  try {
+    const mod = await entry.play()
+    const render = mod.default
+    if (typeof render !== 'function') {
+      console.warn(`[play] ${id}의 플레이 화면에 default export가 없어요`)
+      navigate('/')
+      return
+    }
+    render(app, query)
+  } finally {
+    loading.release()
   }
-  render(app, query)
 }

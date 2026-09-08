@@ -36,7 +36,7 @@ export const HUD_CSS = `
   background: rgba(20, 8, 46, .38); border-radius: 16px; padding: .3em .8em;
 }
 #hud-level, #hud-stars {
-  color: #ffd23e; font-size: clamp(16px, 2vw, 26px); font-weight: 900;
+  color: var(--pz-gold, #ffd23e); font-size: clamp(16px, 2vw, 26px); font-weight: 900;
   text-shadow: 0 3px 0 rgba(0,0,0,.35); line-height: 1.2; white-space: nowrap;
 }
 #hud {
@@ -46,7 +46,7 @@ export const HUD_CSS = `
 }
 #hud-lives { display: flex; justify-content: center; gap: 3px; }
 #hud-lives span { font-size: clamp(12px, 1.5vw, 19px); }
-#hud-lives .life-full { color: #ff4d6d; text-shadow: 0 2px 0 rgba(0,0,0,.35); }
+#hud-lives .life-full { color: var(--pz-red-heart, #ff4d6d); text-shadow: 0 2px 0 rgba(0,0,0,.35); }
 #hud-lives .life-empty { color: rgba(255,255,255,.22); }
 #hud-counts {
   color: rgba(255,255,255,.92); font-size: clamp(11px, 1.4vw, 19px); font-weight: 700;

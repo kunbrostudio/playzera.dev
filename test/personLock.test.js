@@ -5,7 +5,7 @@
 // 추적)가 설계대로 도는지는 순수 함수라 여기서 다 확인할 수 있다.
 import { describe, it, expect } from 'vitest'
 import { LM } from '../src/core/pose/gesture.js'
-import { hipCenterOf, acquisitionScore, createPersonLock } from '../src/core/pose/personLock.js'
+import { hipCenterOf, shoulderCenterOf, anchorOf, acquisitionScore, createPersonLock } from '../src/core/pose/personLock.js'
 
 /**
  * 전신 최소 프레임. hipX가 골반 중심, bodyHeight는 코~발목 거리(0..1).
@@ -14,6 +14,8 @@ import { hipCenterOf, acquisitionScore, createPersonLock } from '../src/core/pos
 const person = (hipX, { bodyHeight = 0.6, oGesture = false, noseY = 0.1, visibility = 1 } = {}) => {
   const lm = []
   lm[LM.NOSE]   = { x: hipX, y: noseY, visibility }
+  lm[LM.L_SHOULDER] = { x: hipX - 0.08, y: 0.3, visibility }
+  lm[LM.R_SHOULDER] = { x: hipX + 0.08, y: 0.3, visibility }
   lm[LM.L_HIP]  = { x: hipX - 0.03, y: 0.5, visibility }
   lm[LM.R_HIP]  = { x: hipX + 0.03, y: 0.5, visibility }
   lm[LM.L_ANKLE] = { x: hipX, y: noseY + bodyHeight, visibility }
@@ -45,6 +47,71 @@ describe('hipCenterOf', () => {
     const lm = person(0.4)
     lm[LM.L_HIP] = undefined
     expect(hipCenterOf(lm)).toBeNull()
+  })
+})
+
+// ── 앉아서/가까이 노는 사람도 잡혀야 한다 ★ ───────────────────
+//
+// 원래는 자리를 골반으로만 쟀는데, 책상 앞에 앉으면 골반이 프레임 밖이거나
+// 가려서 안 보인다 → `select()`가 null → `poseEngine`이 구독자를 아예 안
+// 부름 → 화면에서는 "트래킹이 안 된다". 실제로 겪은 버그다(STEP 76 후속
+// 라운드 5, 감지율 표시가 0회/초를 찍어서 잡혔다).
+const upperBodyOnly = (hipX, opts = {}) => {
+  const lm = person(hipX, opts)
+  lm[LM.L_HIP] = undefined
+  lm[LM.R_HIP] = undefined
+  lm[LM.L_ANKLE] = undefined
+  lm[LM.R_ANKLE] = undefined
+  return lm
+}
+
+describe('anchorOf — 골반이 없으면 어깨로 떨어진다 ★', () => {
+  it('골반이 보이면 골반 중심을 쓴다', () => {
+    expect(anchorOf(person(0.4)).y).toBeCloseTo(0.5, 5)   // 골반 y
+  })
+
+  it('골반이 안 보이면 어깨 중심을 쓴다', () => {
+    const a = anchorOf(upperBodyOnly(0.4))
+    expect(a).not.toBeNull()
+    expect(a.x).toBeCloseTo(0.4, 5)
+    expect(a.y).toBeCloseTo(0.3, 5)   // 어깨 y
+  })
+
+  it('골반도 어깨도 없으면 null', () => {
+    const lm = upperBodyOnly(0.4)
+    lm[LM.L_SHOULDER] = undefined
+    lm[LM.R_SHOULDER] = undefined
+    expect(anchorOf(lm)).toBeNull()
+    expect(shoulderCenterOf(lm)).toBeNull()
+  })
+})
+
+describe('상반신만 보여도 사람을 골라낸다 ★ (0회/초 버그)', () => {
+  it('골반·발목이 안 보이는 후보도 점수가 -Infinity가 아니다', () => {
+    expect(acquisitionScore(upperBodyOnly(0.5), gestureCheck)).toBeGreaterThan(-Infinity)
+  })
+
+  it('앉아 있는 사람 하나뿐이어도 select가 그 사람을 낸다(null이 아니다)', () => {
+    const lock = createPersonLock({ gestureCheck })
+    const seated = upperBodyOnly(0.5)
+    expect(lock.select([seated], 0)).toBe(seated)
+  })
+
+  it('상반신만 보이는 사람도 잠그고 계속 따라간다', () => {
+    const lock = createPersonLock({ gestureCheck })
+    lock.select([upperBodyOnly(0.5)], 0)
+    lock.confirmLock()
+    expect(lock.isLocked).toBe(true)
+    const moved = upperBodyOnly(0.53)
+    expect(lock.select([moved], 16)).toBe(moved)
+  })
+
+  it('가까이 앉아 어깨가 넓게 잡힌 쪽을 더 높게 본다(발목이 없어도 크기를 잰다)', () => {
+    const near = upperBodyOnly(0.5)
+    const far = upperBodyOnly(0.5)
+    far[LM.L_SHOULDER] = { x: 0.48, y: 0.3, visibility: 1 }   // 어깨 폭 0.04 (멀다)
+    far[LM.R_SHOULDER] = { x: 0.52, y: 0.3, visibility: 1 }
+    expect(acquisitionScore(near, gestureCheck)).toBeGreaterThan(acquisitionScore(far, gestureCheck))
   })
 })
 

@@ -18,4 +18,8 @@ export const UI = {
   startButton: '/assets/ui/btn_start.png',
   /** 눌린 상태 */
   startButtonPressed: '/assets/ui/btn_start_pressed.png',
+  /** 로딩 화면 로고 — PC·큰 모니터 (풀 워드마크, `core/loadingScreen.js`가 쓴다) */
+  logoFull: '/assets/ui/logo_full.png',
+  /** 로딩 화면 로고 — 태블릿·모바일 (PZ 축약형) */
+  logoMark: '/assets/ui/logo_mark.png',
 };

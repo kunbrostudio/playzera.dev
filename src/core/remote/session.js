@@ -34,40 +34,49 @@
 //
 // ── 화면 미러링(2단계) ─────────────────────────────────────────
 //
-// "게임 화면 그대로"를 폰에 실시간으로 비추는 기능. `getDisplayMedia`
-// (화면 공유, 시스템 팝업)를 쓰지 않는다 — 아이폰·아이패드·안드로이드
-// **모바일 브라우저는 전부 이 API를 지원하지 않는다**(2026년 기준, 데스크톱
-// 전용 API다). 대신 게임이 이미 그리고 있는 `<canvas>`를
-// `canvas.captureStream()`으로 직접 스트림화한다 — 이건 모바일 사파리에서도
-// 된다. 신호 교환(offer/answer/ICE)은 페어링에 쓰던 같은 Realtime 채널을
-// 그대로 재사용한다 — 새 인프라가 필요 없다.
+// ── 화면 미러링은 걷어냈다 (STEP 73, ken 결정) ★ ───────────────
 //
-// **이 저장소의 세 게임(캔버스 id: `#game-canvas`=2D 러너/똥 피하기,
-// `#r3-cv`=3D 러너)은 전부 캔버스에 그린다** — HUD·버튼 같은 UI만 그
-// 위에 얹힌 DOM이다. 그래서 지금 서버에 노출된 게임 셋(똥 피하기·
-// 쥬라기 대탐험 3D·인터랙션 웜업)은 전부 캔버스를 잡아 미러링할 수
-// 있다. `status: hidden`인 나머지 셋(불 끄기·돌다리·팝팝 클리커)은
-// 캔버스가 아예 없는 순수 DOM 게임이라 이 방식으론 못 비춘다 — 지금은
-// 화면이 없을 때처럼 리모컨에 그냥 "화면 준비 중" 상태로 남는다(따로
-// 오류 처리 안 함). 다시 노출하게 되면 그때 다른 방법이 필요하다.
+// STEP 65에서 `canvas.captureStream()` + WebRTC로 만들고 STEP 66에서 껐다가
+// STEP 71에서 되살렸던 기능이다. STEP 73에서 **완전히 지웠다.**
 //
-// **자동으로 켜지지 않는다.** 리모컨이 "화면 보기"를 눌러야(`mirror-request`)
-// 캡처+인코딩이 시작된다 — 3D 렌더링·포즈 인식 카메라가 이미 기기를
-// 많이 쓰는 상태라, 아무도 안 보는데 영상 인코딩까지 얹으면 프레임이
-// 떨어질 수 있다(이 저장소가 성능에 예민한 이유는 `#/lab3d`가 존재하는
-// 이유와 같다). 리모컨이 "화면 보기"를 끄거나 연결이 끊기면 즉시 멈춘다.
+// ken의 판단: "미러링보다는 컨트롤러의 역할을 충실히 하면 될 거 같아. 내
+// 아이가 게임을 어떻게 하는지 감시하기 위한 기능이 아니라 쉽게 컨트롤할 수
+// 있게 하는 편의 기능인 거지."
 //
-// **TURN 서버는 안 쓴다**(ken 선택, 9/4) — 두 기기가 직접 못 붙는
-// 네트워크(대칭 NAT 등)에서는 영상이 안 뜬다. 얼마나 자주 겪는지 보고
-// 나중에 붙일지 정한다.
+// 구조로 봐도 맞다 — **태블릿이 화면이고 폰은 입력이다.** TV와 리모컨의
+// 관계라서, 볼 사람이 이미 태블릿을 보고 있는데 폰에 같은 화면을 다시
+// 그릴 이유가 없다.
 //
-// **지금은 어디서도 이 기능을 켜지 않는다(STEP 66, ken 지시 9/4).**
-// 리모컨 화면 자체가 사라지고 폰이 허브를 그대로 띄우게 되면서 "화면
-// 보기" 버튼을 놓을 자리가 마땅치 않아졌다 — 코드는 지우지 않고 남겨
-// 둔다. `mirror-request`를 실제로 보내는 UI가 다시 생기면(예: 연결 상태
-// 패널에 버튼 하나) 그대로 다시 동작한다.
+// 게다가 이 방식엔 고칠 수 없는 구멍이 있었다. `captureStream()`은
+// **캔버스만** 잡는데, HUD·버튼·결과 화면은 전부 그 위에 얹힌 DOM이라
+// 안 찍힌다. 풍선 팡팡처럼 캔버스가 아예 없는 DOM 게임은 비출 것 자체가
+// 없다. 화면 전체를 뜨려면 `getDisplayMedia`가 필요한데 모바일 브라우저에
+// 없다 — 주 디바이스가 태블릿이면 길이 없다.
+//
+// 되살릴 일이 생기면 이 저장소의 STEP 65·71 커밋에서 꺼내 쓴다.
+// ── 끊겼다 돌아온 리모컨을 알아본다 (STEP 74) ★ ─────────────────
+//
+// `_onJoin`이 "이미 붙어 있으면 무시"였다. 두 번째 리모컨을 막으려던
+// 건데, **끊겼다 돌아온 같은 폰도 똑같이 막혔다.** 주 디바이스는
+// 리모컨이 사라진 걸 모르므로 계속 붙어 있다고 믿고 있고, 폰은 다시
+// 들어가려는데 문이 안 열린다 — 결국 QR을 다시 찍는 수밖에 없었다.
+// 폰 화면이 꺼지는 건 실사용에서 제일 흔한 일이라 이게 제일 아팠다.
+//
+// `remoteId`가 **같으면** 재입장으로 보고 승인창 없이 바로 다시 받아
+// 준다. 그 값은 승인받은 폰만 아는 무작위 토큰이라, 알고 있다는 것이 곧
+// 승인받았다는 뜻이다 — 별도 확인이 필요 없다. 다른 `remoteId`는
+// 예전처럼 막는다(동시 접속은 여전히 하나).
+//
+// 주 디바이스도 잘 수 있다(태블릿 화면 꺼짐, 탭 버려짐). 그래서 이쪽도
+// 페어링을 기억해 두고 돌아오면 채널을 다시 연다 — 양쪽이 대칭이다.
 import supabase from '../supabase.js'
 import { navigate, onRouteChange } from '../router.js'
+import { savePrimary, loadPrimary, clearPrimary } from './remoteStore.js'
+import { focusNav } from '../focusNav.js'
+import * as bgm from '../bgm.js'
+import * as sound from '../sound.js'
+
+const DIRS = new Set(['left', 'right', 'up', 'down'])
 
 // 0/O, 1/I/L처럼 헷갈리는 문자를 뺀 32자 — 화면에 크게 띄워도, 사람이 옮겨
 // 적어도 실수가 적다(지금은 QR만 쓰지만 코드 자체도 같이 보여준다).
@@ -77,16 +86,6 @@ const CODE_LEN = 6
 // QR을 띄운 채 아무도 안 붙으면 이만큼 뒤에 채널을 닫는다 — 계속 열어 두면
 // 오래된 QR 스크린샷이 나중에 재사용될 여지가 남는다.
 const JOIN_TIMEOUT_MS = 5 * 60 * 1000
-
-// 이 저장소의 게임이 실제로 그리는 캔버스 id들. `runner/legacy-shell.js`·
-// `poop-dodge/play.js`가 `#game-canvas`를, `runner3d/play3d.js`가
-// `#r3-cv`를 쓴다 — 새 캔버스 기반 게임이 생기면 여기 한 줄만 추가한다.
-const MIRROR_CANVAS_SELECTOR = '#game-canvas, #r3-cv'
-
-// STUN만 쓴다(TURN 없음, 위 주석 참고). 구글 공개 STUN — 프로젝트 전용
-// 인프라가 필요 없는 가장 가벼운 선택.
-const ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
-const MIRROR_FPS = 12   // 게임 화면 미러링용 — 방송 화질이 아니라 "뭘 하는지 보이는" 정도면 충분하다
 
 export function randomCode() {
   let s = ''
@@ -101,20 +100,32 @@ class RemoteSession {
     this._remoteId = null        // 승인된 리모컨 id — 없으면 아무도 안 붙어 있다
     this._pendingRemoteId = null // 승인 대기 중인 요청 (동시에 하나만)
     this._joinTimer = null
+    this._resuming = null        // 진행 중인 재연결 — 겹쳐 돌지 않게
     this._listeners = new Set()  // (state) => void
 
-    this._wantsMirror = false    // 리모컨이 "화면 보기"를 켰나
-    this._pc = null              // 지금 미러링 중인 RTCPeerConnection
-    this._mirrorCanvas = null    // 그 pc가 물려 있는 캔버스 엘리먼트
-
     // 화면이 바뀔 때마다 리모컨에 "지금 뭘 하고 있나"를 알려준다(붙어 있을 때만).
-    // 캔버스도 화면마다 새로 생기므로(라우터가 #app을 통째로 다시 그린다)
-    // 같은 타이밍에 미러링 대상을 다시 잡는다.
     onRouteChange(({ path, query }) => {
       if (!this._remoteId) return
       this._send('state', { screen: path, gameId: query?.id ?? null })
-      this._reconcileMirror()
     })
+
+    this._bindLifecycle()
+
+    // 포커스가 옮겨질 때마다 리모컨에 이름을 보낸다.
+    focusNav.onChange(({ label }) => this._sendFocus(label))
+  }
+
+  /**
+   * 포커스(화면 안을 짚는 링)를 리모컨 연결에 맞춰 켜고 끈다.
+   *
+   * **붙어 있을 때만 켠다.** 리모컨을 안 쓰는 대부분의 경우에 관찰자와
+   * rAF가 도는 걸 막으려는 것이다 — 이 저장소는 성능에 예민하다.
+   * 그리고 아무도 조종하지 않는데 화면에 노란 링이 떠 있으면 아이에게는
+   * 설명할 수 없는 표시가 된다.
+   */
+  _syncFocusNav() {
+    if (this._remoteId) focusNav.enable()
+    else focusNav.disable()
   }
 
   get code() { return this._code }
@@ -129,6 +140,9 @@ class RemoteSession {
   }
 
   _emit() {
+    // 연결 상태가 바뀌는 자리는 여러 곳(승인·재연결·끊기)인데 전부 여기를
+    // 지난다 — 포커스 켜고 끄기를 여기 한 곳에 걸어 두면 빠뜨릴 수가 없다.
+    this._syncFocusNav()
     const state = { code: this._code, waiting: this.isWaiting, connected: this.isPaired, pending: this.hasPending }
     for (const fn of this._listeners) fn(state)
   }
@@ -144,16 +158,23 @@ class RemoteSession {
   async startPairing() {
     this.stop()
     this._code = randomCode()
-    this._channel = supabase.channel(`remote-${this._code}`)
+    await this._openChannel(this._code)
 
+    this._joinTimer = setTimeout(() => { if (!this._remoteId) this.stop() }, JOIN_TIMEOUT_MS)
+    this._emit()
+    return this._code
+  }
+
+  /**
+   * 채널을 열고 구독한다. 처음 QR을 열 때와 잠에서 깨어 다시 붙을 때가
+   * **같은 길**을 쓴다 — 두 벌로 두면 한쪽에만 이벤트가 빠진다.
+   */
+  async _openChannel(code) {
+    this._channel = supabase.channel(`remote-${code}`)
     this._channel
       .on('broadcast', { event: 'join' }, ({ payload }) => this._onJoin(payload?.remoteId))
       .on('broadcast', { event: 'command' }, ({ payload }) => this._onCommand(payload))
       .on('broadcast', { event: 'controller-left' }, ({ payload }) => this._onControllerLeft(payload))
-      .on('broadcast', { event: 'mirror-request' }, ({ payload }) => this._onMirrorRequest(payload))
-      .on('broadcast', { event: 'mirror-stop' }, ({ payload }) => this._onMirrorStop(payload))
-      .on('broadcast', { event: 'webrtc-answer' }, ({ payload }) => this._onAnswer(payload))
-      .on('broadcast', { event: 'webrtc-ice' }, ({ payload }) => this._onIce(payload))
 
     await new Promise((resolve, reject) => {
       this._channel.subscribe(status => {
@@ -161,15 +182,21 @@ class RemoteSession {
         else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') reject(new Error(`[remote] 채널 연결 실패: ${status}`))
       })
     })
-
-    this._joinTimer = setTimeout(() => { if (!this._remoteId) this.stop() }, JOIN_TIMEOUT_MS)
-    this._emit()
-    return this._code
   }
 
   _onJoin(remoteId) {
-    // 이미 붙어 있거나(1단계는 동시 접속 1개), remoteId가 비어 있으면 무시한다.
-    if (!remoteId || this._remoteId) return
+    if (!remoteId) return
+
+    // ★ 아까 그 폰이 돌아왔다 — 승인창 없이 바로 다시 받아 준다.
+    // (`remoteId`를 안다는 것 자체가 이미 승인받았다는 뜻이다)
+    if (remoteId === this._remoteId) {
+      this._send('approved', { remoteId })
+      return
+    }
+
+    // 다른 리모컨이 이미 붙어 있으면 무시한다 — 동시 접속은 하나다.
+    if (this._remoteId) return
+
     this._pendingRemoteId = remoteId
     this._emit()
   }
@@ -180,8 +207,60 @@ class RemoteSession {
     this._remoteId = this._pendingRemoteId
     this._pendingRemoteId = null
     clearTimeout(this._joinTimer)
+    savePrimary(this._code, this._remoteId)
     this._send('approved', { remoteId: this._remoteId })
+    this._sendMuted()
     this._emit()
+  }
+
+  /**
+   * 잠에서 깨거나 페이지가 다시 뜬 뒤, 붙어 있던 리모컨과의 채널을
+   * 다시 연다. 리모컨 쪽과 마찬가지로 **살아 있는지 묻지 않고 새로
+   * 만든다** — 판단이 어렵고 틀리면 조용히 실패한다.
+   *
+   * 기억해 둔 페어링이 없으면 아무것도 안 한다. QR만 띄워 두고 아무도
+   * 안 붙은 상태(대기 중)는 되살리지 않는다 — 5분이 지나면 어차피 닫히는
+   * 코드라, 잠들었다 깬 뒤에 되살리면 오래된 QR이 다시 유효해진다.
+   */
+  async resume() {
+    if (this._resuming) return this._resuming
+    const saved = this._remoteId
+      ? { code: this._code, remoteId: this._remoteId }
+      : loadPrimary()
+    if (!saved?.code || !saved?.remoteId) return
+
+    this._resuming = (async () => {
+      this._channel?.unsubscribe()
+      this._channel = null
+      this._code = saved.code
+      this._remoteId = saved.remoteId
+      try {
+        await this._openChannel(saved.code)
+        // 리모컨이 우리를 죽은 줄 알고 있을 수 있다 — 살아났다고 알린다.
+        this._send('approved', { remoteId: this._remoteId })
+        this._sendMuted()
+        this._emit()
+      } catch (e) {
+        console.warn('[remote] 재연결 실패:', e?.message ?? e)
+      }
+    })().finally(() => { this._resuming = null })
+    return this._resuming
+  }
+
+  /** 페이지가 새로 떴을 때 부른다 — 기억해 둔 페어링이 있으면 되살린다. */
+  restore() {
+    if (this._channel || !loadPrimary()) return Promise.resolve()
+    return this.resume()
+  }
+
+  _bindLifecycle() {
+    if (typeof document === 'undefined') return
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this._remoteId) this.resume()
+    })
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => { if (this._remoteId) this.resume() })
+    }
   }
 
   /** "거부"를 눌렀을 때. QR·채널은 그대로 살아 있어 다시 시도할 수 있다. */
@@ -196,84 +275,49 @@ class RemoteSession {
     // 승인된 리모컨의 명령만 받는다 — remoteId가 안 맞으면(다른 세션의
     // 낡은 메시지 등) 조용히 버린다.
     if (!this._remoteId || payload?.remoteId !== this._remoteId) return
+
+    // `navigate`는 화면 사이를 옮기는 명령이고, `dir`·`ok`는 **화면 안을**
+    // 짚는 명령이다(STEP 75). 게임 안의 화면들은 라우트가 아니라서
+    // `navigate`로는 닿을 수 없다 — 거기를 `focusNav`가 맡는다.
     if (payload.type === 'navigate' && typeof payload.path === 'string') {
       navigate(payload.path)
+      return
     }
+    if (payload.type === 'dir' && DIRS.has(payload.dir)) {
+      focusNav.move(payload.dir)
+      return
+    }
+    if (payload.type === 'ok') {
+      focusNav.activate()
+      return
+    }
+    // 폰의 햄버거 메뉴 안 소리 버튼. 게임 안의 음악·효과음 버튼(systemBar.js)과
+    // 같은 두 모듈을 같이 토글한다 — 리모컨은 "소리를 끈다" 하나로 단순화해
+    // 아이콘 두 개를 따로 두지 않는다.
+    if (payload.type === 'mute') {
+      bgm.toggle()
+      sound.toggle()
+      this._sendMuted()
+    }
+  }
+
+  /** 지금 소리 상태를 리모컨에 알린다 — 붙는 순간(현재값)과 토글 직후 둘 다. */
+  _sendMuted() {
+    if (this._remoteId) this._send('muted', { muted: bgm.isMuted() })
+  }
+
+  /**
+   * 리모컨에 "지금 뭐가 선택돼 있나"를 알린다 — 폰의 "지금 선택 · 시작하기"
+   * 한 줄이 이걸 쓴다. 태블릿을 안 보고도 뭘 누르는 건지 알게 하려는 것이다.
+   */
+  _sendFocus(label) {
+    if (this._remoteId) this._send('focus', { label })
   }
 
   /** 리모컨(폰) 쪽이 스스로 연결을 끊었을 때 — 세션 전체를 정리한다. */
   _onControllerLeft(payload) {
     if (!this._remoteId || payload?.remoteId !== this._remoteId) return
     this.stop()
-  }
-
-  // ── 화면 미러링 ────────────────────────────────────────────
-
-  _onMirrorRequest(payload) {
-    if (!this._remoteId || payload?.remoteId !== this._remoteId) return
-    this._wantsMirror = true
-    this._reconcileMirror()
-  }
-
-  _onMirrorStop(payload) {
-    if (!this._remoteId || payload?.remoteId !== this._remoteId) return
-    this._wantsMirror = false
-    this._teardownMirror()
-  }
-
-  async _onAnswer(payload) {
-    if (!this._remoteId || payload?.remoteId !== this._remoteId || !this._pc) return
-    try { await this._pc.setRemoteDescription(payload.sdp) }
-    catch (e) { console.warn('[remote] 미러링 answer 처리 실패:', e) }
-  }
-
-  async _onIce(payload) {
-    if (!this._remoteId || payload?.remoteId !== this._remoteId || !this._pc || !payload?.candidate) return
-    try { await this._pc.addIceCandidate(payload.candidate) }
-    catch { /* 늦게 도착한 후보는 조용히 버린다 — 연결 자체는 다른 후보로도 될 수 있다 */ }
-  }
-
-  /**
-   * 지금 상태(원하는지·붙어 있는지·화면에 맞는 캔버스가 있는지)에 맞춰
-   * 미러링을 켜거나 끈다. `onRouteChange`마다, 그리고 "화면 보기"를 켤
-   * 때마다 불린다 — 부르는 쪽이 조건을 안 따져도 되게 이 함수가 판단한다.
-   */
-  _reconcileMirror() {
-    if (!this._wantsMirror || !this._remoteId) { this._teardownMirror(); return }
-    const canvas = document.querySelector(MIRROR_CANVAS_SELECTOR)
-    if (!canvas) { this._teardownMirror(); return }          // 이 화면엔 캔버스가 없다(허브 등)
-    if (canvas === this._mirrorCanvas && this._pc) return    // 이미 이 캔버스를 비추고 있다
-    this._teardownMirror()   // 화면이 바뀌어 캔버스도 새로 생겼다 — 옛 연결은 죽은 트랙을 물고 있다
-    this._beginMirror(canvas)
-  }
-
-  async _beginMirror(canvas) {
-    if (typeof canvas.captureStream !== 'function' || typeof RTCPeerConnection === 'undefined') {
-      console.warn('[remote] 이 브라우저는 화면 미러링(canvas.captureStream/WebRTC)을 지원하지 않는다')
-      return
-    }
-    this._mirrorCanvas = canvas
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-    this._pc = pc
-    pc.onicecandidate = e => {
-      if (e.candidate) this._send('webrtc-ice', { remoteId: this._remoteId, candidate: e.candidate.toJSON() })
-    }
-    try {
-      const stream = canvas.captureStream(MIRROR_FPS)
-      for (const track of stream.getTracks()) pc.addTrack(track, stream)
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-      this._send('webrtc-offer', { remoteId: this._remoteId, sdp: offer })
-    } catch (e) {
-      console.warn('[remote] 미러링 시작 실패:', e)
-      this._teardownMirror()
-    }
-  }
-
-  _teardownMirror() {
-    this._pc?.close()
-    this._pc = null
-    this._mirrorCanvas = null
   }
 
   /**
@@ -285,10 +329,9 @@ class RemoteSession {
    */
   stop() {
     if (this._remoteId) this._send('primary-closed', { remoteId: this._remoteId })
+    clearPrimary()
     clearTimeout(this._joinTimer)
     this._joinTimer = null
-    this._wantsMirror = false
-    this._teardownMirror()
     this._channel?.unsubscribe()
     this._channel = null
     this._code = null

@@ -140,42 +140,14 @@ describe('onChange', () => {
   })
 })
 
-// ── 화면 미러링 (STEP 71 — session.js에서 되살림) ────────────────────
+// ── 끊겼다 돌아오기 (STEP 74) ★ ──────────────────────────────────
 //
-// `session.js`가 던지는 offer/answer/ICE 신호의 반대편. `RTCPeerConnection`을
-// 가짜로 바꿔 끼워서 "offer를 받으면 answer로 답하는가", "ICE를 옳게
-// 주고받는가", "끄면 정리되는가"만 본다.
-describe('화면 미러링', () => {
-  class FakePC {
-    constructor(config) {
-      this.config = config
-      this.remoteDescription = undefined
-      this.localDescription = undefined
-      this.iceCandidates = []
-      this.closed = false
-      this.onicecandidate = null
-      this.ontrack = null
-      FakePC.instances.push(this)
-    }
-    async setRemoteDescription(desc) { this.remoteDescription = desc }
-    async createAnswer() { return { type: 'answer', sdp: 'fake-answer' } }
-    async setLocalDescription(desc) { this.localDescription = desc }
-    async addIceCandidate(c) { this.iceCandidates.push(c) }
-    close() { this.closed = true }
-  }
-  FakePC.instances = []
-
-  beforeEach(() => {
-    FakePC.instances.length = 0
-    vi.stubGlobal('RTCPeerConnection', FakePC)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  async function paired() {
-    const p = controller.connect('ABC123')
+// 폰 화면이 꺼지거나 다른 앱을 열면 브라우저가 탭을 재우고 채널이 끊긴다.
+// 실기기에서 재현하기 어려운 상황이라 여기서 잠근다.
+describe('재입장(resume)', () => {
+  /** 승인까지 마친 상태를 만든다. */
+  async function connected(code = 'ABC123') {
+    const p = controller.connect(code)
     const channel = channelFn.mock.results.at(-1).value
     const remoteId = channel._sent.find(m => m.event === 'join').payload.remoteId
     channel._fire('approved', { remoteId })
@@ -183,68 +155,150 @@ describe('화면 미러링', () => {
     return { channel, remoteId }
   }
 
-  it('webrtc-offer가 오면 pc를 만들고 answer를 보낸다', async () => {
-    const { channel, remoteId } = await paired()
-    channel._fire('webrtc-offer', { remoteId, sdp: { type: 'offer', sdp: 'x' } })
-    await Promise.resolve(); await Promise.resolve(); await Promise.resolve()
-    expect(FakePC.instances).toHaveLength(1)
-    expect(FakePC.instances[0].remoteDescription).toEqual({ type: 'offer', sdp: 'x' })
-    expect(channel._sent.at(-1)).toMatchObject({ event: 'webrtc-answer', payload: { remoteId } })
+  it('★ 같은 remoteId로 다시 들어간다 — 새로 뽑으면 승인창이 또 뜬다', async () => {
+    const { remoteId } = await connected()
+    channelFn.mockClear()
+
+    const p = controller.resume()
+    const fresh = channelFn.mock.results.at(-1).value
+    const rejoin = fresh._sent.find(m => m.event === 'join')
+    expect(rejoin.payload.remoteId).toBe(remoteId)
+
+    fresh._fire('approved', { remoteId })
+    expect(await p).toBe('approved')
+    expect(controller.active).toBe(true)
   })
 
-  it('다른 remoteId의 webrtc-offer는 무시한다', async () => {
-    const { channel } = await paired()
-    channel._fire('webrtc-offer', { remoteId: 'someone-else', sdp: { type: 'offer' } })
-    await Promise.resolve()
-    expect(FakePC.instances).toHaveLength(0)
+  it('같은 코드로 채널을 다시 연다', async () => {
+    await connected('XYZ789')
+    channelFn.mockClear()
+    const p = controller.resume()
+    expect(channelFn).toHaveBeenCalledWith('remote-XYZ789')
+    const fresh = channelFn.mock.results.at(-1).value
+    fresh._fire('approved', { remoteId: fresh._sent.find(m => m.event === 'join').payload.remoteId })
+    await p
   })
 
-  it('webrtc-ice를 받으면 pc에 후보를 더한다', async () => {
-    const { channel, remoteId } = await paired()
-    channel._fire('webrtc-offer', { remoteId, sdp: { type: 'offer' } })
-    await Promise.resolve(); await Promise.resolve()
-    channel._fire('webrtc-ice', { remoteId, candidate: { candidate: 'x' } })
-    await Promise.resolve()
-    expect(FakePC.instances[0].iceCandidates).toEqual([{ candidate: 'x' }])
-  })
-
-  it('requestMirror()는 mirror-request를 보낸다', async () => {
-    const { channel, remoteId } = await paired()
-    controller.requestMirror(() => {})
-    expect(channel._sent.at(-1)).toMatchObject({ event: 'mirror-request', payload: { remoteId } })
-  })
-
-  it('트랙이 오면 requestMirror()에 준 콜백이 스트림을 받는다', async () => {
-    const { channel, remoteId } = await paired()
-    const seen = []
-    controller.requestMirror(s => seen.push(s))
-    channel._fire('webrtc-offer', { remoteId, sdp: { type: 'offer' } })
-    await Promise.resolve(); await Promise.resolve()
-    const fakeStream = { id: 'stream1' }
-    FakePC.instances[0].ontrack({ streams: [fakeStream] })
-    expect(seen).toEqual([fakeStream])
-  })
-
-  it('stopMirror()는 mirror-stop을 보내고 pc를 닫는다(콜백에 null)', async () => {
-    const { channel, remoteId } = await paired()
-    const seen = []
-    controller.requestMirror(s => seen.push(s))
-    channel._fire('webrtc-offer', { remoteId, sdp: { type: 'offer' } })
-    await Promise.resolve(); await Promise.resolve()
-    const pc = FakePC.instances[0]
-    controller.stopMirror()
-    expect(channel._sent.some(m => m.event === 'mirror-stop' && m.payload.remoteId === remoteId)).toBe(true)
-    expect(pc.closed).toBe(true)
-    expect(seen.at(-1)).toBeNull()
-  })
-
-  it('disconnect()는 미러링 중이었다면 pc도 같이 닫는다', async () => {
-    const { channel, remoteId } = await paired()
-    controller.requestMirror(() => {})
-    channel._fire('webrtc-offer', { remoteId, sdp: { type: 'offer' } })
-    await Promise.resolve(); await Promise.resolve()
-    const pc = FakePC.instances[0]
+  it('기억해 둔 페어링이 없으면 아무것도 안 한다', async () => {
     controller.disconnect()
-    expect(pc.closed).toBe(true)
+    channelFn.mockClear()
+    expect(await controller.resume()).toBe('none')
+    expect(channelFn).not.toHaveBeenCalled()
+  })
+
+  it('겹쳐 불러도 채널을 하나만 연다 — visibilitychange와 online이 같이 온다', async () => {
+    await connected()
+    channelFn.mockClear()
+    const a = controller.resume()
+    const b = controller.resume()
+    expect(a).toBe(b)
+    expect(channelFn).toHaveBeenCalledTimes(1)
+    const fresh = channelFn.mock.results.at(-1).value
+    fresh._fire('approved', { remoteId: fresh._sent.find(m => m.event === 'join').payload.remoteId })
+    await a
+  })
+
+  it('주 디바이스가 사라졌으면(응답 없음) 연결을 놓는다', async () => {
+    vi.useFakeTimers()
+    await connected()
+    const p = controller.resume()
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(await p).toBe('timeout')
+    expect(controller.active).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('사람이 직접 끊으면 기억도 지워서 혼자 다시 안 붙는다', async () => {
+    await connected()
+    controller.disconnect()
+    channelFn.mockClear()
+    expect(await controller.resume()).toBe('none')
+    expect(channelFn).not.toHaveBeenCalled()
+  })
+
+  it('주 디바이스가 끊었다고 알려와도 기억을 지운다', async () => {
+    const { channel, remoteId } = await connected()
+    channel._fire('primary-closed', { remoteId })
+    expect(controller.active).toBe(false)
+    channelFn.mockClear()
+    expect(await controller.resume()).toBe('none')
+  })
+})
+
+describe('끊겨 있는 동안 누른 명령 ★', () => {
+  it('재구독 전에 누른 이동을 버리지 않고 붙은 뒤에 보낸다', async () => {
+    const p = controller.connect('ABC123')
+    const channel = channelFn.mock.results.at(-1).value
+    const remoteId = channel._sent.find(m => m.event === 'join').payload.remoteId
+    channel._fire('approved', { remoteId })
+    await p
+
+    // 채널이 죽은 상태를 흉내낸다 — 구독 안 된 것으로 표시
+    controller._subscribed = false
+    channelFn.mockClear()
+    controller.sendNavigate('/play?id=poop-dodge')
+
+    const fresh = channelFn.mock.results.at(-1).value
+    fresh._fire('approved', { remoteId })
+    await controller._resuming
+
+    const cmd = fresh._sent.find(m => m.event === 'command')
+    expect(cmd?.payload).toMatchObject({ type: 'navigate', path: '/play?id=poop-dodge' })
+  })
+
+  it('연결이 없으면 명령을 아예 안 보낸다', async () => {
+    controller.disconnect()
+    channelFn.mockClear()
+    controller.sendNavigate('/play?id=x')
+    expect(channelFn).not.toHaveBeenCalled()
+  })
+})
+
+// ── 폰 컨트롤러 화면 배선 (STEP 76) ──────────────────────────────
+//
+// 화면 자체(그리드·D-pad·탭바)는 DOM이 있어야 해서 여기서 못 본다 —
+// 여기서 보는 건 그 화면이 부를 채널 메서드 세 개(`sendMute`·`onState`·
+// `onMuted`)가 옳게 배선됐는가뿐이다.
+describe('소리 끄기 · 상태 구독 (STEP 76)', () => {
+  async function connected(code = 'ABC123') {
+    const p = controller.connect(code)
+    const channel = channelFn.mock.results.at(-1).value
+    const remoteId = channel._sent.find(m => m.event === 'join').payload.remoteId
+    channel._fire('approved', { remoteId })
+    await p
+    return { channel, remoteId }
+  }
+
+  it('sendMute — 연결된 채널로 mute 명령을 보낸다', async () => {
+    const { channel, remoteId } = await connected()
+    controller.sendMute()
+    expect(channel._sent.at(-1)).toMatchObject({ event: 'command', payload: { remoteId, type: 'mute' } })
+  })
+
+  it('onMuted — 주 디바이스가 보낸 소리 상태를 받는다', async () => {
+    const { channel } = await connected()
+    const seen = []
+    const unsub = controller.onMuted(s => seen.push(s))
+    channel._fire('muted', { muted: true })
+    expect(seen).toEqual([{ muted: true }])
+    unsub()
+    channel._fire('muted', { muted: false })
+    expect(seen).toHaveLength(1)   // 해지 후엔 안 들어온다
+  })
+
+  it('onState — 주 디바이스의 화면·게임 id를 받는다', async () => {
+    const { channel } = await connected()
+    const seen = []
+    controller.onState(s => seen.push(s))
+    channel._fire('state', { screen: '/play', gameId: 'poop-dodge' })
+    expect(seen).toEqual([{ screen: '/play', gameId: 'poop-dodge' }])
+  })
+
+  it('onState — 값이 없으면 null로 채운다', async () => {
+    const { channel } = await connected()
+    const seen = []
+    controller.onState(s => seen.push(s))
+    channel._fire('state', {})
+    expect(seen).toEqual([{ screen: null, gameId: null }])
   })
 })

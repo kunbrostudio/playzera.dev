@@ -20,6 +20,7 @@ import jurassic3dManifest from './jurassic-run-3d/manifest.json'
 import fireRescueManifest from './fire-rescue/manifest.json'
 import stoneBridgeManifest from './stone-bridge/manifest.json'
 import popClickerManifest from './pop-clicker/manifest.json'
+import balloonFestivalManifest from './balloon-festival/manifest.json'
 import { getPlaceholderManifests } from './placeholders.js'
 
 export const GAME_REGISTRY = {
@@ -72,6 +73,17 @@ export const GAME_REGISTRY = {
     manifest: popClickerManifest,
     play:     () => import('./pop-clicker/play.js'),
   },
+
+  // 풍선 팡팡 — arcade2d 공용 엔진(카메라 전체 화면 + 손 좌표 충돌)의 첫 게임.
+  // 타이틀·인트로 스토리·플레이·엔딩·결과가 전부 `play.js` 하나 안에서
+  // 돈다 — `/intro` 라우트를 따로 안 쓴다. 그래서 `getBackTo()`는 이
+  // 게임에 대해 `'/'`(허브)를 낸다. **게임 처음으로 돌아가는 길은
+  // `play.js`의 루프**다(STEP 76 후속 6) — 결과 화면의 "다시 하기"를
+  // `getBackTo()`로 보내면 허브로 튕긴다(실제로 그랬다).
+  'balloon-festival': {
+    manifest: balloonFestivalManifest,
+    play:     () => import('./balloon-festival/play.js'),
+  },
 }
 
 // 개발 중에만 더미 카드를 섞는 스위치 — 홈의 스크롤·하단 4칸 바·레일
@@ -89,10 +101,21 @@ export const GAME_REGISTRY = {
 //   }
 // }
 
+// `status: 'wip'` — 아직 완성 전인 게임. **개발 중(`npm run dev`)에는 허브에
+// 보이지만 프로덕션 빌드에서는 숨는다** — `status: 'hidden'`(완성했지만
+// 전략적으로 숨긴 게임, 어느 환경에서도 안 보임)과는 다르다. ken이 로컬에서
+// 카드를 눌러 바로 테스트해야 하는데, `hidden`으로 두면 로컬에서도 안 보여서
+// 매번 `/play?id=`를 손으로 쳐야 했다(9/5, 풍선 팡팡 작업 중 발견).
+const visibleNow = m => {
+  if (m.status === 'hidden') return false
+  if (m.status === 'wip') return import.meta.env.DEV
+  return true
+}
+
 export const getAll = () =>
   Object.values(GAME_REGISTRY)
     .map(g => g.manifest)
-    .filter(m => m.status !== 'hidden')
+    .filter(visibleNow)
 
 export const getManifest = id => GAME_REGISTRY[id]?.manifest ?? null
 

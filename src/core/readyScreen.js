@@ -102,7 +102,7 @@ export function showReadyScreen(app, {
           padding: clamp(12px, 2.5vh, 28px);
           padding-bottom: max(clamp(12px, 2.5vh, 28px), env(safe-area-inset-bottom));
           font-family: var(--font-main, 'Jua', sans-serif); color: #fff;
-          background: linear-gradient(180deg, #2b1b52 0%, #150a2e 100%);
+          background: linear-gradient(180deg, var(--pz-bg-veil-4, #2b1b52) 0%, var(--pz-bg-veil-2, #150a2e) 100%);
           touch-action: none; user-select: none;
         }
         /* 제목과 칸 고르기를 **한 줄에** 둔다.
@@ -136,12 +136,12 @@ export function showReadyScreen(app, {
         #rdy-lanes { display: flex; gap: 8px; }
         .rdy-lane {
           min-height: 44px; padding: 0 clamp(12px, 1.8vw, 20px);
-          border-radius: 9999px; border: 2px solid rgba(255,255,255,0.28);
+          border-radius: var(--pz-radius-pill, 9999px); border: 2px solid rgba(255,255,255,0.28);
           background: rgba(255,255,255,0.10); color: #fff;
           font: inherit; font-size: clamp(0.82rem, 1.5vw, 1rem); font-weight: 900;
           cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 0.12s;
         }
-        .rdy-lane.on { background: #ffd23e; color: #4a2a00; border-color: transparent; }
+        .rdy-lane.on { background: var(--pz-gold, #ffd23e); color: var(--pz-gold-text, #4a2a00); border-color: transparent; }
         .rdy-lane:disabled { opacity: 0.35; cursor: default; }
         .rdy-lane:active { transform: scale(0.95); }
 
@@ -158,8 +158,8 @@ export function showReadyScreen(app, {
           box-shadow: 0 10px 40px rgba(0,0,0,0.5);
           transition: border-color 0.25s, box-shadow 0.25s;
         }
-        #rdy-pip.ok      { border-color: #6ee75a; box-shadow: 0 0 0 6px rgba(110,231,90,0.18), 0 10px 40px rgba(0,0,0,0.5); }
-        #rdy-pip.missing { border-color: #ff6b6b; box-shadow: 0 0 0 6px rgba(255,107,107,0.18), 0 10px 40px rgba(0,0,0,0.5); }
+        #rdy-pip.ok      { border-color: var(--pz-green-b, #6ee75a); box-shadow: 0 0 0 6px rgba(110,231,90,0.18), 0 10px 40px rgba(0,0,0,0.5); }
+        #rdy-pip.missing { border-color: var(--pz-red, #ff6b6b); box-shadow: 0 0 0 6px rgba(255,107,107,0.18), 0 10px 40px rgba(0,0,0,0.5); }
         /* 영상만 좌우 반전한다. 오버레이는 엔진이 이미 거울 좌표로 주므로 그대로 둔다 —
            여기에 또 걸면 스켈레톤이 몸과 반대로 붙는다. */
         #rdy-video   { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
@@ -177,17 +177,17 @@ export function showReadyScreen(app, {
           font-size: clamp(1rem, 2.4vw, 1.5rem); font-weight: 900; text-align: center;
           min-height: 1.4em; transition: color 0.2s;
         }
-        #rdy-status.ok   { color: #8dff7a; }
+        #rdy-status.ok   { color: var(--pz-green-a, #8dff7a); }
         #rdy-status.warn { color: #ffb36b; }
 
         #rdy-hint { font-size: clamp(0.9rem, 1.9vw, 1.2rem); font-weight: 800; color: #ffe27a; text-align: center; }
         #rdy-hint b { color: #fff; font-size: 1.25em; }
         #rdy-hint.off { display: none; }
         #rdy-gauge-wrap {
-          width: clamp(150px, 24vw, 240px); height: 9px; border-radius: 999px;
+          width: clamp(150px, 24vw, 240px); height: 9px; border-radius: var(--pz-radius-pill, 999px);
           background: rgba(255,255,255,0.14); overflow: hidden;
         }
-        #rdy-gauge { height: 100%; width: 0; background: #ffd23e; border-radius: 999px; }
+        #rdy-gauge { height: 100%; width: 0; background: var(--pz-gold, #ffd23e); border-radius: var(--pz-radius-pill, 999px); }
 
         /* 버튼은 "고르는 곳"이라 위 안내글과 한 덩어리로 붙으면 안 읽힌다 */
         #rdy-btns {
@@ -198,15 +198,15 @@ export function showReadyScreen(app, {
         .rdy-btn {
           display: inline-flex; align-items: center; justify-content: center; gap: 7px;
           min-height: 58px; padding: 0 clamp(18px, 2.8vw, 30px);
-          border-radius: 9999px; border: 2px solid rgba(255,255,255,0.28);
+          border-radius: var(--pz-radius-pill, 9999px); border: 2px solid rgba(255,255,255,0.28);
           background: rgba(255,255,255,0.12); color: #fff;
           font: inherit; font-size: clamp(0.9rem, 1.7vw, 1.1rem); font-weight: 900;
           cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 0.12s;
         }
         .rdy-btn:active { transform: scale(0.95); }
         .rdy-btn.go {
-          background: #ffd23e; color: #4a2a00; border-color: transparent;
-          box-shadow: 0 5px 0 #c89800, 0 10px 26px rgba(0,0,0,0.4);
+          background: var(--pz-gold, #ffd23e); color: var(--pz-gold-text, #4a2a00); border-color: transparent;
+          box-shadow: 0 5px 0 var(--pz-gold-shadow, #c89800), 0 10px 26px rgba(0,0,0,0.4);
         }
         .rdy-btn.go:disabled { opacity: 0.4; box-shadow: none; cursor: default; }
 

@@ -47,10 +47,10 @@ export const SYSBAR_CSS = `
   position: absolute; z-index: 46;
   top: clamp(10px, 2.5vh, 26px); left: clamp(10px, 2vw, 28px);
   min-height: clamp(44px, 6vh, 58px); padding: 0 clamp(16px, 2.2vw, 26px);
-  border-radius: 9999px; border: 3px solid #fff; background: #d9c8f7; color: #2a1a6e;
+  border-radius: var(--pz-radius-pill, 9999px); border: 3px solid #fff; background: var(--pz-lavender-light, #d9c8f7); color: var(--pz-navy, #2a1a6e);
   font-family: var(--font-main, 'Jua', sans-serif);
   font-size: clamp(.9rem, 1.7vw, 1.15rem); font-weight: 900;
-  box-shadow: 0 4px 0 #a78bda; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 0 var(--pz-lavender, #a78bda); cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 #pz-home:active { transform: translateY(3px); box-shadow: none; }
 #pz-home.hidden { display: none; }
@@ -76,10 +76,10 @@ export const SYSBAR_CSS = `
 .pz-menu-wrap { position: relative; }
 #pz-menu-panel {
   position: absolute; top: 130%; right: 0; z-index: 50;
-  background: #F7F0FF; border: 5px solid #c4a8f5; outline: 5px solid #fff;
+  background: var(--pz-lavender-panel, #F7F0FF); border: 5px solid var(--pz-lavender-border, #c4a8f5); outline: 5px solid #fff;
   border-radius: 34px; padding: clamp(10px, 1.6vh, 16px) clamp(9px, 1.4vw, 14px);
   display: flex; flex-direction: column; align-items: center; gap: clamp(8px, 1.4vh, 12px);
-  box-shadow: 0 6px 0 #a78bda, 0 12px 32px rgba(0,0,0,.35);
+  box-shadow: 0 6px 0 var(--pz-lavender, #a78bda), 0 12px 32px rgba(0,0,0,.35);
   min-width: 60px;
 }
 /* **닫힌 것이 기본이다.** 이 규칙을 다른 id에 걸어 두면 메뉴가 늘 펼쳐진 채로
@@ -103,8 +103,8 @@ export const SYSBAR_CSS = `
 }
 #pz-confirm.hidden { display: none; }
 .pz-confirm-box {
-  background: linear-gradient(#2a1a6e, #1c1050);
-  border: 4px solid #ffd23e; border-radius: 28px;
+  background: linear-gradient(var(--pz-navy, #2a1a6e), var(--pz-navy-2, #1c1050));
+  border: 4px solid var(--pz-gold, #ffd23e); border-radius: 28px;
   padding: clamp(20px, 4vh, 40px) clamp(24px, 5vw, 60px);
   text-align: center; color: #fff;
   box-shadow: 0 12px 40px rgba(0,0,0,.5);
@@ -122,14 +122,14 @@ export const SYSBAR_CSS = `
 }
 .pz-btn {
   min-height: clamp(46px, 6.5vh, 60px); padding: 0 clamp(20px, 3.4vw, 36px);
-  border-radius: 9999px; border: none; cursor: pointer;
+  border-radius: var(--pz-radius-pill, 9999px); border: none; cursor: pointer;
   font: inherit; font-size: clamp(.9rem, 1.8vw, 1.15rem); font-weight: 900;
-  background: #ffd23e; color: #4a2a00;
-  box-shadow: 0 4px 0 #c99b1e; transition: transform .1s;
+  background: var(--pz-gold, #ffd23e); color: var(--pz-gold-text, #4a2a00);
+  box-shadow: 0 4px 0 var(--pz-gold-shadow-alt, #c99b1e); transition: transform .1s;
   -webkit-tap-highlight-color: transparent;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
 }
-.pz-btn.secondary { background: #d9c8f7; color: #2a1a6e; box-shadow: 0 4px 0 #a78bda; }
+.pz-btn.secondary { background: var(--pz-lavender-light, #d9c8f7); color: var(--pz-navy, #2a1a6e); box-shadow: 0 4px 0 var(--pz-lavender, #a78bda); }
 .pz-btn.ghost { background: rgba(255,255,255,.14); color: #fff; box-shadow: 0 4px 0 rgba(0,0,0,.28); }
 .pz-btn:active { transform: translateY(3px); box-shadow: none; }
 `

@@ -15,6 +15,10 @@ export const LM = {
   L_SHOULDER: 11, R_SHOULDER: 12,
   L_ELBOW: 13, R_ELBOW: 14,
   L_WRIST: 15, R_WRIST: 16,
+  // 손끝 쪽 점들. 손목(15·16)은 **팔의 끝**이지 손이 아니다 — 손바닥
+  // 한가운데를 가리키려면 새끼·검지와 같이 평균 내야 한다(handTracker.js).
+  L_PINKY: 17, R_PINKY: 18,
+  L_INDEX: 19, R_INDEX: 20,
   L_HIP: 23, R_HIP: 24,
   L_KNEE: 25, R_KNEE: 26,
   L_ANKLE: 27, R_ANKLE: 28,

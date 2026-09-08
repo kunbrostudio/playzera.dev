@@ -32,6 +32,7 @@
 //   **검색은 부모·선생님용이다** — 아이는 키보드를 못 쓰고 손 제스처로도 불가능하다.
 
 import { icon } from '../core/icons.js'
+import { UI } from '../core/uiAssets.js'
 import { navigate, onLeave } from '../core/router.js'
 import { getAll, getEntry } from '../games/registry.js'
 import { getRecentIds, markPlayed } from '../core/recent.js'
@@ -133,10 +134,19 @@ export function homePage(app) {
       }
       #pz-logo {
         background: none; border: none; padding: 0; cursor: pointer;
-        font-family: inherit; color: #ffd23e;
-        font-size: clamp(1.2rem, 2.4vw, 1.9rem); font-weight: 900;
-        letter-spacing: 0.08em; text-shadow: 0 3px 10px rgba(0,0,0,0.55);
+        display: flex; align-items: center;
         -webkit-tap-highlight-color: transparent;
+      }
+      /* 700px 기준으로 풀 워드마크 ↔ PZ 축약 마크 전환 —
+         core/loadingScreen.js와 같은 breakpoint(STEP 74 후속). */
+      #pz-logo .pz-logo-full {
+        display: block; height: clamp(26px, 4.4vh, 40px); width: auto;
+        filter: drop-shadow(0 3px 10px rgba(0,0,0,0.55));
+      }
+      #pz-logo .pz-logo-mark { display: none; height: clamp(30px, 5vh, 44px); width: auto; }
+      @media (max-width: 700px) {
+        #pz-logo .pz-logo-full { display: none; }
+        #pz-logo .pz-logo-mark { display: block; }
       }
       #pz-head-right { display: flex; align-items: center; gap: 10px; }
       .pz-btn {
@@ -656,7 +666,10 @@ export function homePage(app) {
 
     <div id="pz-hub">
       <header id="pz-head">
-        <button id="pz-logo">PLAY ZERA</button>
+        <button id="pz-logo" aria-label="플레이 제라">
+          <img class="pz-logo-full" src="${UI.logoFull}" alt="플레이 제라">
+          <img class="pz-logo-mark" src="${UI.logoMark}" alt="플레이 제라">
+        </button>
         <div id="pz-head-right">
           <button class="pz-btn" id="pz-hand" data-pz-hit data-pz-dwell="${DWELL_CAT}">${icon('hand')} <span id="pz-hand-label">손으로 고르기</span></button>
           <button class="pz-btn" id="pz-remote" aria-label="리모컨 연결">${icon('qrcode')}</button>

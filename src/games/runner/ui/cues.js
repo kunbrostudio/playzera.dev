@@ -123,16 +123,23 @@ export const CUES_CSS = `
 }
 /* 초록은 "잘했다"의 색이다 — 하트·점수와 겹치지 않는 자리에서 쓴다 */
 .pz-judge-pop.great {
-  color: #7fd63a;
-  filter: drop-shadow(0 3px 0 #3f7a17) drop-shadow(0 8px 14px rgba(0,0,0,.35));
+  color: var(--pz-green-c, #7fd63a);
+  filter: drop-shadow(0 3px 0 var(--pz-green-c-shadow, #3f7a17)) drop-shadow(0 8px 14px rgba(0,0,0,.35));
 }
 /* **빨강을 안 쓴다.** 놓친 것은 실패가 아니라 다음 것이 온다는 뜻이고,
    경고색은 아이를 굳게 만든다. 분홍은 눈에 띄면서 야단치지 않는다. */
 .pz-judge-pop.miss {
-  color: #ff96ab;
-  filter: drop-shadow(0 3px 0 #b4485e) drop-shadow(0 8px 14px rgba(0,0,0,.35));
+  color: var(--pz-pink-miss, #ff96ab);
+  filter: drop-shadow(0 3px 0 var(--pz-pink-miss-shadow, #b4485e)) drop-shadow(0 8px 14px rgba(0,0,0,.35));
 }
-.pz-judge-pop .star { color: #ffd23e; -webkit-text-stroke: .1em #fff; font-size: .62em;
+/* "잡았다" — 손으로 물체를 붙잡은 순간(아직 최종 성공은 아니다, 풍선 팡팡의
+   '잡기→바구니' 2단계 판정에서 1단계). Great!(초록)와 겹치지 않도록 파랑을
+   쓴다 — 속도 설정 버튼(screens.js)이 이미 쓰는 청록 그라데이션과 같은 계열. */
+.pz-judge-pop.catch {
+  color: var(--pz-blue-start, #0ECAFD);
+  filter: drop-shadow(0 3px 0 var(--pz-blue-shadow, #003c9e)) drop-shadow(0 8px 14px rgba(0,0,0,.35));
+}
+.pz-judge-pop .star { color: var(--pz-gold, #ffd23e); -webkit-text-stroke: .1em #fff; font-size: .62em;
                       vertical-align: .18em; margin: 0 .1em; }
 @keyframes pz-judge-pop {
   0%   { opacity: 0; scale: .5;  translate: 0 10px; }

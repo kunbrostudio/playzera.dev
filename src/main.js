@@ -1,5 +1,17 @@
 import './core/router.js'
 import { flushResults } from './core/resultQueue.js'
+import { controller } from './core/remote/controller.js'
+import { remoteSession } from './core/remote/session.js'
+
+// 리모컨 페어링을 되살린다(STEP 74). 브라우저가 메모리를 아끼려고 탭을
+// **버리면** 돌아왔을 때 페이지가 처음부터 다시 뜬다 — 그때 기억해 둔
+// 페어링이 있으면 조용히 다시 붙는다. 부모가 폰을 주머니에 넣었다 꺼낼
+// 때마다 QR을 다시 찍게 하지 않으려는 것이다.
+//
+// 조종하는 쪽·조종당하는 쪽 **둘 다** 시도한다 — 이 기기가 어느 역할
+// 이었는지는 저장된 값이 알고 있고, 없으면 각자 조용히 아무것도 안 한다.
+controller.restore().catch(() => { /* 못 붙으면 그냥 평소처럼 쓴다 */ })
+remoteSession.restore().catch(() => { /* 위와 같다 */ })
 
 // 지난번에 못 보낸 기록을 다시 보낸다. 와이파이가 끊긴 채로 놀았던 판이다 —
 // 그대로 두면 **아이가 움직인 사실이 사라진다.**

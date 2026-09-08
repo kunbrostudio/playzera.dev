@@ -1,0 +1,72 @@
+{
+  "id": "balloon-festival",
+  "title": "풍선 팡팡",
+  "description": "날아가는 풍선을 잡아 모으고, 축제가 끝나면 팡팡 터뜨려요!",
+  "thumbnail": "/assets/balloon-festival/image/title.png",
+  "hero": "/assets/balloon-festival/image/title.png",
+  "ageRange": "4-8",
+  "players": { "min": 1, "max": 1 },
+  "detectors": ["handTrack"],
+  "tags": ["풍선", "손", "카메라"],
+  "metrics": ["left_hand_hits", "right_hand_hits", "active_sec"],
+  "status": "wip",
+  "createdAt": "2026-09-05",
+  "story": {
+    "intro": {
+      "scenes": [
+        {
+          "bg": "/assets/balloon-festival/image/story_scene_intro.png",
+          "lines": [
+            { "text": "오늘은 친구들이 기다리던 즐거운 축제 날이야!", "speaker": "girl" },
+            { "text": "우리도 축제 준비를 돕고 있었는데...", "speaker": "boy" },
+            { "text": "앗! 바람이 불어서 풍선들이 다 날아가고 있어!", "speaker": "girl" },
+            { "text": "멀리 가기 전에 잡아서 바구니에 모아줘!", "speaker": "boy" }
+          ]
+        }
+      ]
+    },
+    "transition": {
+      "scenes": [
+        {
+          "bg": "/assets/balloon-festival/image/story_scene_part1_success.png",
+          "lines": [
+            { "text": "우와, 성공! 풍선을 이렇게나 많이 모았어!", "speaker": "girl" },
+            { "text": "네 덕분에 축제 준비가 끝났어, 고마워!", "speaker": "boy" }
+          ]
+        },
+        {
+          "bg": "/assets/balloon-festival/image/story_scene_festival_ready.png",
+          "lines": [
+            { "text": "짜잔! 풍선으로 꾸민 축제 무대야, 정말 멋지지?", "speaker": "girl" },
+            { "text": "FESTIVAL READY! 이제 신나게 축제를 즐기자!", "speaker": "boy" }
+          ]
+        },
+        {
+          "bg": "/assets/balloon-festival/image/story_scene_transition.png",
+          "lines": [
+            { "text": "오늘 축제 정말 즐거웠지?", "speaker": "girl" },
+            { "text": "이제 남은 풍선들을 정리해야겠어.", "speaker": "boy" },
+            { "text": "날아가기 전에 팡팡 터뜨려줘!", "speaker": "girl" }
+          ]
+        }
+      ]
+    },
+    "ending": {
+      "scenes": [
+        {
+          "bg": "/assets/balloon-festival/image/story_scene_part2_pop.png",
+          "lines": [
+            { "text": "팡! 팡! 신나게 다 터뜨렸다!", "speaker": "boy" }
+          ]
+        },
+        {
+          "bg": "/assets/balloon-festival/image/story_scene_ending.png",
+          "lines": [
+            { "text": "오늘 축제 준비, 정말 즐거웠어!", "speaker": "girl" },
+            { "text": "다음 축제에도 또 같이 도와줄 거지? 고마워!", "speaker": "boy" }
+          ]
+        }
+      ]
+    }
+  }
+}

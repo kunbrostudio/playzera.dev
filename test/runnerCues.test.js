@@ -26,7 +26,7 @@ describe('판정 연출 — Great! · Miss ★', () => {
   it('★ 실패에 **빨강을 안 쓴다**', () => {
     // 놓친 것은 실패가 아니라 다음 것이 온다는 뜻이다. 경고색은 아이를 굳게
     // 만든다 — 분홍은 눈에 띄면서 야단치지 않는다.
-    expect(CUES_CSS).toMatch(/\.pz-judge-pop\.miss\s*\{[^}]*color:\s*#ff96ab/)
+    expect(CUES_CSS).toMatch(/\.pz-judge-pop\.miss\s*\{[^}]*color:\s*var\(--pz-pink-miss,\s*#ff96ab\)/)
     expect(CUES_CSS).not.toMatch(/\.pz-judge-pop\.miss\s*\{[^}]*color:\s*(red|#f00|#ff0000)/i)
   })
 

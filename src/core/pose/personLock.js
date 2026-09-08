@@ -44,6 +44,38 @@ export function hipCenterOf(lms) {
   return mid(lh, rh)
 }
 
+/** 어깨 중심 — 상반신만 잡혀도 나온다. */
+export function shoulderCenterOf(lms) {
+  const ls = lms?.[LM.L_SHOULDER], rs = lms?.[LM.R_SHOULDER]
+  if (!seen(ls) || !seen(rs)) return null
+  return mid(ls, rs)
+}
+
+// ── 사람의 "자리"는 골반이 아니라 골반-또는-어깨다 ★ ──────────
+//
+// 원래 이 모듈은 자리를 **골반 중심으로만** 쟀고, 골반이 안 보이면
+// `acquisitionScore`가 `-Infinity`를 냈다. 후보가 전부 그러면 `select()`가
+// null을 내고, 그러면 `poseEngine._loop`은 **구독자를 아예 안 부른다** —
+// 즉 포즈 추론은 멀쩡히 돌고 있는데 화면에는 랜드마크가 한 개도 안 간다.
+//
+// 이게 ken의 "트래킹이 안 된다"의 진짜 원인이었다(STEP 76 후속 라운드 5).
+// 풍선 팡팡에 붙여 둔 감지율 표시(`#bf-diag`)가 **0회/초**를 찍은 화면을
+// 받고서야 잡혔다 — 책상 앞에 앉아 카메라에 가까이 있으면 골반이 프레임
+// 밖이거나 책상에 가려 안 보인다. 손·얼굴·어깨는 다 잘 잡히는데 골반
+// 하나 때문에 전부 버려지고 있었다. 서서 하는 게임만 보고 만든 전제가
+// 앉아서/가까이 하는 상황에서 통째로 무너진 것이다.
+//
+// 그래서 자리를 골반 → **없으면 어깨**로 떨어지게 한다. 어깨는 상반신만
+// 들어와도 보이므로 사실상 "사람이 보이면 자리도 있다"가 된다.
+//
+// 프레임마다 기준점이 골반↔어깨로 바뀌면 잠금 위치가 그만큼(대략 y로
+// 0.1~0.2) 튀는데, `TRACK_MATCH_DIST`(0.30)가 그보다 넉넉해서 같은
+// 사람으로 계속 이어진다 — 기준점 두 개를 따로 들고 다니는 복잡함보다
+// 이쪽이 낫다고 봤다.
+export function anchorOf(lms) {
+  return hipCenterOf(lms) ?? shoulderCenterOf(lms)
+}
+
 /**
  * 잠기기 전 후보 점수 — 높을수록 "이 사람일 확률"이 높다고 본다.
  *   center   화면 중앙에 가까울수록 (0~1)
@@ -54,7 +86,7 @@ export function hipCenterOf(lms) {
  *   없으면 중앙·크기만으로 고른다.
  */
 export function acquisitionScore(lms, gestureCheck) {
-  const hc = hipCenterOf(lms)
+  const hc = anchorOf(lms)
   if (!hc) return -Infinity
   const center = 1 - Math.min(1, Math.abs(hc.x - 0.5) * 2)
   const nose = lms[LM.NOSE], lAnk = lms[LM.L_ANKLE], rAnk = lms[LM.R_ANKLE]
@@ -62,6 +94,14 @@ export function acquisitionScore(lms, gestureCheck) {
   if (seen(nose) && seen(lAnk) && seen(rAnk)) {
     const ankleY = (lAnk.y + rAnk.y) / 2
     size = Math.min(1, Math.abs(ankleY - nose.y) / 0.8)
+  } else {
+    // 발목이 안 보인다(앉아 있거나 카메라에 가깝다) — 어깨 너비로 대신
+    // 잰다. 가까울수록 어깨가 넓게 잡힌다. 0.35를 화면 가득으로 보는 건
+    // 어림값이고, 서 있는 경우(위 분기)와 눈금이 정확히 같지는 않다 —
+    // 다만 이 점수는 **후보끼리 비교**에만 쓰이므로 같은 프레임 안에서
+    // 일관되기만 하면 된다.
+    const ls = lms[LM.L_SHOULDER], rs = lms[LM.R_SHOULDER]
+    if (seen(ls) && seen(rs)) size = Math.min(1, Math.abs(ls.x - rs.x) / 0.35)
   }
   const gesture = gestureCheck?.(lms) ? 3 : 0   // center+size 최댓값(2)을 항상 넘는다
   return center + size + gesture
@@ -87,7 +127,7 @@ export function createPersonLock({ gestureCheck } = {}) {
   function pickLocked(candidates) {
     let best = null, bestDist = Infinity
     for (const c of candidates) {
-      const hc = hipCenterOf(c)
+      const hc = anchorOf(c)
       if (!hc) continue
       const d = Math.hypot(hc.x - lock.x, hc.y - lock.y)
       if (d < bestDist) { bestDist = d; best = c }
@@ -114,7 +154,7 @@ export function createPersonLock({ gestureCheck } = {}) {
       if (lock) {
         const found = pickLocked(candidates)
         if (found) {
-          lock = hipCenterOf(found)
+          lock = anchorOf(found)
           lostAt = null
           lastHipCenter = lock
           return found
@@ -127,7 +167,7 @@ export function createPersonLock({ gestureCheck } = {}) {
         lostAt = null
       }
       const best = pickBest(candidates)
-      if (best) lastHipCenter = hipCenterOf(best)
+      if (best) lastHipCenter = anchorOf(best)
       return best
     },
 

@@ -45,17 +45,17 @@ function ensureStyle() {
     }
     .pz-veil.off { display: none; }
     .pz-veil h2 { margin: 0; font-size: clamp(1.4rem, 4.2vw, 2.4rem); font-weight: 900; }
-    .pz-veil .pz-how { font-size: clamp(1rem, 2.2vw, 1.35rem); font-weight: 800; color: #ffd23e; }
-    .pz-veil .pz-why { font-size: clamp(0.85rem, 1.7vw, 1.05rem); font-weight: 800; color: #a78bda; }
+    .pz-veil .pz-how { font-size: clamp(1rem, 2.2vw, 1.35rem); font-weight: 800; color: var(--pz-gold, #ffd23e); }
+    .pz-veil .pz-why { font-size: clamp(0.85rem, 1.7vw, 1.05rem); font-weight: 800; color: var(--pz-lavender, #a78bda); }
     .pz-veil .pz-count { font-size: 0.85rem; font-weight: 800; color: #6b5c96; }
     .pz-guide { z-index: 30; }
     .pz-over  { z-index: 40; }
 
     .pz-gbtn {
-      min-height: 60px; padding: 0 clamp(20px, 3.2vw, 36px); border-radius: 9999px;
+      min-height: 60px; padding: 0 clamp(20px, 3.2vw, 36px); border-radius: var(--pz-radius-pill, 9999px);
       border: none; font: inherit; font-size: clamp(0.95rem, 1.8vw, 1.2rem); font-weight: 900;
-      background: #ffd23e; color: #4a2a00; cursor: pointer;
-      box-shadow: 0 5px 0 #c89800, 0 10px 26px rgba(0,0,0,0.4);
+      background: var(--pz-gold, #ffd23e); color: var(--pz-gold-text, #4a2a00); cursor: pointer;
+      box-shadow: 0 5px 0 var(--pz-gold-shadow, #c89800), 0 10px 26px rgba(0,0,0,0.4);
       -webkit-tap-highlight-color: transparent; transition: transform 0.12s;
     }
     .pz-gbtn:active { transform: translateY(3px); }
@@ -73,7 +73,7 @@ function ensureStyle() {
     }
     .pz-actions { display: flex; gap: 12px; margin-top: 6px; }
     .pz-reward { width: min(520px, 100%); }
-    .pz-line { font-size: clamp(0.9rem, 1.9vw, 1.15rem); font-weight: 800; color: #ffd23e; }
+    .pz-line { font-size: clamp(0.9rem, 1.9vw, 1.15rem); font-weight: 800; color: var(--pz-gold, #ffd23e); }
 
     /* 카메라 미리보기 — 내 몸이 잡히고 있다는 걸 보여준다 */
     .pz-pip {
@@ -92,7 +92,7 @@ function ensureStyle() {
        모든 게임이 같은 자리에서 같은 모양으로 끝나는 것이 브랜드다
        (CLAUDE.md: 공통 UI는 한 벌이다). 그림만 게임이 갖는다. */
     .pz-ending {
-      z-index: 45; padding: 0; gap: 0; background: #0a0418;
+      z-index: 45; padding: 0; gap: 0; background: var(--pz-bg-veil-1, #0a0418);
       background-size: cover; background-position: center;
       cursor: pointer; overflow: hidden;
     }

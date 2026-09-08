@@ -29,6 +29,8 @@ import { isBgmMuted, isSfxMuted, toggleBgmMute, toggleSfxMute } from '../runner/
 import { POSE_BUTTONS } from '../runner/ui/touchPad.js'
 // 속도 설정 팝업 — 타이틀 화면의 "속도 설정" 버튼이 연다(ken 요청, 9/3).
 import { SPEED_TIERS, getRunnerSpeedId, setRunnerSpeedId, runnerSpeedLabel } from '../../core/runnerSpeed.js'
+// 배경 그림이 다 받아지기 전엔 화면을 숨겨 두는 데 쓴다 — STEP 73 참고(mount() 안).
+import { showLoadingScreen, preloadImage } from '../../core/loadingScreen.js'
 
 const STYLE_ID = 'pz-r3-screens-css'
 
@@ -40,12 +42,12 @@ const CSS = `
   font-family: var(--font-main, 'Jua', sans-serif); color: #fff;
   text-align: center; touch-action: none; user-select: none;
 }
-/* 배경색을 깔아 둔다(#150a2e, 앱 전반의 어두운 보라). 그림이 크고(장면
+/* 배경색을 깔아 둔다(--pz-bg-veil-2, 앱 전반의 어두운 보라). 그림이 크고(장면
    합성 그림은 몇 MB) 로딩이 아주 잠깐 늦으면, 그 틈에 배경이 완전히
    투명해져서 뒤에 남아 있던 이전 화면이 비쳐 보인 적이 있었다(9/2) —
    화면 자체는 늘 opaque해야 한다. */
 .r3s-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center;
-          background-color: #150a2e; }
+          background-color: var(--pz-bg-veil-2, #150a2e); }
 /* 가운데 세로로 쌓이는 것들만 위로 올린다.
    **.r3s-corner는 빼야 한다** — position: relative가 절대 위치를 덮어서
    왼쪽 위에 둔 "게임 목록"이 화면 한가운데로 끌려왔다(8/26).
@@ -94,9 +96,9 @@ const CSS = `
   min-height: 56px; padding: 0 clamp(22px, 4vw, 34px);
   font-size: clamp(1rem, 2.2vw, 1.25rem);
   border: 3px solid #fff;
-  background: linear-gradient(135deg, #0ECAFD, #0057EC);
+  background: linear-gradient(135deg, var(--pz-blue-start, #0ECAFD), var(--pz-blue-end, #0057EC));
   color: #fff;
-  box-shadow: 0 5px 0 #003c9e, 0 10px 22px rgba(0,0,0,.35);
+  box-shadow: 0 5px 0 var(--pz-blue-shadow, #003c9e), 0 10px 22px rgba(0,0,0,.35);
   opacity: 1; transition: transform .1s, box-shadow .1s;
 }
 #r3-title .speed-btn:active { transform: translateY(3px); box-shadow: none; }
@@ -122,20 +124,20 @@ const CSS = `
   background: rgba(8, 3, 20, .72);
 }
 #r3-speed-popup.hidden { display: none; }
-.r3-speed-opt.on { background: #ffd23e; color: #4a2a00; box-shadow: 0 4px 0 #c99b1e; }
+.r3-speed-opt.on { background: var(--pz-gold, #ffd23e); color: var(--pz-gold-text, #4a2a00); box-shadow: 0 4px 0 var(--pz-gold-shadow-alt, #c99b1e); }
 
 /* 튜토리얼 — 글을 읽어야 하므로 배경을 어둡게 덮는다 */
 #r3-tut .r3s-bg { background-image: linear-gradient(rgba(10,4,28,.84), rgba(10,4,28,.9)), var(--bg); }
-#r3-tut h1 { margin: 0; font-size: clamp(1.3rem, 3.4vw, 2.2rem); color: #ffd23e; letter-spacing: .06em; }
+#r3-tut h1 { margin: 0; font-size: clamp(1.3rem, 3.4vw, 2.2rem); color: var(--pz-gold, #ffd23e); letter-spacing: .06em; }
 #r3-tut h2 { margin: 0; font-size: clamp(.95rem, 2vw, 1.3rem); font-weight: 700; opacity: .92; }
 .r3s-note {
   margin: 0; padding: clamp(8px, 1.4vh, 14px) clamp(14px, 2.4vw, 26px);
-  border: 2px solid #ffd23e; border-radius: 9999px;
+  border: 2px solid var(--pz-gold, #ffd23e); border-radius: var(--pz-radius-pill, 9999px);
   background: rgba(255,210,62,.10); color: #fff;
   font-size: clamp(.78rem, 1.4vw, 1rem); font-weight: 700;
   max-width: min(92vw, 900px);
 }
-.r3s-note b { color: #ffd23e; }
+.r3s-note b { color: var(--pz-gold, #ffd23e); }
 .r3s-row { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(10px, 2vw, 24px); }
 .r3s-card {
   width: clamp(168px, 25vw, 320px); padding: clamp(12px, 2.2vh, 24px);
@@ -150,14 +152,14 @@ const CSS = `
 .r3s-card img { height: clamp(96px, 19vh, 210px); width: auto; max-width: 100%; object-fit: contain; }
 .r3s-card .k { font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 900; }
 .r3s-card .d { font-size: clamp(.82rem, 1.5vw, 1.05rem); opacity: .85; line-height: 1.35; }
-.r3s-card .chk { font-size: clamp(1.2rem, 2.4vw, 1.7rem); height: 1.5em; color: #6ee75a; }
-.r3s-card.done { background: rgba(110,231,90,.18); border-color: #6ee75a; transform: scale(1.03); }
+.r3s-card .chk { font-size: clamp(1.2rem, 2.4vw, 1.7rem); height: 1.5em; color: var(--pz-green-b, #6ee75a); }
+.r3s-card.done { background: rgba(110,231,90,.18); border-color: var(--pz-green-b, #6ee75a); transform: scale(1.03); }
 /* 아래 버튼 줄 — 카메라 준비 화면의 [뒤로][키보드 모드][시작]과 같은 모양이다.
    화면마다 버튼 생김새가 다르면 아이는 "여기서는 어디를 눌러야 하지"를 매번
    다시 본다. 가로로 두는 것은 여기뿐이다 — 셋이 아니라 둘이라 안 넘친다. */
 .r3s-actions { display: flex; gap: clamp(10px, 1.8vw, 20px); justify-content: center; flex-wrap: wrap; }
 .r3s-btn {
-  min-height: 48px; padding: 0 clamp(18px, 3vw, 30px); border-radius: 9999px;
+  min-height: 48px; padding: 0 clamp(18px, 3vw, 30px); border-radius: var(--pz-radius-pill, 9999px);
   border: 2px solid rgba(255,255,255,.3); background: rgba(255,255,255,.12); color: #fff;
   font: inherit; font-size: clamp(.9rem, 1.7vw, 1.1rem); font-weight: 900; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -179,7 +181,7 @@ const CSS = `
   width: min(94vw, 980px); margin-bottom: clamp(10px, 3vh, 30px);
   padding: clamp(16px, 2.6vh, 30px) clamp(18px, 3vw, 34px);
   border-radius: 24px; background: rgba(15,7,34,.88);
-  border: 2px solid #ffd23e;
+  border: 2px solid var(--pz-gold, #ffd23e);
   display: flex; flex-direction: row; align-items: center;
   gap: clamp(12px, 2.4vw, 26px);
 }
@@ -191,7 +193,7 @@ const CSS = `
   flex: 0 0 auto; display: block;
   width: clamp(96px, 17vw, 190px); height: clamp(70px, 12.5vw, 138px);
   object-fit: cover; object-position: top center;
-  border-radius: 20px; border: 3px solid #ffd23e; background: rgba(0,0,0,.25);
+  border-radius: 20px; border: 3px solid var(--pz-gold, #ffd23e); background: rgba(0,0,0,.25);
   box-shadow: 0 6px 14px rgba(0,0,0,.4);
 }
 .r3-story-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
@@ -262,7 +264,7 @@ const CSS = `
    뒤에는 안 보인다. */
 .r3-story-line.r3s-typing::after {
   content: ''; display: inline-block; width: .08em; height: 1em; margin-left: 2px;
-  background: #ffd23e; vertical-align: -.1em; animation: r3s-caret .8s steps(1) infinite;
+  background: var(--pz-gold, #ffd23e); vertical-align: -.1em; animation: r3s-caret .8s steps(1) infinite;
 }
 @keyframes r3s-caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 `
@@ -282,6 +284,17 @@ export function ensureStyle() {
  *
  * **스토리 대화 화면(`storyDialogue.js`)도 이걸 그대로 받아 쓴다** — 타이틀·
  * 튜토리얼과 같은 `.r3s` 톤을 새로 안 짜려고 export했다.
+ *
+ * ── 배경 그림이 다 받아지기 전엔 안 보여준다(STEP 73) ★ ──────────
+ *
+ * `bg`(장당 몇 MB인 합성 그림)를 CSS `background-image`로 바로 걸면,
+ * 느린 네트워크에서는 그림이 위→아래로 서서히 그려지는 게 그대로
+ * 보였다("90년대 로딩", ken 재현 9/5). 그래서 이 함수는 **el을 만들어
+ * 반환은 그대로 동기로 하되(호출부가 즉시 `el.querySelector`로 버튼을
+ * 붙인다), 화면 자체는 배경 그림이 다 받아질 때까지 숨겨 두고** 그
+ * 자리를 공용 로딩 화면(`core/loadingScreen.js`)으로 덮는다. 다
+ * 받아지면 로딩 화면을 내리고 el을 보여준다 — 화질은 그대로 두고
+ * 노출 시점만 늦췄다.
  */
 export function mount(app, id, html, bg) {
   ensureStyle()
@@ -290,7 +303,14 @@ export function mount(app, id, html, bg) {
   el.id = id
   el.style.setProperty('--bg', `url("${bg}")`)
   el.innerHTML = `<div class="r3s-bg"></div>${html}`
+  el.style.visibility = 'hidden'
   app.appendChild(el)
+
+  const loading = showLoadingScreen()
+  preloadImage(bg).finally(() => {
+    el.style.visibility = 'visible'
+    loading.release()
+  })
   return el
 }
 

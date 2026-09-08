@@ -155,6 +155,9 @@ class PoseEngineCore {
     this._callbacks = new Set()
     this._refs = 0           // acquire/release 참조 수
     this._startPromise = null
+    this._detectCount = 0    // 진단용 — 아래 `stats` 참고
+    this._emitCount = 0
+    this._warnedDetect = false
     this.delegate = null     // 'GPU' | 'CPU' — 실제로 무엇으로 떨어졌는지
 
     // 화면에 물려 있는 <video>들. reopen()이 스트림을 갈아끼울 때 같이 갈아야 한다.
@@ -369,6 +372,7 @@ class PoseEngineCore {
 
     try {
       const result = this._landmarker.detectForVideo(video, performance.now())
+      this._detectCount++
       const candidates = result.landmarks || []
       // 여럿 잡혀도 "그 아이 한 명"만 고른다 — 나머지 코드는 이전처럼 한
       // 사람만 받는다는 전제를 그대로 지킨다. 시각은 밖(여기)에서 넘긴다.
@@ -379,9 +383,35 @@ class PoseEngineCore {
       const idx = candidates.indexOf(raw)
       this.lastWorld = (result.worldLandmarks && result.worldLandmarks[idx]) || null
       const lms = this._mirrorAndSmooth(raw)
+      this._emitCount++
       for (const cb of this._callbacks) cb(lms)
-    } catch {
-      /* 프레임 스킵 — 한 프레임 실패로 루프를 끊지 않는다 */
+    } catch (e) {
+      // 프레임 스킵 — 한 프레임 실패로 루프를 끊지 않는다. 다만 **조용히**
+      // 삼키면 안 된다: 예전에는 아무것도 안 남겨서, 추론이 매 프레임
+      // 터지고 있어도 화면에서는 "손이 안 잡힌다"와 구별이 안 됐다.
+      // 매 프레임 찍으면 콘솔이 넘치므로 처음 한 번만 남긴다.
+      if (!this._warnedDetect) {
+        this._warnedDetect = true
+        console.warn('[poseEngine] detectForVideo 실패(이후 같은 오류는 안 찍는다):', e?.message ?? e)
+      }
+    }
+  }
+
+  /**
+   * 진단용 — 지금 엔진이 어떤 상태인지 한 번에 본다.
+   *
+   * "트래킹이 안 된다"는 화면에서는 원인이 다 똑같이 보인다(커서가 안 움직인다).
+   * 카메라가 안 열린 건지, 추론이 터지는 건지, 사람을 못 고르는 건지는
+   * 숫자로 갈라야 안다 — 풍선 팡팡의 `#bf-diag`가 이걸 읽어 쓴다.
+   */
+  get stats() {
+    return {
+      running: this._running,
+      delegate: this.delegate,
+      listeners: this._callbacks.size,
+      detections: this._detectCount,     // 추론이 실제로 돈 횟수(누적)
+      emitted: this._emitCount,          // 그중 사람을 골라 구독자에게 흘린 횟수(누적)
+      locked: this._personLock.isLocked,
     }
   }
 

@@ -58,6 +58,13 @@ export const DETECTOR_POINTS = {
   // 여기 둘만 다리가 **진짜로** 필요하다
   highKnees: { move: [...HIPS, ...KNEES, ...ANKLES], scale: BODY_SCALE },
   balance: { move: [...ANKLES, ...HIPS], scale: BODY_SCALE },
+
+  // 손 좌표 충돌(풍선 팡팡·비눗방울 팡팡, `games/arcade2d/`) — 판정이
+  // 정규화 화면 좌표(0~1)로 이미 스케일 무관이라 몸 크기를 잴 필요가
+  // 없다. 요구 관절이 손목 둘뿐이라 — 이 프로젝트가 `#/labcam`으로
+  // 계속 줄이려던 방향("전신 대신 그 게임이 진짜 쓰는 점")을 처음부터
+  // 만족하는 게임이다.
+  handTrack: { move: WRISTS, scale: [] },
 }
 
 const uniq = a => [...new Set(a)].sort((x, y) => x - y)
