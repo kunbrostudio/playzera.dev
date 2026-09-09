@@ -57,11 +57,51 @@
 // 쓸모가 없다 — 부모가 폰을 내려놓아도 페어링은 여전히 유효한 게 맞다
 // (TV 리모컨을 탁자에 두었다고 TV가 연결을 끊지 않는 것과 같다). 대신
 // 타이머가 양쪽에서 영원히 도는 비용만 생긴다.
+//
+// ── 타임아웃은 페어링을 지우지 않는다 (E1) ★ ────────────────────
+//
+// 예전에는 재입장(`resume`)이 시간 안에 `approved`를 못 받으면 `denied`와
+// 똑같이 취급해 저장된 페어링까지 지웠다. 그런데 타임아웃의 제일 흔한
+// 원인은 "주 디바이스(태블릿)가 아직 잠들어 있어서 채널에 아무도 없다"
+// 이다 — 부모가 폰을 먼저 켜면 늘 이렇게 된다. 여기서 페어링을 지우면
+// 태블릿이 깨어난 뒤에도 폰은 이미 잊어버려서 QR을 다시 찍어야 한다.
+//
+// 이제 셋을 가른다.
+//   - `approved` : 붙었다. 페어링 저장.
+//   - `denied`   : 주 디바이스가 **명시적으로 거부**했다. 그 거부가 지금
+//                  저장된 페어링에 대한 것일 때만 지운다 — 다른 태블릿의
+//                  QR을 스캔했다가 거부당한 것으로 멀쩡한 페어링을 지우지
+//                  않는다.
+//   - `timeout`  : 응답이 없었을 뿐이다. 채널만 접고 **페어링은 남긴다** —
+//                  화면 복귀·네트워크 복구 때(`_bindLifecycle`) 다시 붙거나,
+//                  다음 앱 실행 때 `restore()`가 되살린다. 그것만으로는 못
+//                  잡는 "폰은 계속 켜 둔 채 태블릿을 나중에 켜는" 경우를
+//                  위해, 페어링이 살아 있는 한 화면이 켜진 동안 몇 분간
+//                  `RETRY_INTERVAL_MS` 간격으로 조용히 다시 시도한다.
+//                  사용자가 직접 끊었거나(`disconnect`) 주 디바이스가
+//                  끊었거나(`primary-closed`) 12시간이 지나면 `remoteStore`가
+//                  이미 비어 있어 아무것도 시도하지 않는다.
+//
+// 낡은 콜백 방어: `_join`의 종료 처리(`finish`)는 그 사이 더 새로운 연결이
+// 채널을 갈아 끼웠으면(`this._channel !== channel`) 공유 상태를 건드리지
+// 않는다 — 늦게 도착한 타임아웃이 이미 성공한 새 연결을 되돌리던 race를
+// 막는다.
 import supabase from '../supabase.js'
 import { saveController, loadController, clearController } from './remoteStore.js'
 
 /** 재입장은 사람을 안 기다린다(승인창이 안 뜬다) — 처음 붙을 때보다 짧게 끊는다. */
 const RESUME_TIMEOUT_MS = 8000
+
+/**
+ * 재입장이 타임아웃난 뒤, 페어링이 살아 있는 한 이 간격으로 조용히 다시
+ * 붙어 본다 — 주 디바이스(태블릿)가 폰보다 늦게 깨어나는 흔한 경우를
+ * `visibilitychange`/`online`만으로는 못 잡기 때문이다(폰 쪽엔 새 이벤트가
+ * 없다). 화면이 꺼지면 멈추고, 다시 켜질 때 `_bindLifecycle`이 이어받는다.
+ */
+const RETRY_INTERVAL_MS = 4000
+
+/** 자동 재시도 횟수 상한(≈3분). 그 뒤엔 화면 복귀·online·앱 재실행을 기다린다. */
+const MAX_AUTO_RETRIES = 15
 
 class ControllerSession {
   constructor() {
@@ -72,6 +112,8 @@ class ControllerSession {
     this._subscribed = false
     this._resuming = null        // 진행 중인 재입장 Promise — 겹쳐 돌지 않게
     this._pendingPath = null     // 끊겨 있는 동안 눌린 이동 (뒤엣것이 이긴다)
+    this._retryTimer = null      // 타임아웃 뒤 자동 재시도 타이머
+    this._retryCount = 0
     this._listeners = new Set()  // (state) => void
     this._focusListeners = new Set()   // ({label}) => void
     this._stateListeners = new Set()   // ({screen, gameId}) => void
@@ -121,18 +163,35 @@ class ControllerSession {
         if (settled) return
         settled = true
         clearTimeout(timer)
+
+        // 이 _join이 아직 유효한가 — 도중에 더 새로운 연결(connect/resume)이
+        // 채널을 갈아 끼웠으면 이 콜백은 낡은 것이다. 늦게 도착한 타임아웃이
+        // 그 사이 성공한 연결을 되돌리던 race를 막는다. 낡았으면 공유 상태는
+        // 건드리지 않고 이 채널만 조용히 접는다.
+        if (this._channel !== channel) {
+          channel.unsubscribe()
+          resolve(result)
+          return
+        }
+
         if (result === 'approved') {
           this._active = true
           saveController(code, this._remoteId)
           this._flushPending()
+          this._cancelRetry()
+          this._retryCount = 0
           this._emit()
         } else {
-          // 거절·시간초과 — 기억해 둔 페어링도 지운다. 안 지우면 돌아올
-          // 때마다 죽은 세션에 계속 붙으려 든다.
-          clearController()
-          channel.unsubscribe()
-          this._channel = null
-          this._code = null
+          if (result === 'denied') {
+            // 이 시도의 remoteId와 저장된 페어링이 같을 때만 지운다 — 다른
+            // 태블릿의 QR을 스캔했다가 거부당했다고 이미 붙어 있던 페어링을
+            // 지우면 안 된다.
+            const saved = loadController()
+            if (!saved || saved.remoteId === this._remoteId) clearController()
+          }
+          // 'timeout'은 페어링을 안 지운다(E1) — 다음 기회에 다시 붙는다.
+          this._closeChannel(channel)
+          if (this._active) { this._active = false; this._emit() }
         }
         resolve(result)
       }
@@ -189,13 +248,24 @@ class ControllerSession {
     const saved = loadController()
     if (!saved) return Promise.resolve('none')
 
+    this._cancelRetry()   // 지금 직접 다시 붙는다 — 예약된 자동 재시도는 필요 없다
     this._remoteId = saved.remoteId
     this._channel?.unsubscribe()
     this._channel = null
 
     this._resuming = this._join(saved.code, RESUME_TIMEOUT_MS)
       .then(r => {
-        if (r !== 'approved' && this._active) { this._active = false; this._emit() }
+        // 타임아웃인데 페어링이 아직 살아 있으면(태블릿이 곧 깰 수 있다)
+        // 화면이 켜져 있는 동안 조용히 다시 붙어 본다.
+        //
+        // `this._channel === null`이어야 한다 — 내 `finish`가 채널을 접은
+        // 정상 타임아웃일 때만 null이다. 그 사이 `connect()`가 새 채널을
+        // 열었으면(다른 태블릿 QR 스캔) `_channel`이 살아 있으므로, 여기서
+        // 재시도를 걸어 사용자가 새로 붙는 걸 가로채지 않는다. `_active`를
+        // false로 되돌리는 것도 이제 `finish`가 (채널 소유 확인 뒤) 한다.
+        if (r === 'timeout' && this._channel === null && !this._active && loadController()) {
+          this._scheduleRetry()
+        }
         return r
       })
       .finally(() => { this._resuming = null })
@@ -293,19 +363,64 @@ class ControllerSession {
   }
 
   /**
+   * 지금 자동 재접속을 시도해도 되는가.
+   *
+   * 붙어 있으면(끊겼을 수 있으니 새로 만든다) 당연히 시도하고, **끊겨
+   * 있더라도 아직 유효한 페어링이 저장돼 있으면 시도한다** — 직전 재입장이
+   * 타임아웃으로 끝났어도(주 디바이스가 아직 안 깼을 뿐) 페어링 자체는
+   * 살아 있기 때문이다(E1). 사용자가 직접 끊었거나 주 디바이스가 끊었거나
+   * 12시간이 지났으면 `loadController()`가 null이라 시도하지 않는다.
+   */
+  _canAutoResume() {
+    return this._active || !!loadController()
+  }
+
+  /**
+   * 재입장이 타임아웃난 뒤 자동으로 다시 붙어 본다 (위 `RETRY_INTERVAL_MS`
+   * 주석 참고). 붙었거나·이미 예약돼 있거나·한도를 넘었으면 아무것도 안 한다.
+   */
+  _scheduleRetry() {
+    if (this._retryTimer || this._active) return
+    if (this._retryCount >= MAX_AUTO_RETRIES) return
+    this._retryTimer = setTimeout(() => {
+      this._retryTimer = null
+      // 이미 붙었거나·재입장 중이거나·다른 연결(`connect()`)이 채널을 잡고
+      // 있으면 손대지 않는다.
+      if (this._active || this._resuming || this._channel) return
+      // 화면이 꺼졌으면 멈춘다 — 다시 켜질 때 `_bindLifecycle`이 이어받는다.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      if (!loadController()) return   // 직접 끊었거나 12시간이 지났다
+      this._retryCount++
+      this.resume()   // 또 타임아웃나면 resume()의 .then이 다시 예약한다
+    }, RETRY_INTERVAL_MS)
+  }
+
+  _cancelRetry() {
+    clearTimeout(this._retryTimer)
+    this._retryTimer = null
+  }
+
+  /**
    * 화면이 돌아오거나 네트워크가 살아나면 다시 붙는다.
    *
    * 두 신호를 다 듣는다 — 화면만 켜지고 네트워크가 아직 안 붙는 경우도,
    * 화면은 그대로인데 와이파이만 갈아타는 경우도 있다. 겹쳐 들어와도
-   * `resume()`이 하나로 합쳐 준다.
+   * `resume()`이 하나로 합쳐 준다. 사용자가 화면을 켰거나 네트워크가
+   * 돌아온 건 새 기회이므로 자동 재시도 한도도 리셋한다.
    */
   _bindLifecycle() {
     if (typeof document === 'undefined') return
+    const maybeResume = () => {
+      if (!this._canAutoResume()) return
+      this._cancelRetry()
+      this._retryCount = 0
+      this.resume()
+    }
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && this._active) this.resume()
+      if (document.visibilityState === 'visible') maybeResume()
     })
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => { if (this._active) this.resume() })
+      window.addEventListener('online', maybeResume)
     }
   }
 
@@ -323,8 +438,27 @@ class ControllerSession {
     this._forceDisconnect()
   }
 
+  /**
+   * 채널만 접는다 — 저장된 페어링(`remoteStore`)과 `_remoteId`는 건드리지
+   * 않는다. 타임아웃처럼 "지금은 못 붙었지만 페어링은 유효한" 경우에 쓴다.
+   *
+   * 이 프라미스가 뜨는 사이 더 새로운 `_join`이 채널을 갈아 끼웠을 수
+   * 있으므로(예: `connect()`가 `_forceDisconnect` 후 새로 연다) 지금 들고
+   * 있는 채널이 이 채널일 때만 상태를 비운다.
+   */
+  _closeChannel(channel) {
+    channel.unsubscribe()
+    if (this._channel === channel) {
+      this._channel = null
+      this._code = null
+      this._subscribed = false
+    }
+  }
+
   /** 상대가 먼저 끊었을 때(또는 새 연결을 시작할 때) — 알리지 않고 정리만 한다. */
   _forceDisconnect() {
+    this._cancelRetry()
+    this._retryCount = 0
     this._channel?.unsubscribe()
     this._channel = null
     this._remoteId = null

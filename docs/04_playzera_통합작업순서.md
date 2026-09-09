@@ -9889,3 +9889,98 @@ HTML 주석을 달면서 "test/brandUi.test.js가"처럼 백틱으로 코드를
 게임으로 보내는지, D-pad "화면 조작" 이름표가 실제로 혼동을 줄이는지,
 햄버거 소리 버튼이 게임 중에도(BGM이 게임마다 다른 곡일 때) 잘
 먹히는지, 태블릿 폭에서 그리드 열 수가 실제로 몇 개로 보이는지.
+
+## STEP 77 — 리모컨 실기기 검증 준비 (remote-device-qa 워크트리)
+
+폰+태블릿 2대 실기기 검증 전에, 코드에서 확인 가능한 위험 요소를
+먼저 훑었다. 이번엔 **E1(재입장 타임아웃이 페어링을 삭제하던 문제)**
+하나만 고쳤다 — 나머지(E2 `/me` 데드엔드, E3 스캐너 카메라 충돌,
+E4 focusNav 프레임 비용 등)는 실기기 측정 뒤에 판단한다.
+
+### E1 — 타임아웃은 페어링을 지우지 않는다
+
+`controller.js`의 `_join()` 종료 처리가 `denied`와 `timeout`을 똑같이
+취급해, 재입장이 8초 안에 `approved`를 못 받으면 저장된 페어링까지
+`clearController()`로 지웠다.
+
+**제일 흔한 시나리오에서 이게 터진다.** 폰·태블릿이 둘 다 백그라운드
+상태일 때 부모가 폰을 먼저 켜면 → 폰이 `resume()` → **태블릿은 아직
+잠들어 채널에 아무도 없다** → 8초 뒤 무조건 타임아웃 → 페어링 삭제 →
+`_active=false`가 되어 `_bindLifecycle`의 재시도 조건(`&& this._active`)
+에도 안 걸림 → 재시도 없음 → **부모는 QR을 다시 찍어야 한다.** 주
+디바이스(`session.js`)는 실패해도 `_remoteId`를 유지하고 계속 재시도해
+비대칭이었다.
+
+곁들여, `connect()`가 다른 태블릿의 QR을 새로 스캔했다가 상대가 승인을
+안 하면(타임아웃) **이미 붙어 있던 다른 태블릿과의 페어링까지** 지우던
+것도 같이 고쳐졌다.
+
+**고친 것:**
+- `_join`의 종료 처리를 셋으로 가른다 — `approved`(저장) ·
+  `denied`(명시적 거부 → `clearController`) · `timeout`(채널만 접고
+  **페어링은 남긴다**). `primary-closed`(주 디바이스가 끊음)와 사용자
+  `disconnect()`의 `clearController`는 그대로다. 12시간 만료
+  (`remoteStore.MAX_AGE_MS`)도 그대로다.
+- 채널만 접는 `_closeChannel(channel)` 헬퍼를 뺐다 — `_remoteId`와
+  `remoteStore`를 안 건드린다. 이 프라미스가 뜨는 사이 더 새로운
+  `_join`이 채널을 갈아 끼웠을 수 있어(`connect()` → `_forceDisconnect`
+  → 새 채널) `this._channel === channel`일 때만 상태를 비운다 — 기존
+  코드는 이 가드가 없어 새 채널을 null로 지울 수 있었다.
+- `_bindLifecycle`의 자동 재접속 조건을 `this._active` →
+  `_canAutoResume()`(= `this._active || !!loadController()`)로 넓혔다.
+  타임아웃으로 놓였어도 페어링이 살아 있으면 화면 복귀·`online` 때
+  다시 붙는다. 직접 끊었거나(→`clearController`) 12시간이 지났으면
+  `loadController()`가 null이라 안 붙는다.
+
+### E1 후속 — Codex 독립 리뷰 3건 반영
+
+E1을 Codex가 리뷰해 셋을 짚었고, 코드로 재검증한 결과 전부 실재라
+같이 고쳤다(전부 `pages/remote.js`·`session.js`는 안 건드리고
+`controller.js` 안에서).
+
+**① 타임아웃 뒤 자동 재접속의 구멍.** E1이 넓힌 `_bindLifecycle`은
+화면 복귀·`online`·앱 재실행을 잡지만, "폰은 계속 켜 둔 채 태블릿을
+나중에 켜는" 경우엔 폰 쪽에 아무 이벤트가 없어 재접속이 안 걸렸다.
+→ 재입장이 타임아웃나고 페어링이 살아 있으면, 화면이 켜진 동안
+`RETRY_INTERVAL_MS`(4초) 간격으로 조용히 다시 붙어 본다
+(`_scheduleRetry`). 화면이 꺼지면 멈추고(다시 켜질 때 `_bindLifecycle`이
+이어받음), `MAX_AUTO_RETRIES`(15회 ≈ 3분) 뒤 멈춘다. 화면 복귀·`online`
+이 한도를 리셋한다. 붙거나·직접 끊거나·다른 `connect()`가 채널을
+잡고 있으면 안 돈다.
+
+**② 낡은 타임아웃 콜백이 그 사이 성공한 새 연결을 되돌리는 race.**
+재입장(`resume`) 8초 타이머가 도는 중에 새 QR을 스캔해 `connect()`가
+성공하면, 뒤늦게 발동한 옛 `finish('timeout')`의 `.then`이
+`this._active`를 다시 false로 뒤집어 명령이 조용히 안 나갔다. E1의
+`_closeChannel` 가드는 채널 clobber만 막았지 이 `_active` 뒤집기는
+남아 있었다. → `finish`가 맨 앞에서 `this._channel !== channel`이면
+(그 사이 채널이 갈렸으면) 공유 상태를 하나도 안 건드리고 이 채널만
+접는다. `_active`를 false로 되돌리는 것도 `.then`이 아니라 `finish`가
+(채널 소유 확인 뒤) 한다.
+
+**③ 다른 시도의 `denied`가 멀쩡한 페어링을 지움.** 태블릿 A와 붙어
+있는데 태블릿 B의 QR을 스캔했다가 B가 거부하면, `finish('denied')`의
+무조건 `clearController()`가 A와의 페어링까지 지웠다. → 저장된 페어링의
+`remoteId`가 이 시도의 `remoteId`와 같을 때만 지운다. (`primary-closed`는
+`payload.remoteId === this._remoteId`로 이미 걸러지고, 정상적인 태블릿
+동작으로는 남의 remoteId로 이 이벤트가 오지 않으므로 안 건드렸다.)
+
+### 확인
+
+`npm run check` — 테스트 1054건 통과(신규 12건: E1 5건 + 후속 7건 —
+낡은 타임아웃이 새 연결을 안 되돌림 · 다른 태블릿 거부가 페어링 보존 ·
+아무 이벤트 없이 자동 재접속 · 붙으면 재시도 멈춤 · 직접 끊으면 멈춤 ·
+재시도 한도 · 화면 복귀가 한도 리셋). 후속 7건 중 6건은 수정 전
+코드에서 실패함을 확인했다(나머지 1건은 재시도 없을 때 자명히 통과하는
+음성 테스트). 빌드 통과. `runner3d` 에셋 예산 초과(25.6MB/7MB)는 이
+작업과 무관한 기존 항목.
+
+**변경 파일:** `src/core/remote/controller.js` · `test/remoteController.test.js` ·
+이 문서.
+
+**아직 실기기 미검증:** 8초 타임아웃·4초 재시도 간격·15회 한도가 실제
+기기에서 적절한지, 타임아웃 뒤 자동 재접속이 매끄러운지. `pages/remote.js`의
+"연결 시간이 지났어요 → 4초 뒤 허브" 데드엔드 화면 자체는 안 건드렸다
+— 페어링이 이제 살아남고 자동 재시도가 도므로 그 뒤 복원되지만, 그
+순간의 UX(재시도 스피너로 바꿀지, Codex 리뷰 [OPTIONAL] #5)는 실기기
+확인 후 판단.

@@ -3,6 +3,7 @@
 // `session.js`의 반대편. 실제 Supabase Realtime 왕복은 여기서 테스트
 // 못 한다 — 채널을 가짜로 만들어 "옳은 이벤트에 옳게 반응하는가"만 본다.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { loadController, saveController } from '../src/core/remote/remoteStore.js'
 
 function makeFakeChannel() {
   const handlers = {}
@@ -26,6 +27,7 @@ const { controller } = await import('../src/core/remote/controller.js')
 beforeEach(() => {
   channelFn.mockClear()
   controller.disconnect()
+  localStorage.clear()
 })
 
 describe('connect', () => {
@@ -222,6 +224,259 @@ describe('재입장(resume)', () => {
     expect(controller.active).toBe(false)
     channelFn.mockClear()
     expect(await controller.resume()).toBe('none')
+  })
+})
+
+// ── 타임아웃은 페어링을 지우지 않는다 (E1) ★ ────────────────────
+//
+// 재입장이 시간 안에 `approved`를 못 받는 제일 흔한 원인은 "주 디바이스
+// (태블릿)가 아직 잠들어 있어서 채널에 아무도 없다"이다. 여기서 페어링을
+// 지우면 태블릿이 깨어난 뒤에도 폰은 이미 잊어버려서 QR을 다시 찍어야
+// 한다. `denied`(명시적 거부)·`primary-closed`·사용자 `disconnect`만
+// 페어링을 지운다.
+describe('타임아웃은 페어링을 지우지 않는다 (E1)', () => {
+  async function connected(code = 'ABC123') {
+    const p = controller.connect(code)
+    const channel = channelFn.mock.results.at(-1).value
+    const remoteId = channel._sent.find(m => m.event === 'join').payload.remoteId
+    channel._fire('approved', { remoteId })
+    await p
+    return { channel, remoteId }
+  }
+
+  it('★ resume 타임아웃 뒤에도 저장된 페어링이 남아 있다', async () => {
+    vi.useFakeTimers()
+    const { remoteId } = await connected('XYZ789')
+    expect(loadController()).toMatchObject({ code: 'XYZ789', remoteId })
+
+    const p = controller.resume()
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(await p).toBe('timeout')
+
+    expect(controller.active).toBe(false)
+    // 페어링은 그대로 — 다음 기회에 다시 붙을 수 있다
+    expect(loadController()).toMatchObject({ code: 'XYZ789', remoteId })
+    vi.useRealTimers()
+  })
+
+  it('★ 타임아웃으로 놓은 뒤 다시 resume하면 승인창 없이 같은 remoteId로 붙는다', async () => {
+    vi.useFakeTimers()
+    const { remoteId } = await connected()
+
+    const p1 = controller.resume()
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(await p1).toBe('timeout')
+    vi.useRealTimers()
+
+    // 태블릿이 이제 깨어났다 — 두 번째 시도는 붙는다
+    channelFn.mockClear()
+    const p2 = controller.resume()
+    const fresh = channelFn.mock.results.at(-1).value
+    const rejoin = fresh._sent.find(m => m.event === 'join')
+    expect(rejoin.payload.remoteId).toBe(remoteId)   // 새로 안 뽑았다
+    fresh._fire('approved', { remoteId })
+    expect(await p2).toBe('approved')
+    expect(controller.active).toBe(true)
+  })
+
+  it('denied는 여전히 페어링을 지운다', async () => {
+    const { channel, remoteId } = await connected()
+    channelFn.mockClear()
+    const p = controller.resume()
+    const fresh = channelFn.mock.results.at(-1).value
+    fresh._fire('denied', { remoteId })
+    expect(await p).toBe('denied')
+    expect(loadController()).toBeNull()
+  })
+
+  it('connect() 타임아웃이 다른 태블릿에 붙어 있던 페어링을 지우지 않는다', async () => {
+    // tablet A와 이미 페어링돼 있다
+    const T = 1_700_000_000_000
+    saveController('AAAA11', 'r-a', T)
+    vi.useFakeTimers()
+    // tablet B의 QR을 새로 스캔했는데 B가 승인을 안 한다
+    const p = controller.connect('BBBB22', { timeoutMs: 1000 })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(await p).toBe('timeout')
+    vi.useRealTimers()
+    // A와의 페어링은 그대로여야 한다
+    expect(loadController(T + 1000)).toMatchObject({ code: 'AAAA11', remoteId: 'r-a' })
+  })
+
+  it('_canAutoResume — 페어링이 저장돼 있으면 true, 직접 끊으면 false', () => {
+    expect(controller._canAutoResume()).toBe(false)   // 아무것도 없음
+
+    // 타임아웃으로 놓인 상태를 흉내낸다 — 안 붙었지만 페어링은 남아 있다
+    saveController('CCCC33', 'r-c', Date.now())
+    expect(controller._canAutoResume()).toBe(true)
+
+    controller.disconnect()   // clearController를 부른다
+    expect(controller._canAutoResume()).toBe(false)
+  })
+})
+
+// ── 낡은 콜백과 겹친 시도 (Codex 리뷰 #2·#3) ★ ──────────────────
+//
+// E1이 타임아웃에도 채널·프라미스를 남기면서, 그 사이 새 연결이 끼어들면
+// 낡은 콜백이 뒤늦게 공유 상태를 되돌리던 race가 생겼다. `finish`는 그
+// 사이 채널이 갈렸으면(`this._channel !== channel`) 아무것도 안 건드리고,
+// `denied`는 지금 저장된 페어링에 대한 거부일 때만 지운다.
+describe('낡은 콜백과 겹친 시도', () => {
+  async function connected(code = 'ABC123') {
+    const p = controller.connect(code)
+    const channel = channelFn.mock.results.at(-1).value
+    const remoteId = channel._sent.find(m => m.event === 'join').payload.remoteId
+    channel._fire('approved', { remoteId })
+    await p
+    return { channel, remoteId }
+  }
+
+  it('★ 늦게 도착한 resume 타임아웃이 그 사이 성공한 새 연결을 되돌리지 않는다', async () => {
+    vi.useFakeTimers()
+    saveController('AAAA11', 'r-a')          // 태블릿 A와 페어링(저장), 지금 A는 잠들어 있다
+    const pResume = controller.resume()      // A로 재입장 — chanA, 8초 타이머
+    const chanA = channelFn.mock.results.at(-1).value
+
+    // 재입장이 끝나기 전에 새 QR(태블릿 B)을 스캔했다
+    const pConnect = controller.connect('BBBB22')
+    const chanB = channelFn.mock.results.at(-1).value
+    const ridB = chanB._sent.find(m => m.event === 'join').payload.remoteId
+    chanB._fire('approved', { remoteId: ridB })
+    expect(await pConnect).toBe('approved')
+    expect(controller.active).toBe(true)     // B에 붙었다
+
+    // 이제 A의 8초 타임아웃이 뒤늦게 발동한다
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(await pResume).toBe('timeout')
+
+    // B 연결은 살아 있어야 한다 — 낡은 타임아웃이 되돌리면 안 된다
+    expect(controller.active).toBe(true)
+    expect(chanA).not.toBe(chanB)
+    vi.useRealTimers()
+  })
+
+  it('★ 다른 태블릿의 QR을 스캔했다가 거부당해도 기존 페어링은 남는다', async () => {
+    saveController('AAAA11', 'r-a')          // 태블릿 A와 이미 페어링돼 있다
+    const p = controller.connect('BBBB22')   // 태블릿 B의 QR을 새로 스캔
+    const chanB = channelFn.mock.results.at(-1).value
+    const ridB = chanB._sent.find(m => m.event === 'join').payload.remoteId
+    chanB._fire('denied', { remoteId: ridB })   // B가 거부한다
+    expect(await p).toBe('denied')
+    // A와의 페어링은 그대로여야 한다
+    expect(loadController()).toMatchObject({ code: 'AAAA11', remoteId: 'r-a' })
+  })
+})
+
+// ── 타임아웃 뒤 자동 재시도 (Codex 리뷰 #1) ★ ──────────────────
+//
+// `visibilitychange`·`online`만으로는 "폰은 계속 켜 둔 채 태블릿을 나중에
+// 켜는" 흔한 경우를 못 잡는다 — 폰 쪽에 새 이벤트가 없다. 페어링이 살아
+// 있는 한 화면이 켜진 동안 몇 분간 조용히 다시 붙어 본다.
+describe('타임아웃 뒤 자동 재시도', () => {
+  async function connected(code = 'ABC123') {
+    const p = controller.connect(code)
+    const channel = channelFn.mock.results.at(-1).value
+    const remoteId = channel._sent.find(m => m.event === 'join').payload.remoteId
+    channel._fire('approved', { remoteId })
+    await p
+    return { channel, remoteId }
+  }
+
+  it('★ 아무 이벤트 없이도 스스로 다시 붙어 본다 (태블릿이 나중에 깸)', async () => {
+    vi.useFakeTimers()
+    const { remoteId } = await connected('XYZ789')
+
+    const p = controller.resume()
+    await vi.advanceTimersByTimeAsync(8000)
+    expect(await p).toBe('timeout')
+    expect(controller.active).toBe(false)
+
+    // 태블릿이 아직 안 깼다 — 아무 이벤트도 없이 기다린다
+    channelFn.mockClear()
+    await vi.advanceTimersByTimeAsync(4000)        // 재시도 간격
+    expect(channelFn).toHaveBeenCalled()           // 스스로 새 채널을 열었다
+    const retryChan = channelFn.mock.results.at(-1).value
+    expect(retryChan._sent.find(m => m.event === 'join').payload.remoteId).toBe(remoteId)
+
+    // 이번엔 태블릿이 깨어나 승인한다
+    retryChan._fire('approved', { remoteId })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(controller.active).toBe(true)
+    vi.useRealTimers()
+  })
+
+  it('붙고 나면 재시도를 멈춘다', async () => {
+    vi.useFakeTimers()
+    const { remoteId } = await connected('XYZ789')
+    const p = controller.resume()
+    await vi.advanceTimersByTimeAsync(8000)
+    await p
+
+    await vi.advanceTimersByTimeAsync(4000)        // 첫 재시도
+    const retryChan = channelFn.mock.results.at(-1).value
+    retryChan._fire('approved', { remoteId })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(controller.active).toBe(true)
+
+    channelFn.mockClear()
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(channelFn).not.toHaveBeenCalled()       // 더는 안 붙어 본다
+    vi.useRealTimers()
+  })
+
+  it('직접 끊으면 예약된 재시도도 멈춘다', async () => {
+    vi.useFakeTimers()
+    await connected('XYZ789')
+    const p = controller.resume()
+    await vi.advanceTimersByTimeAsync(8000)
+    await p
+
+    controller.disconnect()                        // clearController + _cancelRetry
+    channelFn.mockClear()
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(channelFn).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('재시도는 무한하지 않다 — 한도에서 멈춘다', async () => {
+    vi.useFakeTimers()
+    await connected('XYZ789')
+    const p = controller.resume()
+    await vi.advanceTimersByTimeAsync(8000)
+    await p
+
+    // 재시도가 계속 타임아웃난다 — 시간을 크게 흘린다
+    await vi.advanceTimersByTimeAsync(40 * (4000 + 8000))
+    const plateau = controller._retryCount
+    expect(plateau).toBeGreaterThan(0)
+    expect(plateau).toBeLessThanOrEqual(15)
+
+    channelFn.mockClear()
+    await vi.advanceTimersByTimeAsync(20 * (4000 + 8000))
+    expect(controller._retryCount).toBe(plateau)   // 더 안 올라간다
+    expect(channelFn).not.toHaveBeenCalled()       // 더 안 붙어 본다
+    vi.useRealTimers()
+  })
+
+  it('화면 복귀(visibilitychange)가 재시도 한도를 리셋한다', async () => {
+    vi.useFakeTimers()
+    const { remoteId } = await connected('XYZ789')
+    const p = controller.resume()
+    await vi.advanceTimersByTimeAsync(8000)
+    await p
+    await vi.advanceTimersByTimeAsync(40 * (4000 + 8000))   // 한도까지 소진
+    expect(controller._retryCount).toBeGreaterThan(0)
+
+    channelFn.mockClear()
+    document.dispatchEvent(new Event('visibilitychange'))   // 부모가 폰을 다시 켰다
+    expect(controller._retryCount).toBe(0)                  // 한도 리셋
+
+    // maybeResume이 새로 연 채널을 정리한다(테스트를 깔끔히 끝낸다)
+    const chan = channelFn.mock.results.at(-1).value
+    chan._fire('approved', { remoteId })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(controller.active).toBe(true)
+    vi.useRealTimers()
   })
 })
 
