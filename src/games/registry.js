@@ -17,6 +17,7 @@ import warmupManifest from './runner-space/manifest.json'
 import jungleManifest from './runner-jungle/manifest.json'
 import jurassicManifest from './runner-jurassic/manifest.json'
 import jurassic3dManifest from './jurassic-run-3d/manifest.json'
+import odysseyRunManifest from './odyssey-run/manifest.json'
 import fireRescueManifest from './fire-rescue/manifest.json'
 import stoneBridgeManifest from './stone-bridge/manifest.json'
 import popClickerManifest from './pop-clicker/manifest.json'
@@ -65,6 +66,15 @@ export const GAME_REGISTRY = {
   'jurassic-run-3d': {
     manifest: jurassic3dManifest,
     play:     () => import('./jurassic-run-3d/play.js'),
+  },
+
+  // 다섯 번째 러너, 두 번째 3D 게임. 쥬라기와 같은 엔진(`runner3d/play3d.js`)에
+  // 자기 씬(`odyssey-run/scene.js` — 키클롭스 섬)을 주입한다. **P0는 스테이지
+  // 하나짜리 슬라이스**라 `manifest.status: 'wip'`(dev에서만 허브에 보임) ·
+  // `manifest.levels: 1`. 인트로·튜토리얼은 준비 화면 안내가 대신한다.
+  'odyssey-run': {
+    manifest: odysseyRunManifest,
+    play:     () => import('./odyssey-run/play.js'),
   },
 
   // 클리커를 몸으로 누른다. 규칙이 한 줄("켜진 걸 따라 해")이라 인트로·튜토리얼을

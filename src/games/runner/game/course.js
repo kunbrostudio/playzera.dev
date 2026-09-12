@@ -12,9 +12,25 @@ const MIRROR_POSES = new Set(['lunge', 'forwardbend']);
  *   기본 1 — 안 주면 기존 동작과 완전히 같다(순수 함수 유지, 테스트가
  *   `buildCourse(0)`만 불러도 깨지지 않는다). `speed`에만 곱한다 —
  *   `approachSec`(반응 여유)는 그대로 둔다. 이유는 `core/runnerSpeed.js`에.
+ * @param {object} [opts]
+ * @param {typeof CONFIG.levels} [opts.levels] 레벨 표를 통째로 갈아 낀다(기본
+ *   `CONFIG.levels` — 쥬라기·2D 러너 셋이 그대로 쓴다). **오디세이 런은 6판이
+ *   한 표로 이어지는 자기 표를 넘긴다** — `CONFIG.levels`(5개)를 늘리면
+ *   `manifest.levels` 없는 쥬라기 3D가 6판이 되어 버린다(회귀).
+ * @param {boolean|((levelIdx:number, levels:any[]) => boolean)} [opts.archGate]
+ *   결승 포털(`archGate`) 이벤트를 어느 레벨에 넣을지. 기본 `true` = **마지막
+ *   레벨만**(쥬라기 — `runner3d/portal.js`가 그린다). `false` = 안 넣는다.
+ *   **함수를 주면 레벨마다 물어본다** — 오디세이 런은 스테이지 경계(Lv2·Lv4·
+ *   Lv6)마다 정식 Finish Gate lifecycle을 태우려고 `isStageFinale`을 넘긴다
+ *   (`docs/04` STEP 82). archGate 이벤트가 있으면 `play3d.js`의 passThrough →
+ *   레벨 완료/finish 흐름을 그대로 탄다.
  */
-export function buildCourse(levelIdx, speedMult = 1) {
-  const level = CONFIG.levels[levelIdx];
+export function buildCourse(levelIdx, speedMult = 1, opts = {}) {
+  const { levels = CONFIG.levels, archGate = true } = opts;
+  const wantArchGate = typeof archGate === 'function'
+    ? archGate(levelIdx, levels)
+    : (archGate && levelIdx === levels.length - 1);
+  const level = levels[levelIdx];
   const C = CONFIG.course;
   const speed = level.speed * speedMult;
   const events = [];
@@ -74,12 +90,18 @@ export function buildCourse(levelIdx, speedMult = 1) {
   // 1.5초였다. 자세를 잡고 있던 아이가 팻말을 지나자마자 결승선이 코앞이라
   // **끝났다는 걸 알아차릴 새가 없었다.** 결승선은 마지막 장애물이 아니라
   // 도착 지점이고, 도착에는 다가가는 시간이 있어야 한다.
-  if (levelIdx === CONFIG.levels.length - 1) {
+  if (wantArchGate) {
     const gateTime = lastHitTime + C.finishGap;
     events.push({ type: 'archGate', lane: 0, hitTime: gateTime });
-    // 판이 끝나는 것은 문을 지난 뒤다(`play3d.js`의 `PASS_MS`). 여기 `duration`은
-    // 그 길이 막혔을 때를 위한 안전망이라 넉넉히 둔다.
-    return { events, duration: gateTime + 3, approachSec: level.approachSec, speed };
+    // 판이 끝나는 것은 문을 지난 뒤다(`play3d.js`의 `PASS_MS` = 0.9초).
+    // 마지막 레벨은 `PASS_MS` 타이머가 먼저 끝나 이 `duration`은 안전망일
+    // 뿐이지만, **스테이지 경계**(오디세이 Lv2·Lv4 — `passThrough()`가 거기선
+    // `passing`만 세우고 끝내지 않는다, `play3d.js` 주석)에서는 이 값이
+    // **유일한** 완료 트리거다. 예전 값(+3)은 `PASS_MS`와 안 맞아 "문을
+    // 지나고도 3초를 더 달린 뒤에야 완료 배너가 뜬다"로 보였다(ken QA,
+    // STEP 87) — `PASS_MS`와 같은 길이로 맞춰 스테이지 경계도 최종 레벨과
+    // 똑같이 빠르게 느껴지게 한다.
+    return { events, duration: gateTime + 0.9, approachSec: level.approachSec, speed };
   }
 
   // 마지막 장애물(포즈) 판정 + 팝업 애니메이션이 끝날 정도의 짧은 여유만 두고 바로 완료 처리

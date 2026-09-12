@@ -32,6 +32,6 @@
     "pose_holds",
     "active_sec"
   ],
-  "status": "active",
+  "status": "hidden",
   "createdAt": "2026-07-20"
 }

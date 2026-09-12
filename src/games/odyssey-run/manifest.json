@@ -1,0 +1,43 @@
+{
+  "id": "odyssey-run",
+  "title": "오디세이 런",
+  "description": "오디세우스와 함께 3개 스테이지·6판을 달려 고향 이타카로!",
+  "thumbnail": "/assets/runner3d/odyssey/ui/thumbnail.webp",
+  "hero": "/assets/runner3d/odyssey/ui/thumbnail.webp",
+  "titleBg": "/assets/runner3d/odyssey/ui/intro.webp",
+  "endingBg": "/assets/runner3d/odyssey/story/scene15.webp",
+  "ageRange": "4-8",
+  "players": {
+    "min": 1,
+    "max": 1
+  },
+  "gestures": [
+    "O",
+    "X"
+  ],
+  "detectors": [
+    "lane",
+    "jump",
+    "duck",
+    "poseMatch"
+  ],
+  "tags": [
+    "달리기",
+    "3D",
+    "오디세이"
+  ],
+  "metrics": [
+    "jumps",
+    "squats",
+    "side_steps",
+    "pose_holds",
+    "active_sec"
+  ],
+  "status": "active",
+  "createdAt": "2026-09-09",
+  "levels": 6,
+  "audio": {
+    "base": "/assets/runner/jurassic/audio",
+    "bgm": "bgm_jurassic.mp3"
+  }
+}

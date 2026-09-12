@@ -130,6 +130,23 @@ export function createAutopilot(getCourse, controls, { lanes = 3 } = {}) {
             duckUntil = now + DUCK_HOLD_SEC
             break
           case 'poseSign':
+            // ── 앞 자세가 아직 판정 전이면 기다린다 ★ ──────────────────
+            // `LEAD.poseSign`(1.5초)은 고정값인데, 사인판 간격(`poseGap/speed`)은
+            // 레벨·배속이 오를수록 좁아진다 — 이타카 Lv6 "매우 빠르게"에서는
+            // 1.3초까지 좁아져 간격이 LEAD보다 짧아진다. 그 상태에서 다음
+            // 사인판을 미리 세팅해 버리면 **앞 사인판이 자기 판정 순간(hitTime)에
+            // 도달하기도 전에 자세가 이미 다음 것으로 바뀌어 있어** 무조건
+            // 틀린 것으로 처리된다 — 한 사이클(3개) 중 마지막 하나만 맞고
+            // 나머지 둘은 반드시 틀려 목숨이 줄줄이 샌다. 그 결과 결승 관문
+            // 도달 전에 목숨이 다해 Result로 넘어갔다(ken 실제 재현, STEP 91
+            // BLOCKER) — `duration`/`passThrough` 경로는 정상이었고, 진짜
+            // 원인은 자동재생의 이 레이스였다.
+            //
+            // 앞 자세가 판정되기 전까진 다음 사인판을 건드리지 않고 매 프레임
+            // 다시 본다 — 판정은 `activePose.done`이 서는 순간(대개 앞
+            // 사인판의 hitTime 부근) 풀리므로, 특정 레벨·배속에 숫자를
+            // 맞추지 않아도 어떤 속도에서도 안전하다.
+            if (activePose) continue
             armed.add(e)
             controls.setPose(e.pose, e.mirror)
             activePose = e

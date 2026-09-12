@@ -18,6 +18,7 @@ import { showGameOver, showEnding, makeRecorder } from '../../core/gameShell.js'
 import { poseEngineCore } from '../../core/pose/poseEngine.js'
 import { MoveDetector, MOVE } from '../../core/pose/detectors/moves.js'
 import { icon } from '../../core/icons.js'
+import { burstConfetti } from '../../core/confetti.js'
 import { hasReward, mountReward } from '../../progress/rewardView.js'
 import { CONFIG } from '../runner/config.js'
 // 자세 채점은 **2D 러너와 같은 것**을 쓴다. 두 벌이 되면 반드시 어긋나고,
@@ -48,10 +49,10 @@ import { runnerSpeedMultiplier } from '../../core/runnerSpeed.js'
 import { showTitle3d, showTutorial3d } from './screens.js'
 // 스토리 대화는 **이 게임(쥬라기 대탐험)만** 쓴다. `manifest.story`가 없으면
 // 아래에서 전부 건너뛴다 — 엔진은 여전히 스토리가 있는지 모른다.
-import { showStoryScene } from './storyDialogue.js'
+import { showStoryScene, showRestBeat } from './storyDialogue.js'
 import { markPlayed } from '../../core/recent.js'
 
-const LEVELS = CONFIG.levels.length
+const MAX_LEVELS = CONFIG.levels.length
 
 /**
  * **이 게임의 처음**(타이틀)으로 돌아간다.
@@ -162,8 +163,14 @@ function rotateHint() {
  * 2D 엔진의 `makeRunnerPlay(theme)`와 같은 모양이다 — 엔진은 규칙만 알고
  * 이름·그림은 게임팩이 갖는다.
  */
-export function makeRunner3dPlay(manifest) {
+export function makeRunner3dPlay(manifest, engineOpts = {}) {
   return async function play3d(app, { backTo = '/' } = {}) {
+  // ── 레벨 수는 게임팩이 정할 수 있다 ★ ──────────────────────────
+  // 쥬라기는 `CONFIG.levels` 다섯 판을 다 쓴다(기본). 게임팩이 `manifest.levels`를
+  // 주면 그 수가 정본이다 — 오디세이 런은 6판이고, 자기 씬(`odyssey-run/scene.js`)이
+  // 6판짜리 코스 표를 `buildCourse3d`에 주입한다(엔진의 `CONFIG.levels`와 무관).
+  // `CONFIG.levels` 길이로 자르지 않는다 — 자르면 오디세이가 5판에서 멈춘다.
+  const LEVELS = manifest.levels ?? MAX_LEVELS
   // ── 타이틀 ──
   // 기존 러너 셋과 같은 자리다 — "러너는 자체 타이틀 화면이 인트로 역할을
   // 한다"(`registry.js`). 라우트를 하나 더 두면 아이가 거치는 단계가 는다.
@@ -297,12 +304,12 @@ export function makeRunner3dPlay(manifest) {
           let jumpToLastLine = false
           while (sceneIdx < introScenes.length) {
             const isLast = sceneIdx === introScenes.length - 1
-            // 스킵은 마지막 장면 앞까지만 — 이미 마지막인데 스킵은 의미가
-            // 없다. 마지막 장면은 대신 "시작" 버튼을 켠다(`startAction`,
-            // ken 요청, 9/2) — 자동 넘김은 그대로다.
+            // Skip은 **모든 장면에 항상** 켠다(ken 요청 — 절대 누락 금지).
+            // 마지막 장면도 예외 없이 보이되, "다음" 자리는 "시작"으로
+            // 바뀐다(`startAction`, ken 요청, 9/2) — 자동 넘김은 그대로다.
             const introResult = await showStoryScene(
               app, introScenes[sceneIdx], manifest.story.cast, {
-                backButton: true, skippable: !isLast, startAction: isLast,
+                backButton: true, skippable: true, startAction: isLast,
                 startLine: jumpToLastLine ? 'last' : undefined,
                 canGoBack: sceneIdx > 0,
               },
@@ -372,8 +379,13 @@ export function makeRunner3dPlay(manifest) {
   ensureSysBarStyle()
   app.appendChild(rotateHint())
 
-  // three는 **여기서만** 부른다 — 허브 번들에 들어가면 안 된다
-  const { createScene } = await import('./scene.js')
+  // three는 **여기서만** 부른다 — 허브 번들에 들어가면 안 된다.
+  // 게임팩이 자기 씬을 주입할 수 있다(`engineOpts.createScene`) — 오디세이
+  // 런처럼 세계가 다른 게임은 쥬라기 전용 `scene.js` 대신 자기 씬을 넘긴다.
+  // 계약(course·run·headScreen·update·dispose)은 같아야 한다.
+  const { createScene } = engineOpts.createScene
+    ? { createScene: engineOpts.createScene }
+    : await import('./scene.js')
   const view = createScene($('#r3-cv'), { speedMult: runnerSpeedMultiplier() })
   // 하트를 몇 개 그릴지. **판이 시작할 때의 목숨**이 곧 최대치다 —
   // 숫자를 여기 또 적으면 `judge.js`의 기본값과 어긋난다.
@@ -669,35 +681,72 @@ export function makeRunner3dPlay(manifest) {
         // 축하하게 되니 올리기 전에 잡아 둔다 (1부터 센다).
         const cleared = level + 1
         level++
-        view.setLevel(level)
-        // **목숨과 점수는 이어진다.** 레벨마다 초기화하면 판이 다섯 개가 되고
+        // ── 다음 레벨은 **스토리가 끝난 뒤에** 짓는다 ★★ ──────────────
+        // 전에는 여기서 바로 `view.setLevel(level)`을 불렀다. 쥬라기는
+        // `setLevel`이 코스만 새로 만들어 시각 차이가 없었지만, 오디세이 런은
+        // `setLevel`이 **스테이지 시각을 통째로 바꾼다**(섬 → 바다 → 이타카).
+        // 그래서 레벨 완료 배너·전환 스토리가 나오기 **전에** 화면이 먼저
+        // 다음 스테이지로 튀었다. 순서는 "이전 스테이지 종료 → 스토리 →
+        // 다음 스테이지 화면"이 맞다(ken 지적, 9/10). `setLevel` 호출을 아래
+        // `showCue().then()` 맨 끝, `started = true` 직전으로 옮겼다.
+        //
+        // **목숨과 점수는 이어진다.** 레벨마다 초기화하면 판이 여러 개가 되고
         // 한 판의 운동량이라는 말이 성립하지 않는다.
         //
         // ── 배너가 뜨는 동안 세계를 **멈춘다** ★ ──
-        // 안 멈추면 배너 뒤에서 다음 레벨이 이미 굴러간다. 코스의 `firstDelay`가
-        // 2초인데 배너가 1.2초를 가리므로, 아이가 알 화면은 0.8초뿐이었다 —
-        // 축하 그림이 사라지자마자 첫 장애물이 코앞에 있었다.
-        // 멈춰 두면 `firstDelay`가 **배너가 끝난 뒤부터** 흐른다.
+        // `started = false`라 아래 루프가 `view.update`를 안 부른다. `firstDelay`
+        // (2초)는 `setLevel`이 `now = 0`으로 되감으므로 스토리가 끝난 뒤부터 흐른다.
         started = false
         playSfx('level_complete')
+        // ── 다음 스테이지 장애물 GLB를 **지금** 당겨 둔다 ★ ──────────
+        // `view.setLevel(level)`은 전환 스토리가 끝난 뒤에 부른다 — 거기서야
+        // 다음 스테이지 GLB 로드가 시작되면 첫 장애물이 도형으로 잠깐
+        // 나왔다가 GLB로 바뀐다(pop-in). 스토리가 뜨는 십수 초 동안 미리
+        // 받아 두면(three 내장 Cache) `setLevel`이 즉시 그린다. 스테이지가
+        // 안 바뀌는 레벨엔 아무 일도 안 한다(`view.preloadStage`가 판단).
+        view.preloadStage?.(level)
         showCue(root, levelCompleteAsset(cleared), 1200).then(async () => {
           if (left || over) return
-          // ── 스토리: 아기 공룡 발견 ★ ──────────────────────────
+          // ── 스토리: 레벨 완료 뒤 이야기 컷 ★ ──────────────────
           // 레벨 완료 배너 **다음**에 온다 — "레벨을 깼다"는 이미 배너가
-          // 말했으니 겹치지 않는다. 이 레벨에서만(`afterLevel`) 뜨고, 장면을
-          // **여러 장 이어서** 보여준다(발견 → 백팩에 업기) — 한 장에 다
-          // 몰면 그림 하나로 두 순간을 표현해야 한다. 다 지나면 그때부터
-          // 백팩 옆에 아기 공룡이 보인다(`character.js`의 `setCarrying`).
-          const found = manifest.story?.found
-          if (found && found.afterLevel === cleared) {
-            const foundScenes = found.scenes ?? []
+          // 말했으니 겹치지 않는다. 방금 깬 레벨 번호(`cleared`, 1부터)와
+          // `afterLevel`이 맞는 비트만 뜬다.
+          //
+          // 쥬라기는 비트가 하나다(`story.found` — 아기 공룡 발견 → 백팩에
+          // 업기). 오디세이 런은 스테이지가 셋이라 스테이지 전환마다 비트가
+          // 있다(`story.beats` 배열). `found`는 `beats` 한 칸으로 접어 하위
+          // 호환한다 — `carry`(백팩 말풍선)는 그 비트에만 딸린다.
+          const beats = manifest.story?.beats
+            ?? (manifest.story?.found
+              ? [{ afterLevel: manifest.story.found.afterLevel, scenes: manifest.story.found.scenes, carry: manifest.story.carryBubble }]
+              : [])
+          const beat = beats.find(b => b.afterLevel === cleared)
+          if (beat) {
+            // ── 휴식(REST) 비트 — 게임 화면 위 대사창 + N초 카운트다운 ★ ──
+            // 별도 전체화면 그림이 아니라 오버레이. 세계는 이미 멈춰 있다
+            // (`started = false`). Skip이면 남은 것 전부 건너뛰고 즉시 끝.
+            // 스토리 컷(`beat.scenes`)과 공존 가능하지만 오디세이 afterLevel:1은
+            // rest만 있다.
+            if (beat.rest) {
+              const restRes = await showRestBeat(root, { ...beat.rest, cast: manifest.story.cast })
+              if (left || over) return
+              if (restRes === 'home') { quit(() => navigate(backTo)); return }
+              if (restRes === 'title') { quit(restartGame); return }
+              // 'done' | 'skip' → 계속 (아래 scenes가 있으면 이어서, 없으면 다음 레벨)
+            }
+            const beatScenes = beat.scenes ?? []
             // 인덱스로 도는 이유는 인트로와 같다(위 참고) — "이전"이 컷을
             // 건너 앞으로 갈 수 있으려면 `for...of`로는 못 되돌아간다.
             let fIdx = 0
             let jumpToLastLine = false
-            while (fIdx < foundScenes.length) {
-              const result = await showStoryScene(root, foundScenes[fIdx], manifest.story.cast, {
+            while (fIdx < beatScenes.length) {
+              // ── 스킵은 **모든** 컷에 **항상** 있다(예외 없음) ★ ──────
+              // ken 요청: "절대 누락 금지" — 마지막 컷도 예외 없이 보인다.
+              // 스킵 → 이 비트의 남은 컷을 전부 건너뛰고 다음 레벨/
+              // 스테이지로(중복 전환 없음).
+              const result = await showStoryScene(root, beatScenes[fIdx], manifest.story.cast, {
                 canGoBack: fIdx > 0,
+                skippable: true,
                 startLine: jumpToLastLine ? 'last' : undefined,
               })
               jumpToLastLine = false
@@ -707,16 +756,38 @@ export function makeRunner3dPlay(manifest) {
               // 버튼과 똑같이 `quit(restartGame)`을 쓴다(ken 요청, 9/2).
               if (result === 'title') { quit(restartGame); return }
               if (result === 'prevScene') { fIdx--; jumpToLastLine = true; continue }
+              if (result === 'skip') break   // 남은 전환 컷 건너뛰기
               fIdx++
             }
-            await c()?.setCarrying(manifest.story.carryBubble, true)
-            if (left || over) return
+            if (beat.carry) { await c()?.setCarrying(beat.carry, true); if (left || over) return }
           }
+          if (left || over) return
+          // 스토리가 끝났다 — 이제 다음 레벨/스테이지를 짓는다(위 주석 참고).
+          view.setLevel(level)
+          // 다음 스테이지에도 archGate가 있다(오디세이 Lv4·Lv6) — passThrough의
+          // 재진입 가드(`passing`)를 여기서 푼다. 안 풀면 두 번째 관문이 안 걸린다.
+          passing = false
           started = true
         })
         hud()
       } else {
-        finish(true)
+        // ── 마지막 레벨은 반드시 passThrough()를 거친다 ★★★ ──────────
+        // 예전엔 여기서 곧장 `finish(true)`를 불렀다 — `duration`(관문
+        // hitTime + 0.9초, STEP 87에서 3초→0.9초로 줄임)이 `passThrough()`의
+        // `PASS_MS`(900ms) `setTimeout`과 **거의 같은 실시간 간격**이 되면서,
+        // 브라우저의 setTimeout 지연(백그라운드 탭·GC·이벤트 루프 혼잡)에
+        // 따라 이 duration 안전망이 먼저 발동해 **관문을 실제로 지나기도
+        // 전에 Result가 뜨는** 경쟁 상태가 됐다(ken QA, STEP 88 — "Ithaca
+        // 마지막 레벨이 Finish Gate 전에 Result로 끝난다", BLOCKER).
+        //
+        // 고친 것은 duration 값이 아니라 **경로 자체**다 — `passThrough()`는
+        // `passing`으로 멱등하다: archGate 판정(`onResult`)이 이미 불렀으면
+        // 여기서 다시 불러도 조용히 무시되고, 혹시 그 판정이 어떤 이유로든
+        // 안 불렸을 때만 이 안전망이 정식 통과 연출(폭죽 → PASS_MS →
+        // finish)을 **그제야** 시작한다. `finish(true)`를 직접 부르는 경로가
+        // 이제 하나도 안 남아, "통과 연출 없이 곧장 결과"가 구조적으로
+        // 불가능하다.
+        passThrough()
       }
     }
   }
@@ -730,11 +801,33 @@ export function makeRunner3dPlay(manifest) {
   // 세계를 조금 더 굴려서 문이 카메라 뒤로 넘어가게 둔다. 그동안 뒷벽을
   // 뚫어 놓은 통로 안이 보이고, 그다음에 엔딩이 온다.
   let passing = false
+  let stopConfetti = null
   function passThrough() {
     if (passing || over) return
     passing = true
-    playSfx('mission_complete')
-    setTimeout(() => finish(true), PASS_MS)
+    // ── 관문을 지난 즉시 짧게 폭죽 ★ ─────────────────────────
+    // 마지막 레벨이든 스테이지 경계든 **문을 지나는 순간이 공통으로 축하할
+    // 지점**이다(ken QA, STEP 87 — "통과 직후 폭죽 효과"). 짧게(1.6초) +
+    // 가볍게(조각 60개) 터뜨리고 스스로 정리한다 — 다음 화면(레벨 완료
+    // 배너 z-index 30+·REST·전환 스토리)이 이보다 늦게 뜨고 그 위를
+    // 덮으므로 서로 안 겹친다. 이전 것이 아직 안 끝났으면(연속 관문) 먼저 멈춘다.
+    stopConfetti?.()
+    stopConfetti = burstConfetti(root, { pieces: 60, bursts: 2, seconds: 1.6 })
+    // ── 마지막 레벨에서만 여기서 끝낸다 ★ ──────────────────────
+    // 쥬라기는 archGate가 마지막 판에만 있어 늘 여기서 finish 한다. 오디세이
+    // 런은 스테이지 경계(Lv2·Lv4)에도 archGate가 있는데, 거기서는 **관문을
+    // 지난 뒤 레벨 완료 → 전환 스토리 → 다음 스테이지**로 가야 한다 — 그건
+    // 아래 루프의 `now >= duration`이 맡는다(문 hitTime 뒤로 `PASS_MS`와
+    // 같은 0.9초 여유, STEP 87 — 예전엔 3초라 "통과하고도 한참 더 달린다"로
+    // 보였다). 여기서 finish 하면 스테이지1에서 게임이 끝나 버린다.
+    if (level >= LEVELS - 1) {
+      playSfx('mission_complete')
+      // 통과 연출 중에 나가면(`left`) 끝내지 않는다 — 이미 비워진 DOM에
+      // 결과 화면을 그리려 하지 않게.
+      setTimeout(() => { if (!left && !over) finish(true) }, PASS_MS)
+    }
+    // 스테이지 경계에서는 소리를 안 낸다 — 0.9초 뒤 레벨 완료 배너가
+    // `level_complete`를 낸다(겹치면 지저분하다).
   }
 
   // ── 끝 ──
@@ -758,12 +851,26 @@ export function makeRunner3dPlay(manifest) {
     }
     const reward = record(snapshot)
 
+    // ── 오디세이 런 전용 완주 연출(STEP 90, ken QA — "공용 Result처럼
+    // 보여서 엔딩 느낌이 부족하다") ★ ──────────────────────────────
+    // **끝까지 깼을 때만** + **이 게임일 때만** 켠다 — 게임 오버(중간에
+    // 목숨이 다함)는 축하가 아니므로 그대로 공용 화면이고, 다른 게임
+    // (쥬라기 등)은 `manifest.id`가 안 맞아 이 조건이 늘 false라 이전과
+    // 완전히 같은 화면을 그대로 받는다(공용 `showGameOver` 자체는 옵션이
+    // 없으면 옛 모양 그대로 — 위 정의 참고). 배경은 홈 카드에 이미 쓰는
+    // 썸네일(`manifest.thumbnail`)을 그대로 재사용 — 새 그림을 안 만든다.
+    const odysseyFinale = cleared && manifest.id === 'odyssey-run'
     const over_ = () => showGameOver($('#r3'), {
-      title: cleared ? '다 달렸어요!' : '수고했어요!',
+      title: odysseyFinale ? '오디세이 런 완주!' : (cleared ? '다 달렸어요!' : '수고했어요!'),
       line: `점수 ${r.score} · 최고 연속 ${r.bestCombo}`,
       reward: hasReward(reward) ? host => mountReward(host, reward) : null,
       onAgain: () => location.reload(),
       onQuit: () => navigate(backTo),
+      ...(odysseyFinale ? {
+        bg: manifest.thumbnail,
+        scoreBlock: { score: r.score, streak: r.bestCombo },
+        sparkle: true,
+      } : {}),
     })
 
     // ── 엔딩은 **끝까지 깼을 때만** ★ ────────────────────────
@@ -773,6 +880,36 @@ export function makeRunner3dPlay(manifest) {
     // 엔딩 → 결과 순서다. 문을 지난 직후가 감정이 제일 큰 순간이라 그때는
     // 아무것도 안 읽히고 그림만 보인다. 읽을 것(점수·배지)은 그다음이다.
     if (!cleared) { over_(); return }
+
+    // ── P0 슬림 흐름: 피니시 스토리 → 결과 화면 ★ ────────────────
+    // 쥬라기는 무성 엔딩(`showEnding`) → 엔딩 스토리 → `restartGame`이다.
+    // 스테이지 하나짜리 슬라이스(오디세이 런 P0)는 `manifest.story.finish`로
+    // 그 순번을 대신한다 — 짧은 스토리 몇 컷을 보여주고 **결과 화면으로
+    // 끝낸다**(다시 하기 버튼이 있는 화면). `showEnding`/`found`는 안 탄다.
+    if (manifest.story?.finish) {
+      const scenes = manifest.story.finish.scenes ?? []
+      ;(async () => {
+        let k = 0
+        let jumpToLastLine = false
+        while (k < scenes.length) {
+          const res = await showStoryScene($('#r3'), scenes[k], manifest.story.cast, {
+            canGoBack: k > 0,
+            skippable: true,   // 마지막 컷도 예외 없이(ken: 절대 누락 금지)
+            startLine: jumpToLastLine ? 'last' : undefined,
+          })
+          jumpToLastLine = false
+          if (left) return
+          if (res === 'home') { navigate(backTo); return }
+          if (res === 'title') { restartGame(); return }
+          if (res === 'prevScene') { k = Math.max(0, k - 1); jumpToLastLine = true; continue }
+          if (res === 'skip') break
+          k++
+        }
+        over_()
+      })()
+      return
+    }
+
     showEnding($('#r3'), {
       bg: manifest.endingBg ?? manifest.titleBg ?? manifest.hero,
       art: CUE.missionComplete,
@@ -821,6 +958,7 @@ export function makeRunner3dPlay(manifest) {
     removeEventListener('keydown', onKey)
     removeEventListener('keyup', onKeyUp)
     unsub?.()
+    stopConfetti?.()
     if (motion) poseEngineCore.release()
     // 중간에 나가도 **움직인 만큼은 남는다**(`docs/05` 4-1).
     // 단 한 번도 안 달렸으면 안 남긴다 — 0짜리 기록은 집계를 흐린다.

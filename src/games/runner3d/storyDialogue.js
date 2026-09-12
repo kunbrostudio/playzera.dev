@@ -37,7 +37,8 @@
 const rand = (a, b) => a + Math.random() * (b - a)
 
 import { icon } from '../../core/icons.js'
-import { mount, mutes, soundHandlers } from './screens.js'
+import { mount, mutes, soundHandlers, ensureStyle } from './screens.js'
+import { showLoadingScreen, preloadImage } from '../../core/loadingScreen.js'
 import { sysBarMarkup, bindSysBar } from '../runner/ui/systemBar.js'
 import { playerSkin } from '../../core/playerSkin.js'
 import { burstConfetti } from '../../core/confetti.js'
@@ -64,7 +65,25 @@ function autoMs(line) {
 function faceFor(cast, line) {
   if (!line.speaker) return null
   const bucket = line.speaker === 'player' ? cast?.player?.[playerSkin()] : cast?.[line.speaker]
-  return bucket?.[line.mood] ?? null
+  // mood를 안 준 줄은 `default`로 떨어진다 — 오디세이 런처럼 표정을 한 장만
+  // 쓰는 게임이 `cast.odysseus = { default: url }` 하나로 끝낼 수 있게. 쥬라기는
+  // player 줄에 늘 mood를 줘서(`manifest.json`) 이 폴백을 안 탄다.
+  return bucket?.[line.mood] ?? bucket?.default ?? null
+}
+
+/**
+ * 대사창에 띄울 **화자명** — 없으면 null(이름 줄 자체를 숨긴다).
+ *
+ * `line.name`이 있으면 그대로, 없으면 `cast[speaker].name`, 그것도 없으면
+ * `speaker` 키를 사람이 읽을 수 있게 살짝만 다듬는다(`player` → 아이가 고른
+ * 스킨 이름은 게임팩이 `cast.player.name`으로 준다). 나레이션(발화자 없는 줄,
+ * `CLAUDE.md`가 피하라는 그 경우)은 이름도 얼굴도 없다.
+ */
+function nameFor(cast, line) {
+  if (line.name) return line.name
+  if (!line.speaker) return null
+  if (line.speaker === 'player') return cast?.player?.name ?? null
+  return cast?.[line.speaker]?.name ?? null
 }
 
 /**
@@ -150,11 +169,12 @@ export function showStoryScene(
       <div class="r3-story-box">
         <img class="r3-story-face" id="r3-story-face" alt="">
         <div class="r3-story-body">
+          <p class="r3-story-name" id="r3-story-name" hidden></p>
           <p class="r3-story-line" id="r3-story-line"></p>
           <div class="r3-story-actions">
             <div class="r3-story-nav">
               <button class="r3s-btn r3-story-prev" id="r3-story-prev" data-pz-hit data-pz-dwell="1200">
-                ${icon('back')} 이전
+                ${icon('playBack')} 이전
               </button>
               <button class="r3s-btn r3-story-next" id="r3-story-next" data-pz-hit data-pz-dwell="1200">
                 다음 ${icon('play')}
@@ -169,6 +189,7 @@ export function showStoryScene(
       </div>`, bgFor(scene.bg))
 
     const lineEl = el.querySelector('#r3-story-line')
+    const nameEl = el.querySelector('#r3-story-name')
     const faceEl = el.querySelector('#r3-story-face')
     const prevBtn = el.querySelector('#r3-story-prev')
     const nextBtn = el.querySelector('#r3-story-next')
@@ -232,6 +253,10 @@ export function showStoryScene(
       const face = faceFor(cast, line)
       faceEl.src = face ?? ''
       faceEl.style.display = face ? '' : 'none'
+      // 화자명 — 있으면 대사 위 작은 줄(`.r3-story-name`). 나레이션은 숨긴다.
+      const name = nameFor(cast, line)
+      nameEl.textContent = name ?? ''
+      nameEl.hidden = !name
       // 지금 장면의 첫 줄이라도, 앞에 다른 장면이 있으면(`canGoBack`) 여전히
       // "더 갈 데"가 있다 — 컷이 바뀌었다고 꺼지면 안 된다(ken 지적, 9/3).
       prevBtn.disabled = i === 0 && !canGoBack
@@ -285,4 +310,264 @@ export function showStoryScene(
 
     show()
   })
+}
+
+/**
+ * 휴식(REST) 비트 — 스테이지 안(같은 스테이지의 두 레벨 사이). ★
+ *
+ * ── 스토리 컷과 다른 점 ──────────────────────────────────────
+ *
+ * `bg`가 없으면 별도 전체화면 그림으로 안 바꾼다 — **게임 캔버스 위에
+ * 대사창만 얹는다**(`mount` 대신 배경 없는 `.r3s` 오버레이). 세계는
+ * `play3d.js`가 이미 `started = false`로 멈춰 뒀다(장애물·점수·시간 정지).
+ * `bg`를 주면(스테이지 전용 REST 그림, ken 지정 `rest_<stage>.png`) 스토리
+ * 컷처럼 그 그림으로 덮는다 — `mount()`와 같은 방식으로 미리 받아 둔 뒤 보여준다
+ * (`CLAUDE.md`: 큰 배경 그림은 걸기 전에 먼저 받는다).
+ *
+ * 흐름: `before` 대사 → REST N초 카운트다운 → `after` 대사 → `'done'`.
+ * Skip은 남은 것(대사·카운트다운)을 전부 건너뛰고 즉시 `'skip'` — **버튼은
+ * 항상 보인다**(누락 금지, ken 요청).
+ *
+ * 대사창 모양(`.r3-story-box`·`.r3-story-face`·`.r3-story-name`·`.r3-story-line`)은
+ * 스토리 컷과 **한 벌**. 여기서 새로 안 짠다(카운트다운 칩만 추가).
+ *
+ * @param {HTMLElement} app
+ * @param {object} o
+ * @param {(string|{text:string,speaker?:string})[]} [o.before]  대사(카운트다운 전 대화 흐름)
+ * @param {(string|{text:string,speaker?:string})[]} [o.after]   대사(before 뒤로 이어지는 대화)
+ * @param {number} [o.seconds]  REST 전체 시간(초, 대화 포함). 기본 20 — 모든
+ *   스테이지가 이 값 하나로 통일돼 있다(ken 정책, STEP 89). REST가 시작하는
+ *   순간부터 이 초가 줄어들고(대화 중에도 계속), 0이 되면 대화가 안 끝났어도
+ *   바로 다음 레벨/스테이지로 넘어간다 — "일반 duration"과 같은 하드 캡이다.
+ * @param {object} [o.cast]  `manifest.story.cast`
+ * @param {string|null} [o.bg]  스테이지 전용 REST 배경 그림. 없으면(`null`)
+ *   게임 화면이 그대로 비치는 투명 오버레이.
+ * @returns {Promise<'done'|'skip'|'home'|'title'>}
+ */
+export function showRestBeat(app, { before = [], after = [], seconds = 20, cast = {}, bg = null } = {}) {
+  return new Promise(resolve => {
+    ensureStyle()        // .r3s / .r3-story-box CSS (mount 없이 부르므로 직접)
+    ensureRestStyle()
+    const norm = arr => arr.map(l => (typeof l === 'string' ? { text: l } : l))
+    // ── before/after를 한 대화로 잇는다 ★ ─────────────────────────
+    // STEP 88까지는 "before 대사 → 카운트다운 → after 대사"가 순서대로
+    // 막혀 있었다 — 카운트다운이 대화 중간의 한 **단계**였다. STEP 89부터
+    // 카운트다운은 대화와 무관하게 화면 위에서 독립적으로 흐르므로(아래
+    // topcount), 대사는 그냥 하나로 이어진 대화다. 내용 자체(각 배열의
+    // 순서·문구)는 그대로 — before가 끝나면 곧장 after로 넘어간다.
+    const lines = [...norm(before), ...norm(after)]
+
+    const el = document.createElement('div')
+    el.className = 'r3s r3-rest'
+    el.id = 'r3-rest'
+    el.innerHTML = `
+      ${bg ? '<div class="r3s-bg"></div>' : ''}
+      <div class="r3s-corner r3s-sys">${sysBarMarkup({ home: false, exit: true, ...mutes() })}</div>
+      <div class="r3-rest-topcount" id="r3-rest-topcount"></div>
+      <div class="r3-story-box">
+        <img class="r3-story-face" id="r3-rest-face" alt="">
+        <div class="r3-story-body">
+          <p class="r3-story-name r3-rest-name" id="r3-rest-name" hidden></p>
+          <p class="r3-story-line" id="r3-rest-line"></p>
+          <div class="r3-story-actions">
+            <div class="r3-story-nav">
+              <button class="r3s-btn r3-story-prev" id="r3-rest-prev" data-pz-hit data-pz-dwell="1200">
+                ${icon('playBack')} 이전
+              </button>
+              <button class="r3s-btn r3-story-next" id="r3-rest-next" data-pz-hit data-pz-dwell="1200">
+                다음 ${icon('play')}
+              </button>
+            </div>
+            <button class="r3s-btn" id="r3-rest-skip" data-pz-hit data-pz-dwell="1200">
+              스킵 ${icon('play')}
+            </button>
+          </div>
+        </div>
+      </div>`
+    if (bg) {
+      // 스토리 컷의 mount()와 같은 순서 — 다 받을 때까지 로딩 화면으로 가리고,
+      // 화면 자체는 처음부터 붙여 둔다(스토리컷과 동일 패턴).
+      el.style.visibility = 'hidden'
+      el.querySelector('.r3s-bg').style.setProperty('--bg', `url("${bg}")`)
+      el.querySelector('.r3s-bg').style.backgroundImage = `url("${bg}")`
+      const loading = showLoadingScreen()
+      preloadImage(bg).finally(() => { el.style.visibility = 'visible'; loading.release() })
+    }
+    app.appendChild(el)
+
+    const lineEl = el.querySelector('#r3-rest-line')
+    const nameEl = el.querySelector('#r3-rest-name')
+    const faceEl = el.querySelector('#r3-rest-face')
+    const prevBtn = el.querySelector('#r3-rest-prev')
+    const nextBtn = el.querySelector('#r3-rest-next')
+    const topCountEl = el.querySelector('#r3-rest-topcount')
+
+    const abort = new AbortController()
+    let settled = false
+    let timer = null
+    let typeTimer = null
+    let dotTimer = null
+    let masterTimer = null
+    const clearAll = () => {
+      if (timer) { clearTimeout(timer); timer = null }
+      if (typeTimer) { clearInterval(typeTimer); typeTimer = null }
+      if (dotTimer) { clearInterval(dotTimer); dotTimer = null }
+      if (masterTimer) { clearInterval(masterTimer); masterTimer = null }
+    }
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      clearAll()
+      abort.abort()
+      el.remove()
+      resolve(result)
+    }
+
+    bindSysBar(el, {
+      ...soundHandlers(),
+      onHome: () => finish('home'),
+      onQuit: () => finish('title'),
+    }, abort.signal)
+
+    // ── 화면 맨 위 중앙 — REST 전체 시간(대화 포함) ★★ ────────────
+    // STEP 89 — 예전엔 대사창 **안**(카운트다운 칩)에 있었다. 대화가 끝나야
+    // 나타나던 것도 아니라, REST가 시작하는 순간 **바로** 여기서 20초를
+    // 센다 — 대화가 진행되는 중에도 이 숫자는 계속 줄어든다(ken 정책).
+    // 0이 되면 대화 상태와 무관하게 곧장 끝낸다 — "일반 duration 종료"와
+    // 같은 하드 캡이다(대사가 하나도 안 끝났어도 20초면 넘어간다).
+    let masterLeft = Math.max(1, Math.round(seconds))
+    const renderTop = () => { topCountEl.textContent = `REST ${masterLeft}` }
+    renderTop()
+    masterTimer = setInterval(() => {
+      masterLeft--
+      if (masterLeft <= 0) {
+        clearInterval(masterTimer); masterTimer = null
+        finish('done')
+        return
+      }
+      renderTop()
+    }, 1000)
+
+    // ── 대사 한 줄 ──
+    const typeLine = text => {
+      if (typeTimer) clearInterval(typeTimer)
+      lineEl.textContent = ''
+      lineEl.classList.remove('r3-rest-waiting')
+      lineEl.classList.add('r3s-typing')
+      let idx = 0
+      const stepMs = text.length > 40 ? 26 : 36
+      typeTimer = setInterval(() => {
+        idx++
+        lineEl.textContent = text.slice(0, idx)
+        if (idx >= text.length) { clearInterval(typeTimer); typeTimer = null; lineEl.classList.remove('r3s-typing') }
+      }, stepMs)
+    }
+    const showLine = (line, onDone) => {
+      typeLine(line.text)
+      playLineBlip()
+      const face = faceFor(cast, line)
+      faceEl.src = face ?? ''
+      faceEl.style.display = face ? '' : 'none'
+      const name = nameFor(cast, line)
+      nameEl.textContent = name ?? ''
+      nameEl.hidden = !name
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(onDone, autoMs(line))
+    }
+
+    // ── "휴식중..." — 대화가 20초보다 먼저 끝났을 때 ★ ─────────────
+    // 대사창은 그대로 두고(ken: "대화창은 그대로 유지") 본문만 바꾼다.
+    // 점 1~3개를 0.5초마다 순환 — CSS 애니메이션 대신 기존 파일의
+    // 다른 효과(타이핑 등)와 같은 JS 타이머 방식이라 새 keyframe이 안 든다.
+    // 화려하게 안 만든다(ken: "너무 화려하게 하지 말고").
+    function showWaiting() {
+      if (dotTimer) return   // 이미 기다리는 중이면 다시 안 켠다
+      if (timer) { clearTimeout(timer); timer = null }
+      if (typeTimer) { clearInterval(typeTimer); typeTimer = null }
+      prevBtn.hidden = true
+      nextBtn.hidden = true
+      faceEl.style.display = 'none'
+      nameEl.hidden = true
+      lineEl.classList.remove('r3s-typing')
+      lineEl.classList.add('r3-rest-waiting')
+      let n = 1
+      const render = () => { lineEl.textContent = '휴식중' + '.'.repeat(n) }
+      render()
+      dotTimer = setInterval(() => { n = n % 3 + 1; render() }, 500)
+    }
+
+    // ── 스텝 시퀀스: 대사를 하나씩, 다 보이면 "휴식중..." ────────────
+    // ★ STEP 88 — ken 정책 통일: 모든 대화창(스토리 컷·REST)에 [이전][다음]
+    // [스킵]이 항상 같이 보인다. `showStoryScene`의 `.r3-story-nav`(이전+
+    // 다음 묶음)와 같은 모양 — 대화 UI는 한 벌(CLAUDE.md).
+    let li = 0
+    function step() {
+      if (settled) return
+      if (li < lines.length) {
+        prevBtn.hidden = false
+        nextBtn.hidden = false
+        // 첫 줄이면 더 갈 데가 없다(ken 요청: "직전 대사를 다시 확인" —
+        // 컷을 넘나드는 것까지는 아니다, `showStoryScene`의 canGoBack과 다름).
+        prevBtn.disabled = li === 0
+        showLine(lines[li], () => { li++; step() })
+        return
+      }
+      showWaiting()
+    }
+
+    prevBtn.addEventListener('click', () => {
+      // 직전 대사를 다시 읽는다. `li===0`이면 버튼이 이미 disabled라
+      // 여기 안 온다. "휴식중" 상태에선 prevBtn 자체가 숨어 있다.
+      if (li === 0) return
+      if (dotTimer) { clearInterval(dotTimer); dotTimer = null }
+      li--
+      step()
+    })
+    nextBtn.addEventListener('click', () => {
+      // 지금 줄의 자동 넘김을 앞당긴다 — 마지막 줄이면 "휴식중..."으로 이어간다.
+      li++
+      step()
+    })
+    el.querySelector('#r3-rest-skip').addEventListener('click', () => finish('skip'))
+
+    step()
+  })
+}
+
+let restStyled = false
+function ensureRestStyle() {
+  if (restStyled) return
+  restStyled = true
+  const s = document.createElement('style')
+  s.textContent = `
+    /* REST 비트 — 게임 화면 위 오버레이(배경 없음). 대사창은 스토리 컷과
+       같은 .r3-story-box를 그대로 쓴다. */
+    #r3-rest { background: transparent; justify-content: flex-end; }
+    #r3-rest .r3-story-box { background: rgba(15,7,34,.9); }
+
+    /* ── 카운트다운 — 화면 맨 위 중앙, 대화창과 별개 ★ ─────────────
+       STEP 87은 대사창 바깥 위쪽에 따로 띄웠다가(화면 딴 곳에 뭔가
+       떠 있다는 지적) STEP 88에서 대사창 **안**으로 옮겼다. STEP 89 —
+       ken이 다시 밖으로: 이번엔 "대사창 안"이 아니라 **화면 맨 위
+       중앙**에 고정하고, REST 전체(대화 포함) 20초를 센다 — 대사창
+       위치(하단)와 무관하게 항상 같은 자리에 떠 있어야 "시간이 얼마나
+       남았나"를 대화 내용과 안 섞고 한눈에 본다. absolute 자리는
+       screens.js의 .r3s > *:not(...) 제외 목록에 등록해 뒀다. */
+    .r3-rest-topcount {
+      position: absolute; top: clamp(14px, 3vh, 30px); left: 50%;
+      transform: translateX(-50%); z-index: 5;
+      font-family: var(--font-main, 'Jua', sans-serif); font-weight: 900;
+      font-size: clamp(1.4rem, 4vw, 2.4rem); letter-spacing: .06em;
+      color: var(--pz-gold, #ffd23e);
+      padding: clamp(6px, 1.2vh, 14px) clamp(18px, 3.5vw, 34px);
+      border-radius: 999px; background: rgba(15,7,34,.86);
+      border: 2px solid var(--pz-gold, #ffd23e);
+      text-shadow: 0 2px 8px rgba(0,0,0,.5);
+    }
+    /* "휴식중..." — 대화가 20초보다 먼저 끝났을 때, 대사창 안 본문 자리에
+       그대로 쓴다(대화창은 유지, 글자만 바뀐다). 점 애니메이션은 JS가
+       0.5초마다 텍스트를 다시 쓰는 방식(위 typeLine과 같은 결) — 너무
+       화려하지 않게, 옅은 색으로만 "아직 기다리는 중"임을 준다. */
+    .r3-rest-waiting { opacity: .7; }`
+  document.head.appendChild(s)
 }

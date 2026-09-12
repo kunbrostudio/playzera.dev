@@ -207,8 +207,23 @@ export async function createCharacter(withCurve, skin, lanes = 3) {
     mesh,
     get lane() { return lane },
     get jumping() { return jumpT >= 0 },
+    /**
+     * 지금 프레임의 점프 높이(유닛, 0이면 땅) — `mesh.position.y`에 이미
+     * 더해지는 그 포물선(`jumpY()`)을 그대로 내준다. 오디세이 런 배
+     * 빌보드(`boat.js`)가 `jumping` 불리언 대신 이걸 써서, 점프 시작/끝에서
+     * **뚝 끊기지 않고**(0/1.4 스냅) 캐릭터와 똑같은 부드러운 곡선으로 뜬다.
+     */
+    get jumpOffset() { return jumpY() },
     get ducking() { return duckT >= 0 },
     get posing() { return pose },
+    /**
+     * 지금 자세가 좌우 반전된 채로 보이나 — `setPose(p, mirror)`가 받은 그
+     * `mirror`를 그대로 내준다. 오디세이 런 배 빌보드(`boat.js`)가 이걸
+     * 읽어서 자기 자세 그림도 같은 방향으로 뒤집는다 — 장애물(사인판)과
+     * 캐릭터가 서로 다른 방향을 보고 있으면 안 되니, **판정에 쓰는 이
+     * 값 하나**를 공유 source of truth로 삼는다(ken QA, STEP 90).
+     */
+    get poseMirror() { return poseMirror },
 
     /** 논리는 정수다. 화면은 update가 따라간다. */
     setLane(i) { lane = Math.max(0, Math.min(lanes - 1, i)) },

@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { createAutopilot } from '../src/games/runner/game/autopilot.js'
 import { buildCourse3d, visibleEvents, assignCubeLane, atHit } from '../src/games/runner3d/course3d.js'
 import { createRun } from '../src/games/runner3d/judge.js'
+import { ODYSSEY_LEVELS, isStageFinale } from '../src/games/odyssey-run/levels.js'
 
 // character.js의 점프·숙임 물리를 그대로 옮긴 가짜 캐릭터. **판정과 자동조종
 // 둘 다 진짜 상태 전이를 거쳐야** 타이밍 실수가 숫자로 드러난다 — 상태를
@@ -47,9 +48,16 @@ function makeFakeCharacter(lanes = 3) {
   return { controls, state, tick }
 }
 
-/** 실제 게임 루프(`scene.js`)와 같은 순서로 한 판을 끝까지 굴린다. */
-function runAutoLevel(levelIdx) {
-  const course = buildCourse3d(levelIdx)
+/**
+ * 실제 게임 루프(`scene.js`)와 같은 순서로 한 판을 끝까지 굴린다.
+ *
+ * @param {number} levelIdx
+ * @param {number} [speedMult] 러너 속도 설정 배율 — 기본 1(보통). Odyssey Run
+ *   "매우 빠르게"(2.5) 회귀 테스트가 넘긴다.
+ * @param {object} [opts] `buildCourse3d`에 그대로 넘긴다(`levels`·`archGate`).
+ */
+function runAutoLevel(levelIdx, speedMult = 1, opts = {}) {
+  const course = buildCourse3d(levelIdx, speedMult, opts)
   const ch = makeFakeCharacter()
   const auto = createAutopilot(() => course, ch.controls)
   const run = createRun({ lives: 999 })   // 미스가 있어도 중간에 안 끊기고 끝까지 세게
@@ -63,7 +71,7 @@ function runAutoLevel(levelIdx) {
     const vis = visibleEvents(course, now, far)
     for (const { e } of vis) assignCubeLane(e, ch.state.lane)
     for (const { e } of vis) {
-      if (e.done || !atHit(e, now, course.speed)) continue
+      if (e.done || !atHit(e, now, course.speed, course.hitWindow)) continue
       run.settle(e, ch.state)
     }
     auto.update(now)
@@ -169,5 +177,66 @@ describe('자동재생 — 포즈는 벽에 닿기 한참 전에 미리 잡는�
     expect(pose).toBe(null)
     auto.update(1.6)   // hitTime(3) - 1.6 = 1.4 <= LEAD(1.5) — 이제 잡는다
     expect(pose).toBe('lunge')
+  })
+})
+
+// ── STEP 91 — 이타카 Lv6 조기 종료 BLOCKER ★★★ ──────────────────────
+//
+// ken이 실제 브라우저에서 재현: "매우 빠르게" + 자동재생으로 이타카 Lv6를
+// 돌리면 결승 관문(archGate)에 닿기도 전에 목숨이 다 닳아 Result로 넘어갔다.
+//
+// 실제 원인은 `duration`/`passThrough`/`finish` 쪽이 **아니었다** — 그 경로는
+// 이미 정상이었다(STEP 88 고침, 아래 두 번째 describe가 그 경로를 지킨다).
+// 진짜 원인은 자동재생의 `LEAD.poseSign`(1.5초)이 **고정값**인데, 이타카
+// Lv6("매우 빠르게", cycles:3)의 실제 사인판 간격(`poseGap/speed` = 6.0 /
+// (1.85×2.5) ≈ 1.3초)이 그보다 좁아진다는 것이었다 — 앞 사인판이 아직
+// 판정되기도 전에 자동재생이 다음 사인판 자세로 갈아 끼워, 한 사이클(3개)
+// 중 마지막 하나만 맞고 나머지 둘은 무조건 틀린 것으로 처리되어 목숨이
+// 줄줄이 샜다. 고친 곳은 `autopilot.js`의 `poseSign` 분기 — 앞 자세가
+// 판정되기 전(`activePose`가 남아 있는 동안)엔 다음 사인판을 건드리지 않는다.
+describe('자동재생 — 이타카 Lv6 "매우 빠르게" 회귀(STEP 91 BLOCKER) ★★★', () => {
+  const VERY_FAST = 2.5
+  const odysseyOpts = { levels: ODYSSEY_LEVELS, archGate: isStageFinale }
+
+  it('Lv6("매우 빠르게")는 결승 관문까지 목숨을 하나도 안 잃는다', () => {
+    // Lv6(levelIdx=5)는 이타카의 마지막 판이자 오디세이 런 전체의 마지막
+    // 판이다 — 6판 중 가장 빠르고(cycles:3) 사인판 간격이 가장 좁다.
+    // 이 테스트가 없었을 때는 poseSign 9개 중 6개가 틀려(각 사이클 3개 중
+    // 2개) `run.hits`가 6, 목숨이 0으로 떨어져 결승 전에 끝났다.
+    const { course, run } = runAutoLevel(5, VERY_FAST, odysseyOpts)
+    expect(run.hits, 'Lv6 "매우 빠르게" — 자동재생인데 놓친 장애물이 있다').toBe(0)
+    expect(course.events.every(e => e.done), 'Lv6 — 판정 안 된 이벤트가 남았다').toBe(true)
+    const gate = course.events.find(e => e.type === 'archGate')
+    expect(gate, 'Lv6은 스테이지 마지막 판이라 archGate가 있어야 한다').toBeTruthy()
+    expect(gate.done, '결승 관문까지 도달하지 못했다').toBe(true)
+  })
+
+  it('Lv5("매우 빠르게")도 목숨을 하나도 안 잃는다 — 경계값 회귀', () => {
+    // Lv5(levelIdx=4, speed 1.64)는 6.0/(1.64×2.5)=1.46초로 LEAD(1.5초)보다
+    // 아주 살짝만 좁다 — 문턱값 바로 위/아래 레벨도 같이 지킨다.
+    const { run } = runAutoLevel(4, VERY_FAST, odysseyOpts)
+    expect(run.hits, 'Lv5 "매우 빠르게" — 자동재생인데 놓친 장애물이 있다').toBe(0)
+  })
+
+  it('사인판 간격이 LEAD보다 좁으면, 앞 사인판이 판정되기 전엔 다음 자세로 안 넘어간다', () => {
+    // 최소 구성으로 직접 레이스를 재현한다 — hitTime이 1.3초 간격(LEAD
+    // 1.5초보다 좁다)인 사인판 두 개. 고치기 전에는 두 번째 사인판의 LEAD
+    // 시각(2.3-1.5=0.8)이 첫 번째의 hitTime(1.0)보다 **먼저** 와서, 첫 번째가
+    // 판정되기도 전에 자세가 'forwardbend'로 바뀌어 버렸다.
+    const course = { events: [
+      { type: 'poseSign', pose: 'lunge', mirror: false, hitTime: 1.0, done: false },
+      { type: 'poseSign', pose: 'forwardbend', mirror: false, hitTime: 2.3, done: false },
+    ] }
+    let pose = null
+    const controls = { getLane: () => 1, setLane() {}, jump() {}, duck() {}, setPose: p => { pose = p } }
+    const auto = createAutopilot(() => course, controls)
+
+    auto.update(0.6)   // 첫 사인판 LEAD(1.0-1.5<0이라 이미 범위) — lunge를 잡는다
+    expect(pose).toBe('lunge')
+    auto.update(0.8)   // 둘째 사인판의 LEAD 시각(2.3-1.5=0.8)이지만, 첫 번째가
+    expect(pose, '앞 사인판이 아직 안 끝났는데 다음 자세로 넘어갔다').toBe('lunge')   // 아직 안 끝나 넘어가면 안 된다
+    course.events[0].done = true   // 첫 사인판이 hitTime(1.0)에서 판정됐다고 가정
+    auto.update(1.05)  // 이제서야 둘째로 넘어간다
+    expect(pose).toBe('forwardbend')
   })
 })

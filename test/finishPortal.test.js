@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import { DOOR, FIRE } from '../src/games/runner3d/portal.js'
 import { KINDS } from '../src/games/runner3d/obstacles3d.js'
 import { ACTION } from '../src/games/runner3d/judge.js'
-import { showEnding } from '../src/core/gameShell.js'
+import { showEnding, showGameOver } from '../src/core/gameShell.js'
 import { CUE, CHEER } from '../src/games/runner/ui/cues.js'
 
 const manifest = JSON.parse(fs.readFileSync('src/games/jurassic-run-3d/manifest.json', 'utf8'))
@@ -167,5 +167,106 @@ describe('엔딩 → 결과 ★', () => {
     el.click()
     await new Promise(r => setTimeout(r, 20))
     expect(gone, '뜨자마자 눌려서 넘어갔다').toBe(false)
+  })
+})
+
+// ── showGameOver의 bg/scoreBlock/sparkle — 게임팩별 조건부 꾸미기(STEP 90) ★
+// 오디세이 런이 "공용 Result처럼 보인다"고 해서 옵션 셋을 추가했다. 셋 다
+// **기본값이 꺼짐**이므로 기존 호출(쥬라기 등, 옵션 안 줌)이 예전과 완전히
+// 같은 화면을 받는지가 핵심 회귀 포인트다.
+describe('showGameOver — bg/scoreBlock/sparkle (STEP 90) ★', () => {
+  it('옵션을 안 주면(기존 호출) 예전 그대로다 — .pz-line + 테마 클래스 없음', () => {
+    document.body.innerHTML = '<div id="h"></div>'
+    const host = document.querySelector('#h')
+    const el = showGameOver(host, { title: '다 달렸어요!', line: '점수 100 · 최고 연속 5' })
+    expect(el.className).toBe('pz-veil pz-over')   // pz-over-themed 없음
+    expect(el.querySelector('.pz-line')?.textContent).toBe('점수 100 · 최고 연속 5')
+    expect(el.querySelector('.pz-score-block')).toBeNull()
+    expect(el.querySelector('.pz-over-bg')).toBeNull()
+    expect(el.querySelector('.pz-over-overlay')).toBeNull()
+  })
+
+  it('★ bg를 주면 배경 그림 + 오버레이가 생기고 테마 클래스가 붙는다', () => {
+    document.body.innerHTML = '<div id="h"></div>'
+    const host = document.querySelector('#h')
+    const el = showGameOver(host, { title: '오디세이 런 완주!', bg: '/thumb.webp' })
+    expect(el.className).toContain('pz-over-themed')
+    const bgEl = el.querySelector('.pz-over-bg')
+    expect(bgEl).toBeTruthy()
+    expect(bgEl.style.backgroundImage).toContain('/thumb.webp')
+    expect(el.querySelector('.pz-over-overlay')).toBeTruthy()
+  })
+
+  it('★ scoreBlock을 주면 SCORE/BEST STREAK이 실제 값 그대로 뜨고 .pz-line은 안 뜬다', () => {
+    document.body.innerHTML = '<div id="h"></div>'
+    const host = document.querySelector('#h')
+    const el = showGameOver(host, {
+      title: '오디세이 런 완주!', line: '이건 안 보여야 한다',
+      scoreBlock: { score: 33150, streak: 168 },
+    })
+    expect(el.querySelector('.pz-line')).toBeNull()
+    const rows = el.querySelectorAll('.pz-score-row')
+    expect(rows).toHaveLength(2)
+    expect(el.querySelector('.pz-score-block').textContent).toContain('33,150')
+    expect(el.querySelector('.pz-score-block').textContent).toContain('168')
+    expect(el.querySelector('.pz-score-block').textContent).toContain('SCORE')
+    expect(el.querySelector('.pz-score-block').textContent).toContain('BEST STREAK')
+  })
+
+  it('sparkle:true라도 버튼 클릭이 안 터진다 (jsdom엔 2D 캔버스가 없어 조용히 no-op)', () => {
+    document.body.innerHTML = '<div id="h"></div>'
+    const host = document.querySelector('#h')
+    let again = false
+    const el = showGameOver(host, {
+      title: '오디세이 런 완주!', bg: '/thumb.webp', sparkle: true,
+      onAgain: () => { again = true },
+    })
+    expect(() => el.querySelector('[data-act="again"]').click()).not.toThrow()
+    expect(again).toBe(true)
+  })
+
+  // ── 중앙 콘텐츠 배경 박스(STEP 92) ★ — ken 지적: "중앙 콘텐츠가 그냥
+  // 붕 떠 있는 느낌". themed(bg 있음)일 때만 제목·점수·버튼을 .pz-over-box
+  // 하나로 묶는다 — 기본 결과 화면(bg 없음, 쥬라기 등)은 이 래퍼 없이
+  // 예전과 완전히 같은 마크업이어야 회귀가 없다.
+  it('★ bg가 있으면 제목·점수·버튼이 .pz-over-box 하나로 묶인다', () => {
+    document.body.innerHTML = '<div id="h"></div>'
+    const host = document.querySelector('#h')
+    const el = showGameOver(host, {
+      title: '오디세이 런 완주!', bg: '/thumb.webp',
+      scoreBlock: { score: 33150, streak: 168 },
+    })
+    const box = el.querySelector('.pz-over-box')
+    expect(box, '.pz-over-box가 없다').toBeTruthy()
+    expect(box.querySelector('h2')?.textContent).toBe('오디세이 런 완주!')
+    expect(box.querySelector('.pz-score-block')).toBeTruthy()
+    expect(box.querySelector('.pz-actions')).toBeTruthy()
+    // 배경/오버레이는 박스 밖(형제)이다 — 박스 안에 또 배경을 깔지 않는다.
+    expect(el.querySelector('.pz-over-bg').parentElement).toBe(el)
+    expect(el.querySelector('.pz-over-overlay').parentElement).toBe(el)
+  })
+
+  it('bg가 없으면(기본 결과 화면) .pz-over-box 없이 예전과 같은 평평한 마크업이다', () => {
+    document.body.innerHTML = '<div id="h"></div>'
+    const host = document.querySelector('#h')
+    const el = showGameOver(host, {
+      title: '다 달렸어요!', scoreBlock: { score: 100, streak: 5 },
+    })
+    expect(el.querySelector('.pz-over-box')).toBeNull()
+    expect(el.querySelector('.pz-score-block')?.parentElement).toBe(el)
+  })
+
+  it('다시 하기/Home 버튼은 bg/scoreBlock/sparkle 여부와 무관하게 그대로 동작한다', () => {
+    document.body.innerHTML = '<div id="h"></div>'
+    const host = document.querySelector('#h')
+    let again = false, quit = false
+    const el = showGameOver(host, {
+      title: '오디세이 런 완주!', bg: '/thumb.webp', scoreBlock: { score: 1, streak: 1 }, sparkle: true,
+      onAgain: () => { again = true }, onQuit: () => { quit = true },
+    })
+    el.querySelector('[data-act="again"]').click()
+    el.querySelector('[data-act="quit"]').click()
+    expect(again).toBe(true)
+    expect(quit).toBe(true)
   })
 })

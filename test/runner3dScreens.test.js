@@ -365,7 +365,9 @@ describe('3D 엔진은 게임 이름을 모른다 ★', () => {
     const engine = fs.readFileSync('src/games/runner3d/play3d.js', 'utf8')
       .split('\n').filter(l => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n')
     expect(engine, '엔진에 게임 id가 적혀 있다').not.toContain("'jurassic-run-3d'")
-    expect(engine, '게임팩이 넘긴 manifest를 안 쓴다').toContain('makeRunner3dPlay(manifest)')
+    // `makeRunner3dPlay(manifest, engineOpts?)` — 두 번째 인자는 씬 주입용
+    // (오디세이 런처럼 세계가 다른 게임). manifest가 여전히 첫 인자다.
+    expect(engine, '게임팩이 넘긴 manifest를 안 쓴다').toContain('makeRunner3dPlay(manifest')
   })
 
   it('게임팩이 자기 manifest를 넘긴다', () => {

@@ -24,6 +24,15 @@ import * as THREE from 'three'
 
 const ROOT = '/assets/runner3d'
 
+// ── URL 캐시를 켠다 ★ ────────────────────────────────────────
+// three 기본은 꺼져 있어서, 같은 GLB를 다시 `.load(url)`하면 네트워크를
+// 또 친다. 3D 러너는 스테이지를 나갔다 다시 들어오거나(리플레이·재진입)
+// 전환 스토리 동안 다음 스테이지 GLB를 미리 받고(`warmGlb`) 곧바로
+// `buildStage`가 같은 URL을 부른다 — 켜 두면 `FileLoader`가 받아 둔
+// 바이트를 재사용한다(파싱은 매번 새 THREE 객체라 공유 상태 버그 없음).
+// 새 로더 프레임워크가 아니라 three 내장 캐시다. 모듈 로드 시 1회.
+THREE.Cache.enabled = true
+
 let loaderPromise = null
 /**
  * GLTFLoader는 three 본체에 없다. **이 게임에 들어올 때만** 받는다.
@@ -41,8 +50,16 @@ let loaderPromise = null
  *
  * 값은 디코더 wasm 190KB다. 한 번 받아 캐시되고, 3MB 넘게 아끼니 남는 장사다.
  * `/public/draco/`에 둔다 — 번들에 넣으면 이 게임에 안 들어와도 따라온다.
+ *
+ * ── `glbProp.js`도 이걸 쓴다 ★ ─────────────────────────────
+ *
+ * 배경 프롭·장애물 로더(`glbProp.js`)는 원래 자기 `new GLTFLoader()`를 썼는데,
+ * 오디세이 런의 AI 키트배시 자세 팻말이 simplify로 안 깎이면서(비매니폴드
+ * 조각 다수) Draco 압축이 필요해졌다. Draco GLB는 이 로더로만 열린다 —
+ * export해서 `glbProp.js`가 같은 로더를 공유한다. 비-Draco GLB는 그대로
+ * 열리므로 다른 화면(`#/lab-*`)에 영향 없다.
  */
-function getLoader() {
+export function getLoader() {
   if (!loaderPromise) {
     loaderPromise = Promise.all([
       import('three/examples/jsm/loaders/GLTFLoader.js'),
@@ -56,6 +73,34 @@ function getLoader() {
     })
   }
   return loaderPromise
+}
+
+let warmLoader = null
+const warmed = new Set()
+
+/**
+ * GLB **파일 바이트만** 미리 받아 three 내장 `Cache`에 넣는다. GLTFLoader를
+ * 안 거치므로 **파싱·Draco 디코드는 안 한다** — 나중에 `loadNormalizedGlb`/
+ * `loadGeometry`가 부를 때 네트워크만 건너뛴다(디코드는 그때 한 번).
+ *
+ * three의 `FileLoader`는 캐시 키가 `file:<url>`이고 `loading[]` 맵으로
+ * **동시 요청을 하나로 묶는다**(모듈 전역) — GLTFLoader의 내부 FileLoader와
+ * 같은 키를 쓰므로, warm이 아직 받는 중에 `buildStage`가 같은 URL을 불러도
+ * 네트워크는 한 번이다. 스테이지 전환 스토리가 뜨는 동안 다음 스테이지의
+ * 장애물 GLB를 당겨 두는 데 쓴다(pop-in 방지). 새 프레임워크가 아니라
+ * three 내장 캐시/dedup 재사용.
+ * @param {string[]} urls
+ */
+export function warmGlb(urls) {
+  if (!warmLoader) {
+    warmLoader = new THREE.FileLoader()
+    warmLoader.setResponseType('arraybuffer')
+  }
+  for (const url of urls) {
+    if (!url || warmed.has(url) || THREE.Cache.get(`file:${url}`)) continue
+    warmed.add(url)
+    warmLoader.load(url, () => {}, undefined, () => { warmed.delete(url) })
+  }
 }
 
 /**
@@ -111,6 +156,56 @@ export async function loadGeometries(names, subdir = 'props') {
   const list = names.map(n => (Array.isArray(n) ? n : [n, subdir]))
   const geos = await Promise.all(list.map(([n, d]) => loadGeometry(n, d)))
   return Object.fromEntries(list.map(([n], i) => [n, geos[i]]))
+}
+
+/**
+ * GLB의 **모든 메시**를 그룹으로 받는다 — 부품마다 재질·텍스처가 다른
+ * AI 키트배시(합칠 수 없는 것, 예: `finish_gate.glb` 20파트: 석재·금장·
+ * 파란 banner·삼지창)를 위해서. 조명이 없는 규율이라 재질은 버리고 각
+ * 부품의 baseColor 텍스처만 `MeshBasicMaterial`에 얹는다(다른 로더와 같다).
+ * 인스턴싱 통 밖에서 **한 번만** 그리는 물건에만 쓴다(결승 관문).
+ *
+ * @param {string} name
+ * @param {string} subdir
+ * @param {(m: THREE.Material) => THREE.Material} withCurve 곡률 심기
+ * @param {number} [fallbackColor] 텍스처 없는 부품에 쓸 색
+ * @returns {Promise<{ group: THREE.Group, dispose: () => void } | null>}
+ */
+export async function loadMeshGroup(name, subdir, withCurve, fallbackColor = 0xcfc3aa) {
+  try {
+    const loader = await getLoader()
+    const gltf = await loader.loadAsync(`${ROOT}/${subdir}/${name}.glb`)
+    const group = new THREE.Group()
+    const owned = []
+    const meshes = []
+    gltf.scene.updateWorldMatrix(true, true)
+    gltf.scene.traverse(o => { if (o.isMesh) meshes.push(o) })
+    if (!meshes.length) throw new Error('메시가 없다')
+    for (const o of meshes) {
+      o.updateWorldMatrix(true, false)
+      const geo = o.geometry.clone()
+      geo.applyMatrix4(o.matrixWorld)   // 노드 변환을 굽는다
+      const map = baseTexture(o)
+      const mat = withCurve(new THREE.MeshBasicMaterial({
+        map: map ?? null,
+        color: map ? 0xffffff : fallbackColor,
+        fog: true, side: THREE.DoubleSide,
+      }))
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.frustumCulled = false
+      group.add(mesh)
+      owned.push({ geo, mat })
+    }
+    return {
+      group,
+      dispose() {
+        for (const { geo, mat } of owned) { geo.dispose(); mat.map?.dispose(); mat.dispose() }
+      },
+    }
+  } catch (e) {
+    console.warn(`[runner3d] ${name}.glb 그룹 로드 실패:`, e.message)
+    return null
+  }
 }
 
 /**

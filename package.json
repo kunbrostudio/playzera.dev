@@ -13,8 +13,14 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
+    "@gltf-transform/functions": "^4.5.0",
     "@napi-rs/canvas": "^1.0.5",
+    "draco3dgltf": "^1.5.7",
     "jsdom": "^26.1.0",
+    "meshoptimizer": "^1.2.0",
+    "sharp": "^0.35.4",
     "vite": "^6.3.5",
     "vitest": "^3.2.4"
   },

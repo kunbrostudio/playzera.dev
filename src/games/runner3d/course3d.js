@@ -32,9 +32,13 @@ export const HIT_WINDOW = 2.2
 /**
  * @param {number} levelIdx
  * @param {number} [speedMult] 그대로 `buildCourse`에 넘긴다(`core/runnerSpeed.js`).
+ * @param {object} [opts] 그대로 `buildCourse`에 넘긴다 — `opts.levels`(레벨 표
+ *   교체), `opts.archGate`(결승 포털 이벤트를 넣을 레벨: boolean 또는
+ *   `(levelIdx, levels) => boolean`). 오디세이 런이 자기 6판 표와
+ *   `archGate: isStageFinale`(스테이지 경계 Lv2·Lv4·Lv6)을 준다(`odyssey-run/scene.js`).
  */
-export function buildCourse3d(levelIdx, speedMult = 1) {
-  const { events, duration, approachSec, speed } = buildCourse(levelIdx, speedMult)
+export function buildCourse3d(levelIdx, speedMult = 1, opts = {}) {
+  const { events, duration, approachSec, speed } = buildCourse(levelIdx, speedMult, opts)
   return {
     speed, duration, approachSec,
     // ── 판정 창도 같은 배율로 넓힌다 ★ ──────────────────────────

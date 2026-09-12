@@ -9889,3 +9889,1364 @@ HTML 주석을 달면서 "test/brandUi.test.js가"처럼 백틱으로 코드를
 게임으로 보내는지, D-pad "화면 조작" 이름표가 실제로 혼동을 줄이는지,
 햄버거 소리 버튼이 게임 중에도(BGM이 게임마다 다른 곡일 때) 잘
 먹히는지, 태블릿 폭에서 그리드 열 수가 실제로 몇 개로 보이는지.
+
+---
+
+## STEP 77 — 오디세이 런 P0 에셋 파이프라인 + 섬 슬라이스 자산 최적화 (2026-09-09)
+
+**게임 로직·registry·스테이지 흐름은 아직 안 건드렸다.** 이번 단계는 런타임
+에셋 파이프라인을 만들고 P0(키클롭스 섬 vertical slice)에 필요한 자산만
+실제로 최적화·검증하는 것이다.
+
+### 만든 도구 (러너3D 전 테마 공용)
+
+- **`tools/glb/optimize.mjs`** — Tripo AI raw GLB(27~60MB·삼각형 100만~200만)를
+  런타임 GLB로. `dedup → flatten+join(메시 하나로) → weld(정점 병합) →
+  simplify(meshoptimizer) → 재질을 baseColor만 남김 → 텍스처 리사이즈/재압축(sharp) →
+  확장 제거 → prune`. **Draco/meshopt 압축은 안 쓴다** — `glbProp.js`가 평범한
+  GLTFLoader라 디코더가 없다. 크기는 삼각형으로 낮춘다(원본의 ~95%가 지오메트리).
+  출력은 다시 파싱해 삼각형 0·메시 여럿·비-JPEG 텍스처를 검사한다.
+  `--manifest <json>`으로 배치 실행.
+- **`tools/img/to-webp.mjs`** — 스토리 PNG(장당 ~3MB) → WebP. `storyDialogue.js`가
+  CSS `background-image`로 걸어 "90년대 로딩"이 되던 문제(STEP 73).
+- 소스 매핑 정본: `tools/glb/odyssey-p0.sources.json`, `tools/img/odyssey-p0.story.json`.
+  **원본은 repo 밖**(`~/Documents/playzera-assets/오디세이/`)에 두고 출력만 커밋한다.
+- devDependencies 추가: `@gltf-transform/{core,functions,extensions}` · `meshoptimizer` · `sharp`.
+
+### 최적화 결과 → `public/assets/runner3d/odyssey/`
+
+| 신규 GLB | 원본 | 출력 | 삼각형 |
+|---|---:|---:|---|
+| `island/obstacles/gate_finish.glb` (ornate gate) | 54.7MB | **2.42MB** | 1.94M→77k |
+| `island/obstacles/sign_pose.glb` (yoga pose sign) | 27.7MB | **1.09MB** | 963k→29k |
+| `island/props/statue_warrior.glb` (gladiator) — 선택 | 29.6MB | **2.02MB** | 946k→60k |
+
+스토리 5장: `story/story_{intro_1,intro_2,intro_3,island_1,island_finish}.webp`,
+14.56MB → **1.10MB** (WebP q80, 1600×900).
+
+`odyssey/` 디렉터리 총 **6.6MB**. lab-island 배경 자산(`_lab/`)은 이번에 안 옮겼다 —
+게임 통합 때 `odyssey/`로 이전 + `godstatue` 재최적화 예정. 자세한 인벤토리는
+`docs/15_오디세이런_P0에셋.md`.
+
+### 확인
+
+- 3개 GLB 전부 gltf-transform 재파싱 + `three` GLTFLoader `parse` 통과(지오메트리·UV·
+  임베드 JPEG 정상). 텍스처 blob 경고는 node 환경 한계(브라우저에서 로드됨).
+- `npx vitest run` — **1015/1016 통과.** 실패 3파일·1건은 전부 로컬 `.env`
+  (`VITE_SUPABASE_URL`) 미설정 탓으로 **이번 작업과 무관**(src/ 파일 0개 수정).
+- 시각 품질은 **브라우저 확인 필요** — 관문 실루엣, 팻말 포즈 도해 가독성,
+  전사상이 3~4% 데시메이트로 뭉개졌는지는 눈으로 봐야 안다.
+
+---
+
+## STEP 78 — 오디세이 런 P0: 플레이 가능한 키클롭스 섬 슬라이스 (2026-09-09)
+
+STEP 77에서 최적화한 자산만 써서 **Play Zera 안에서 도는 최소 vertical slice**를
+붙였다. 흐름: 인트로 스토리 → 카메라 준비 → 키클롭스 섬 스테이지 1개 →
+피니시 스토리 → 결과.
+
+### 새 게임팩 — `src/games/odyssey-run/`
+
+- **`manifest.json`** — `id: odyssey-run` · `status: wip`(dev 허브에만) ·
+  `levels: 1`(신설 필드) · `metrics`는 전부 기존 사전(`jumps`·`squats`·
+  `side_steps`·`pose_holds`·`active_sec`) — 새 지표 없음 · `story.intro`(3컷) +
+  `story.finish`(2컷, 신설 필드) · `audio`는 쥬라기 것을 재사용(P0는 전용 BGM 없음).
+  얼굴 에셋이 없어 대사창은 배경+텍스트만(P1에서 캐릭터 얼굴 추가).
+- **`scene.js`** — 키클롭스 섬 씬. `runner3d/scene.js`(공룡 하드코딩)를 **안
+  건드리고**, `#/lab-island` 프로토타입이 검증한 조립을 그대로 가져왔다:
+  `ground.js` 대리석 팔레트 + `water.js` 좌우 물 + `glbProp.js` 배경(배·템플·
+  전사상). 여기에 `play3d.js`가 기대하는 씬 계약(course·run·judge·headScreen·
+  update·dispose)을 얹었다 — 그 `update()` 로직은 `runner3d/scene.js`
+  (≈445–525줄)를 **그대로 옮긴 것**이다(규칙·판정은 쥬라기와 같아야 기록을
+  견준다). 장애물: cube→거인 GLB(재사용), 점프·숙이기→도형(새 GLB 안 늘림),
+  자세→`sign_pose.glb`(신규 1종). Finish 관문은 `gate_finish.glb`를 트랙 끝
+  자리에 흘려보내는 시각 랜드마크다(코스 이벤트 아님 — 레벨이 하나뿐이라
+  `course.js`가 archGate를 안 만든다. `portal.js`의 반짝이는 문·불은 P1).
+- **`play.js`** — `makeRunner3dPlay(manifest, { createScene })` 한 줄.
+
+### 엔진 — `runner3d/play3d.js` (덧붙이기만, 쥬라기 동작 불변)
+
+1. `makeRunner3dPlay(manifest, engineOpts)` — `engineOpts.createScene`로 씬을
+   주입할 수 있다(안 주면 `./scene.js`). 엔진은 여전히 오디세이를 모른다.
+2. `LEVELS = manifest.levels ? min(manifest.levels, MAX_LEVELS) : MAX_LEVELS` —
+   스테이지 하나짜리 슬라이스 지원.
+3. `finish(cleared)` — `manifest.story.finish`가 있으면 **슬림 흐름**: 피니시
+   스토리 → 결과 화면(다시 하기 버튼). 쥬라기의 `showEnding`/`found`/
+   `restartGame` 순번은 `story.finish`가 없어 그대로다.
+- `test/runner3dScreens.test.js` 한 곳(`makeRunner3dPlay(manifest)` 정확 일치 →
+  `makeRunner3dPlay(manifest` 접두 일치)만 시그니처 확장에 맞춰 느슨하게 고쳤다.
+
+### 재사용(복사 안 함, 런타임에 참조)
+
+`_lab/ship_odyssey.glb`·`_lab/temple_odyssey.glb`·`_lab/island/giant_odyssey.glb`
+— 이 셋은 이제 프로덕션에서 실제로 쓰인다(나머지 `_lab`은 여전히 dev 전용).
+바닥·물·캐릭터(`_shared/char`)·HUD·시스템바·스토리 대화창·cues는 전부 공용.
+
+### 확인
+
+`npm run check` — 테스트 1044건 통과 · 빌드 통과 · 오디세이 play 청크(10KB)가
+지연 로드(허브에서 preload 안 함). 자산 예산 줄은 여전히 빨강(`_lab` ~20MB
+때문 — STEP 77·audit에서 이미 지적, P0 범위 밖). **브라우저 실제 플레이 확인은
+ken이 해야 한다**(Claude 셸은 `npm run dev`에 못 닿는다) — 씬이 뜨는지, 거인·
+팻말·관문 GLB가 화면에 제대로 나오는지, 인트로→준비→판→피니시→결과가 다
+이어지는지, 콘솔 에러가 없는지.
+
+---
+
+## STEP 79 — 오디세이 런: 3 스테이지 · 6 레벨 정식 구조 (2026-09-10)
+
+P0(스테이지 1개)를 기획대로 **3 스테이지 / 6 레벨**로 확장했다. 신규 엔진
+개발·대규모 runner3d 리팩터 없이, 게임팩 config + 엔진에 훅 셋만 덧댔다.
+
+### ⚠️ 자산 블로커
+
+이 세션에서 `~/Documents/playzera-assets/오디세이/`가 **"Operation not
+permitted"**(macOS Full Disk Access 빠짐)라, 신규 스토리 컷(scene06~19)·
+스테이지별 장애물 GLB(양떼·그리스 게이트·도끼 기념물·세이렌 구조물)·
+대사창 portrait를 못 받았다. **구조는 전부 만들되 자산은 기존 것으로
+채우고 TODO를 남겼다**(`docs/16`, `story.js`의 `NEEDS_ART`).
+
+### 엔진 훅 (덧붙이기, 쥬라기 불변)
+
+- **`runner/game/course.js`** — `buildCourse(i, mult, opts)` 3번째 인자:
+  `opts.levels`(레벨 표 교체)·`opts.archGate`(결승 포털 이벤트 on/off).
+  기본값이 기존 동작이라 쥬라기·2D 러너 셋 회귀 없음. `CONFIG.levels`(5개)를
+  안 늘리는 이유 — `manifest.levels` 없는 쥬라기 3D가 6판이 된다.
+- **`runner3d/course3d.js`** — `opts`를 그대로 통과.
+- **`runner3d/play3d.js`** — ① `LEVELS = manifest.levels ?? MAX_LEVELS`
+  (`CONFIG.levels` 길이로 안 자른다) ② `manifest.story.beats[]`(스테이지 전환
+  컷 배열)로 단일 `story.found`를 일반화 — `found`는 `beats` 한 칸으로 접어
+  하위 호환.
+- **`runner3d/storyDialogue.js` + `screens.js`** — 대사창에 **화자명** 줄
+  (`.r3-story-name`) 추가. `cast[speaker].name` 또는 `line.name`. 얼굴 그림이
+  없어도 누가 말하는지 전해진다. `faceFor`에 `mood` 없을 때 `default` 폴백
+  추가(쥬라기는 늘 mood를 줘서 안 탐).
+  ★ 작업 중 CSS 주석에 백틱을 또 썼다가(`screens.js`) 빌드가 잡았다 — 일곱 번째.
+
+### 게임팩 — `src/games/odyssey-run/`
+
+- **`levels.js`** — 6판 난이도 곡선. `speed: 1.00 < 1.15 < 1.32 < 1.48 < 1.64
+  < 1.85` — **절대 레벨 인덱스**라 스테이지 경계(Lv2→3, Lv4→5)에서도 안 꺾인다.
+  `approachSec`는 반대로 줄고, `cycles`는 후반에 는다. `stageOf`·`isStageFinale`.
+- **`stages.js`** — 3 스테이지 시각 정의(데이터). 팔레트(대리석/젖은 갑판/
+  사막)·물(양옆/전면/없음)·배경 프롭·레인 장애물 GLB·Finish Gate. 배경 프롭은
+  전부 이미 최적화된 `_lab/` GLB 재사용(`#/lab-sea`·`#/lab-ithaca` 검증본).
+- **`whirlpool.js`** — 카리브디스 소용돌이. `#/lab-sea`(STEP 53·57·59, ken
+  "대박이야!")의 입체 링을 그대로 이식.
+- **`story.js`** — 대사·컷 config(play.js에 하드코딩 안 함). 인트로 3컷 +
+  전환 비트(af2·af4) + 마지막 2컷. 확보한 WebP 5장 안에서만 bg를 쓰고
+  나머지는 결이 가까운 것으로 임시 대체(`NEEDS_ART`). 화자명은 **"소년"**
+  통일(콘셉트아트의 "소녀" 표기 무시).
+- **`scene.js`** — 재작성. 3 스테이지 씬. `setLevel(i)`가 스테이지 경계에서
+  시각 레이어를 부수고(스테이지별 중단 플래그로 늦게 오는 GLB 콜백 차단)
+  다시 짓는다. **run(목숨·점수·운동량)은 안 만든다** — 6판이 한 판.
+  레인 장애물: 거인/드래곤/전사상. 점프·숙이기: 도형(스테이지 색) —
+  소용돌이만 예외. 자세 팻말: `sign_pose.glb` 크게(2.8→4.2, ken "너무 작다").
+  Stage 1 배경에서 전사상 제거 → Stage 3 레인 장애물로.
+- **`manifest.json`** — `levels: 6`, `story` 블록 제거(play.js가 `story.js`에서
+  합침).
+
+### 확인
+
+`npm run check` — **테스트 1076건 통과**(신규 28: `odysseyRun.test.js` —
+속도 단조증가·스테이지 매핑·archGate 없음·전사상 배치·스토리 비트·화자
+등록·쥬라기 회귀 방지) · 빌드 통과 · 오디세이 play 청크(19KB) 지연 로드.
+자산 예산 줄은 그대로 빨강(`_lab` — STEP 77·78·audit에서 이미 지적, DO NOT
+목록). **브라우저 실플레이는 ken 확인 필요**(Claude 셸은 `npm run dev`에
+못 닿음) — 3 스테이지 시각 구분, 6판 progression, 스테이지 전환 스토리,
+소용돌이·관문, 콘솔 에러.
+
+---
+
+## STEP 80 — 오디세이 런 2차 수정: 전환 순서·하늘·Supabase 가드·프롭 (2026-09-10)
+
+### ⚠️ 자산 블로커 (지속)
+
+`~/Documents/` 전체가 여전히 **"Operation not permitted"** — `name_complete`
+폴더, 스토리 시퀀스 문서(`play_zera_odyssey_run_story_sequence_with_image_names.md`),
+신규 GLB(양떼·그리스 게이트·도끼 기념물·세이렌 구조물), `bg_sky`·portrait
+전부 못 받았다. **임의 대체 안 함** — 필요한 자산은 `docs/16` MISSING_ASSET로.
+
+이번엔 **자산이 필요 없는 코드/config 수정만** 했다.
+
+### 스테이지 전환 순서 (ken 지적: "화면이 먼저 바다로 바뀌고 스토리가 늦게 나옴")
+
+`play3d.js` — 레벨 완료 루프에서 `view.setLevel(level)` 호출을 **배너 앞 →
+전환 스토리가 끝난 뒤**(`started = true` 직전)로 옮겼다. 오디세이 런은
+`setLevel`이 스테이지 시각을 통째로 바꾸는데(섬→바다→이타카), 전에는
+스토리가 나오기 전에 화면이 먼저 튀었다. 이제 "이전 스테이지 종료 →
+스토리 → 다음 스테이지 화면" 순서. 쥬라기는 `setLevel`이 코스만 새로
+만들어(시각 차이 없음) 영향이 사실상 없다 — 배너 1.2초 동안 보이는
+트랙이 "다음 레벨 시작 지점" 대신 "이번 레벨 끝 지점"이 되는 정도.
+(`test/odysseyRun.test.js` 소스 스캔으로 순서 고정.)
+
+### 기본 하늘 (ken: "푸른 하늘 이미지를 전체 기본 sky로")
+
+`odyssey-run/scene.js`가 이제 `createBackdrop({ art: { sky }, groundColor,
+smoke: false })`를 스테이지마다 붙인다 — `#/lab-sea`·`#/lab-ithaca`와 같은
+방식. 셋 다 같은 `ODYSSEY_SKY`(= `_lab/sky_original_jurassic.png`, 쥬라기 첫
+파란 하늘·구름). 스테이지 구분은 `groundColor`·안개·바닥 팔레트·물로 낸다.
+⚠️ ken이 별도 `bg_sky`를 전달했다면 `stages.js`의 `ODYSSEY_SKY` 한 줄만 교체.
+
+### Stage 2 (포세이돈 바다) — 트랙이 바닷물
+
+`stages.js` sea: `ground: null`(바닥 트랙 제거) + `water: 'full'` y=0 + 얇은
+로프 레인 2줄. 프롭·소용돌이가 물 표면(y=0) 기준이라 **공중에 안 뜬다**
+(ken 지적). 스킬라(드래곤) `y: 0.15`로 낮춤. 소용돌이 `baseY: 0.32`(lab-sea
+확정값). ⚠️ **노 젓는 소년+오디세우스 빌보드는 아직 미통합** — `_lab/boat_char/
+boy/`에 프레임은 있으나 씬 배선은 TODO. 지금은 러닝 캐릭터가 그대로 나온다.
+
+### 자세 팻말 확대 (ken: "너무 작다")
+
+`POSE_SIGN_SIZE` 4.2 → **8.5**, 도형 폴백 폭 `TRACK_W * 0.86`(≈13 — 트랙 폭
+86%). `atHit` 판정은 시간 기준이라 크기와 무관 — 타이밍 안 깨진다.
+
+### 배경 밀도 보강 + 트로이 목마 랜드마크
+
+- Stage 1: 배 10→12척, 신전 6→8 + 원경 신전 4 (한 겹 더).
+- Stage 3: 기사 6→8, 여신상 근·원경, **트로이 목마 4.2 → 14**(건물급
+  랜드마크, 좌우 각 1개), 보물 6→8.
+- draw call 여유를 위해 goddess2는 뺐다(TODO — FPS 확인 후 추가).
+
+### Supabase 콘솔 오류 (ken: `example.supabase.co ERR_NAME_NOT_RESOLVED`)
+
+`.env`가 없거나 placeholder면 매 저장·flush마다 `example.supabase.co`로
+fetch가 나가 DNS 오류가 반복됐다. `supabase.js`에 `isSupabaseConfigured`
+판별(placeholder·미설정 걸러냄) 추가. `gameResult.js`가 미설정이면
+`SupabaseNotConfigured`(code)를 **네트워크 전에** 던지고, `resultQueue.js`·
+`stats.js`가 그 code를 보고 큐에도 안 넣고 조용히 넘긴다. 운영 배포는
+진짜 값이라 동작 불변. `progress/state.js`(localStorage 성장 기록)는 그대로.
+
+### 대사창 portrait
+
+`storyDialogue.js`의 portrait 구조(`<img class="r3-story-face">` + `faceFor`)를
+그대로 쓴다(STEP 79에서 이름 줄만 추가했던 걸 보완). `story.js`의
+`cast.player.boy.default`를 **쥬라기 런의 소년 얼굴 재사용**으로 연결.
+오디세우스·키클롭스·포세이돈 portrait는 미확보 → 이름만(`docs/16`).
+⚠️ 여아 프로필은 동행 캐릭터 얼굴이 안 뜬다 — 동행이 프로필과 무관하게
+늘 소년인지 ken 확인 필요.
+
+### 확인
+
+`npm run check` — **테스트 1079건 통과**(신규 소스스캔: 전환 순서·Supabase
+가드) · 빌드 통과 · 쥬라기 회귀 171건 통과. 자산 예산 줄은 그대로 빨강
+(pre-existing). **브라우저 실플레이는 ken** — Claude 셸이 `npm run dev`에
+못 닿고, 3D 시각은 눈으로 봐야 안다.
+
+
+## STEP 81 — 오디세이 런: Codex FAIL 블로커 해소 (실제 자산 배선 + Draco) (2026-09-10)
+
+Codex 최종 검수 FAIL. 지난 패스들이 장애물을 도형 primitive/플레이스홀더로
+두고 "구조 준비됨"으로 보고한 게 핵심 지적이었다. 이번엔 `~/Documents/`
+접근이 **복구돼서**(이전 세션 블로커) `name_complete` 폴더의 실제 GLB를
+받아 파이프라인에 태우고 런타임에 배선했다.
+
+### 자산 접근 복구 → name_complete 16개 GLB 최적화
+
+`~/Documents/playzera-assets/오디세이/glb/name_complete/` 접근 가능.
+`tools/glb/odyssey.sources.json` 16잡(세이렌 게이트 제외 — 아래). 원본
+합계 **521MB(각 27~32MB, 삼각형 90만~100만)** → 최적화 **8.2MB**.
+
+- 자세 팻말(cyclops/poseidon/ithaca ×각3, 실제로는 ithaca 2개)이
+  simplify로 **83,490 삼각형에서 더 안 내려간다** — AI 키트배시라 비매니폴드
+  껍질이 많아 meshoptimizer가 각 shell 경계를 못 접는다. weld 허용치를
+  키워도 그대로.
+- **Draco 압축**으로 풀었다(`CLAUDE.md`: "삼각형을 깎느냐 파일을 키우느냐는
+  거짓 양자택일"). 팻말 3.7MB → **0.65MB**. `quantize()`(STEP 8에서 시도)와
+  달리 Draco는 정점을 **Float32로 디코드**하므로 `glbProp.js`의
+  `geo.applyMatrix4(node.matrixWorld)`가 안 잘린다(quantize는 Int16이라 무너졌다).
+
+### Draco: 내보내기와 로더는 한 몸 (`CLAUDE.md`)
+
+- `tools/glb/optimize.mjs` — `--draco` 플래그 + manifest `"draco": true`.
+  8번(prune/dedup) 뒤에 `KHRDracoMeshCompression`(EDGEBREAKER, quantizationVolume
+  'mesh') 확장을 붙이고 다시 prune/dedup. `draco3dgltf` 인코더/디코더는
+  지연 로드.
+- `runner3d/models.js` `getLoader()` **export** — DRACOLoader(`/draco/`)가 이미
+  붙어 있다(쥬라기 알 둥지용, STEP 8 이전부터). `glbProp.js`가 자기
+  `new GLTFLoader()` 대신 이 공용 로더를 쓰도록 바꿨다(`getLoader().then(...)`).
+  비-Draco GLB도 그대로 열려서 `#/lab-*`·쥬라기 영향 없음.
+- STEP 77 산출물 `gate_finish.glb`(2.4MB)·`statue_warrior.glb`(2.0MB)도
+  `--ratio 1 --draco`로 제자리 재압축(삼각형 100% 유지) → 0.59MB·0.45MB.
+- 재검증: `@gltf-transform`로 다시 읽어 삼각형·정점·확장 확인. 3D 실물
+  로드는 브라우저(ken) — DRACOLoader wasm(`public/draco/`)은 이미 있음.
+
+### 스테이지별 실제 런타임 자산 배선 (`stages.js` → `scene.js`)
+
+씬의 `kinds` 맵에 `cube / hurdleLow / hurdleWide / pose:lunge / pose:forwardbend
+/ pose:armsopen` 키. 각 스테이지 `buildStage`에서 `loadNormalizedGlb`로
+GLB를 받아 도형을 갈아 끼운다(도착 전엔 도형, `scene.js` 규율).
+
+| | Stage 1 섬 | Stage 2 바다 | Stage 3 이타카 |
+|---|---|---|---|
+| lane(좌우) | `_lab/island/giant_odyssey.glb` (키클롭스) | `_lab/dragon_odyssey.glb` (스킬라) | `odyssey/island/props/statue_warrior.glb` (전사) |
+| jump | `odyssey/island/obstacles/jump_sheep.glb` | 소용돌이(코드, 카리브디스) | `odyssey/ithaca/obstacles/jump_axe.glb` |
+| crouch | `odyssey/island/obstacles/crouch_cyclops.glb` | `odyssey/sea/obstacles/crouch_poseidon.glb` | 도형(ithaca_crouch_gate 미확보) |
+| pose ×3 | `pose_cyclops_1/2/3.glb` | `pose_poseidon_1/2/3.glb` | `pose_ithaca_1/2/2.glb` (3번째 재사용) |
+| finish | `odyssey/island/obstacles/gate_finish.glb` | 〃 | 〃 |
+
+- **자세 팻말이 스테이지 간 안 섞인다** — Stage 1은 cyclops만, Stage 2는
+  poseidon만, Stage 3은 ithaca만(`test/odysseyRun.test.js`가 고정).
+- Finish Gate는 코스 이벤트가 **아니다** — `loadNormalizedGlb`로 따로 받아
+  z=-400에 두고, 스테이지 마지막 판(Lv2·4·6, `gateActive`)에서만 트랙 끝으로
+  흘려보낸다. 장애물 `kinds` 맵과 분리돼 있어 "장애물이 finish로 나오는"
+  경로가 없다. 세 스테이지가 같은 `gate_finish.glb` 공유(`finish_gate.glb`는
+  20파트 keitbash라 아틀라스 파이프라인 전까지 보류).
+
+### Stage 2 노 젓는 배 빌보드 (ken: "달리는 boy runner 사용 금지")
+
+`boat.js` — `_lab/boat_char/<skin>/{row_up,row_pull}.png` 2컷을 캔버스
+아틀라스로 합쳐 `PlaneGeometry`(H=4.2)에 얹고 `tex.offset.x`로 2프레임
+토글(ROW_FPS 2.2). `scene.js`의 `syncBoat()`가 sea 스테이지 진입 시
+`character.mesh.visible = false`로 러닝 캐릭터를 숨기고 배를 그린다.
+판정·레인·점프는 여전히 `character`가 갖고 배는 그 x·점프를 따라간다.
+`boatLoading` 가드로 중복 로드 방지. 프로필 스킨 배 그림이 없으면
+`boy` 그림으로 폴백(러닝 캐릭터로 안 떨어진다 — 소녀 배 아트는 `docs/16`).
+
+### 대사창 portrait 실제 렌더 (Codex: "config 필드만 있고 안 그려짐")
+
+- 오디세우스: `scene03`(도움 요청 컷)에서 정면 얼굴을 sharp로 1회 크롭 →
+  `story/odysseus_portrait.webp`(448², 42KB). `story.js` `cast.odysseus.default`에
+  연결 → `storyDialogue.js` `faceFor`가 `bucket.default`로 떨어져 실제
+  `<img class="r3-story-face">`에 렌더된다(STEP 79에서 이름 줄만 추가했던 걸
+  이번에 얼굴까지).
+- 소년: 쥬라기 `story_face_player_boy_default.png` 재사용. 동행은 프로필과
+  무관하게 "소년"이라(ken) `cast.player.boy`·`cast.player.girl` 둘 다 같은 그림.
+- 키클롭스: `scene08`이 액션 컷(팔을 머리 위로 든 사선 구도)이라 정면
+  크롭이 안 나온다 → 이름만(`NEEDS_ART`).
+
+### 스토리 scene01~15
+
+이전 세션에서 `_with_image_names.md` 문서 기준으로 `story.js`를 이미
+재작성했다(intro 8컷 01~08 · beat afterLevel=2 5컷 09~13 · beat
+afterLevel=4 2컷 14~15 · finish 1컷). 이번엔 문서가 다시 TCC 잠금이라
+재대조는 못 했으나, 모든 줄에 speaker가 있고 speaker가 전부 cast에
+등록돼 있음을 테스트로 확인(orphan 없음 — Scene 11 poseidon 줄은 이전
+세션에서 player로 바꿨고 `poseidon`은 cast에서 제거됨). Scene 16~19 원본
+보존, 활성 흐름 미사용.
+
+### Supabase placeholder 가드 (STEP 80 유지)
+
+STEP 80의 `isSupabaseConfigured` 가드 그대로. `example.supabase.co` /
+`your_supabase_url` / 비-https / 미설정이면 `saveResult`가 네트워크 전에
+`SUPABASE_NOT_CONFIGURED`를 던지고 큐도 안 쌓는다.
+
+### 죽은 런타임 자산 제거
+
+`siren_crouch.glb`(세이렌 게이트) — 코스가 숙이기 이벤트를 한 종류만
+내보내서 배선할 곳이 없다(엔진 리팩터 범위 밖). 최적화·커밋하면 죽은
+0.42MB이라 manifest 잡에서 빼고 파일도 뺐다. 이벤트 변형이 생기면 되살린다.
+
+### 자산 증가분
+
+- **오디세이 신규(untracked `public/assets/runner3d/odyssey/`): 12.4MB**
+  = GLB 18개 9.2MB(Draco) + 스토리 webp 16장 3.55MB + odysseus_portrait 42KB.
+- `_lab/` 프로토타입 GLB(giant·dragon·boat_char·sky 등 12개, 오디세이가
+  실사용)는 **이미 HEAD에 있다**(커밋 7806b34) — 이번 증가분 아님.
+- `tools/check.mjs` 예산: HEAD 25.6MB → 작업트리 **38.0MB** / 7MB. 빨강의
+  25.6MB는 pre-existing(STEP 80에서 이미 빨강), 이번 델타는 +12.4MB.
+  예산 정책·`_lab` 통합은 이번 범위 밖(`docs/16` §9).
+
+### 확인
+
+`npm run check` — **테스트 1086건 통과**(신규: odysseus portrait 렌더·Draco
+크기 가드·girl 배 폴백) · 빌드 통과 · 맥 rollup OK · `git diff --check` 클린.
+쥬라기 회귀(runner3d 82 · finishPortal 14 · autopilot 7 · storyDialogue 9 ·
+runner3dScreens 28 · gamePack 8 · keyboardIme 2 · sourceParses 151 · brandUi 7)
+전부 통과. 자산 예산 줄만 빨강(위).
+
+**브라우저 실플레이는 ken 필요** — Claude 셸이 `npm run dev`에 못 닿는다.
+QA 항목: 진입 → Stage1 → 스토리 → Stage2(배 빌보드 확인) → 스토리 →
+Stage3 → Lv6 → finish 스토리 → 결과 · 종료/재진입/리플레이 · Draco GLB가
+콘솔 경고 없이 뜨는지 · WebGL 컨텍스트 해제 · 스테이지 전환 시 도형→GLB
+스왑 타이밍(스토리 몇 초가 커버) · 여아 프로필에서 배 빌보드.
+
+
+## STEP 82 — 오디세이 런: Codex FAIL 3차 — 정식 Finish Gate lifecycle + preload (2026-09-10)
+
+Codex 재검수 FAIL. 남은 BLOCKER 두 개(Finish Gate lifecycle · dialogue
+portrait 렌더)와 preload/cache 지적을 해소.
+
+### 1. Finish Gate — 정식 결승 포털 lifecycle 재사용 ★
+
+STEP 81까지는 오디세이가 **자기 gate 메시 + gateActive 플래그**라는 별도
+mini finish 시스템을 썼다(Codex: "새 finish system"). 이번에 `runner3d`의
+정식 lifecycle을 그대로 탄다.
+
+- **`finish_gate.glb` 원본 사용** — name_complete의 58.57MB / 부품 20개 /
+  재질 20개 / 삼각형 1.88M keitbash. `join()`이 재질이 다르면 못 합쳐
+  `glbProp`/`models`가 첫 메시(1/20)만 그렸던 게 문제였다. `optimize.mjs`에
+  `mergeMaterial`([r,g,b]) 옵션 추가 — 텍스처를 다 버리고 단색 하나로
+  통일 → `join()`이 1메시로 합친다. `fitHeight`(13유닛) 옵션으로 게임
+  스케일까지 굽는다(`portal.js`는 정규화 안 함). 법선 명암을 COLOR_0에
+  구워(`scene.js` bakeShade와 같은 식) 텍스처 없이도 입체가 보인다.
+  → `odyssey/finish/gate.glb` **0.58MB · 1메시 · Draco**.
+- **`runner3d/portal.js` 파라미터화** (하위호환) — `createPortal(withCurve,
+  kUniform, opts)`. `opts.shell`({name,subdir,height,color}) · `opts.door`
+  ({w,h,y,z}) · `opts.fire`(null이면 탑 불꽃 없음). 인자 없이 부르면
+  쥬라기 그대로(`finish_portal.glb` + 셰이더 문 + 불). 오디세이는 관문
+  GLB를 껍데기로, 셰이더 문("여기가 끝")은 살리고, 그리스 신전에 안
+  어울리는 탑 불꽃은 끈다. `vertexColors`는 텍스처 없는 껍데기에서만.
+- **archGate 이벤트 일반화** — `course.js`의 `archGate` 옵션이 이제
+  boolean **또는 함수**(`(levelIdx, levels) => boolean`)를 받는다. 오디세이는
+  `isStageFinale`을 넘겨 **Lv2·Lv4·Lv6마다** archGate 이벤트를 넣는다.
+- **`play3d.js` passThrough 일반화** — archGate 통과 → `passThrough()`는
+  그대로. 다만 finish는 **마지막 레벨에서만**(`level >= LEVELS - 1`).
+  스테이지 경계(Lv2·Lv4)에서는 관문을 지난 뒤 루프의 `now >= duration`이
+  레벨 완료 → 전환 스토리 → 다음 스테이지를 잇는다. `setLevel` 뒤에
+  `passing = false`로 가드를 풀어야 다음 관문이 걸린다.
+- **`scene.js`(오디세이)** — 자체 gate/gateActive/setGateActive/finishTime
+  전부 제거. 씬 레벨에 `createPortal` 하나, `update()`에서
+  `course.events.find(e => e.type === 'archGate')` → `portal.place` +
+  funnel(`gz > -PORTAL_FUNNEL` → `setLane(1)`), 쥬라기 `scene.js`와 동일.
+  `syncObstacles`는 archGate를 `kinds`에 없어 자동으로 건너뛴다(장애물이
+  finish로 안 나온다). dispose에서 `portal.dispose()`.
+- **완료 1회 보장** — `finish()` 첫 줄 `if (over) return; over = true`.
+  passThrough의 setTimeout이 finish 하면 `over`가 서고, 루프는
+  `if (!started || over ...) return`으로 duration 체크에 안 닿는다. 중복 없음.
+
+세 스테이지가 같은 `odyssey/finish/gate.glb`를 공유한다(`FINISH_GATE`
+상수, `models.loadGeometries`로 로드). 관문에 실제 뚫린 구멍이 없어서
+(신전 파사드) 셰이더 문은 파사드 앞(z=3.4)에 세운다 — 가산 합성이라
+기둥 위에 얹혀도 빛나는 관문으로 읽힌다. archGate 판정은 통과뿐이라
+(`judge.js`) 아이는 그냥 지나간다.
+
+### 2. Dialogue portrait — 실제 DOM 렌더 확인 + 크롭 조정
+
+STEP 81에서 `cast.odysseus.default`에 연결했으나 크롭이 face-centered라
+`.r3-story-face`(190x138 landscape, `object-position: top center`)에서
+턱이 잘렸다. scene03에서 **얼굴이 상단 ~45%에 오도록** 재크롭(쥬라기
+소년 얼굴 프레이밍과 맞춤) → `odysseus_portrait.webp` 448² 39KB.
+`storyDialogue.js`의 `faceFor` → `bucket.default` → `faceEl.src` 세팅 +
+`display: ''`로 **실제 `<img>` 렌더**. CSS·마크업은 쥬라기와 한 벌
+(`screens.js` `.r3-story-face`/`.r3-story-name`/`.r3-story-body`) — 따로
+안 짠다. 소년은 쥬라기 얼굴 재사용(boy·girl 스킨 둘 다). 키클롭스는
+scene08이 액션 컷이라 정면 크롭 불가 → 이름만(`NEEDS_ART`).
+
+### 3. Stage별 critical asset preload (pop-in 방지)
+
+- `models.js` — `THREE.Cache.enabled = true`(three 내장 URL 캐시, 새
+  프레임워크 아님). 스테이지 재진입·리플레이·전환에서 같은 GLB를 다시
+  안 받는다. `warmGlb(urls)` 추가 — 파일 바이트만 미리 받아 캐시에 넣고
+  지오메트리는 안 만든다.
+- `scene.js`(오디세이) — `preloadStage(levelIdx)`: 다음 스테이지의
+  **장애물 GLB만**(lane·jump·crouch·pose, 배경 프롭 제외 — "critical만")
+  `warmGlb`로 당긴다. 스테이지 안 바뀌면 아무것도 안 함.
+- `play3d.js` — 레벨 완료 배너 **직전**(`view.setLevel`은 전환 스토리
+  뒤라 늦다)에 `view.preloadStage?.(level)`. 스토리가 뜨는 십수 초 동안
+  받아 두면 `setLevel`이 즉시 그린다.
+- Finish Gate GLB는 씬 생성 시 `createPortal`이 1회 로드(쥬라기 포털과
+  같다) — Lv2 훨씬 전에 준비된다. Home preload 아님(게임 안).
+- 중복 로드: `warmGlb`가 `THREE.Cache.get` 확인 + GLTFLoader 자체 in-flight
+  dedup. `glbProp.js`가 공용 `getLoader()` 공유(STEP 81).
+
+### 4. 죽은 자산 정리
+
+`odyssey/island/obstacles/gate_finish.glb`(STEP 77 재사용본, 이제
+`odyssey/finish/gate.glb`로 대체) 삭제. 레거시 P0 매니페스트
+`tools/glb/odyssey-p0.sources.json`·`tools/img/odyssey-p0.story.json` 삭제
+(실 매니페스트가 대체, stale out 경로).
+
+### 자산 증가분 (STEP 81 대비 거의 불변)
+
+- 오디세이 신규(untracked `public/assets/runner3d/odyssey/`): **12.36MB**
+  = GLB 19개 8.78MB(Draco) + 스토리 webp 16장 3.58MB.
+- Finish Gate: 옛 `gate_finish.glb` 0.62MB → 새 `finish/gate.glb` 0.58MB (−0.04).
+- `tools/check.mjs` 예산: HEAD 25.6MB → 작업트리 **38.0MB / 7MB**.
+  25.6MB는 pre-existing FAIL(STEP 80부터 빨강, `_lab` 프로토타입 20MB 포함).
+  이번 순증가분 +12.36MB. 예산 정책·`_lab` 통합은 범위 밖.
+
+### 확인
+
+`npm run check` — **테스트 1094건 통과** (STEP 81의 1086 + 신규 8: Finish
+Gate lifecycle 배선·portal.js 파라미터·passThrough 가드·archGate 스테이지
+경계) · 빌드 통과 · 맥 rollup OK · `git diff --check` 클린. 쥬라기 회귀
+(runner3d 82 · finishPortal 14 · autopilot 7 · storyDialogue 9 ·
+runner3dScreens 28 · gamePack 8 · keyboardIme 2 · sourceParses 151 ·
+brandUi 7 · resultQueue 9 · stats) 전부 통과. 자산 예산 줄만 빨강.
+
+**브라우저 실플레이는 ken** — Claude 셸이 `npm run dev`에 못 닿는다.
+QA: Lv2·Lv4·Lv6 관문 통과 시 completion 1회 · Lv2·Lv4는 전환 스토리로,
+Lv6는 결과로 · 관문 셰이더 문이 파사드 위에 빛나는지(벽처럼 안 보이는지) ·
+대사창 오디세우스 얼굴 · 전환 스토리 뜨는 동안 다음 스테이지 GLB preload가
+pop-in을 없애는지 · 재진입 시 GLB 재다운로드 안 하는지(Network 탭).
+
+
+## STEP 83 — 오디세이 런: Finish Gate lifecycle 안정화 + preload 중복 제거 (2026-09-10)
+
+Codex 재검수 — Finish Gate lifecycle 통합 확인, 전환 중 late callback /
+중복 fetch·decode 정리. **코드 안정화만**, 자산·스토리·구조 무변경.
+
+### 1. Finish Gate lifecycle — 이미 STEP 82에서 정식 재사용, 이번엔 검증 + 가드 보강
+
+- **완료 1회 (이중 가드)**: `passThrough()` `if (passing || over) return` +
+  `finish()` `if (over) return; over = true`. Lv6은 passThrough의
+  `setTimeout(finish(true), 900ms)`; Lv2·Lv4는 passThrough가 finish 안 하고
+  루프의 `now >= duration`이 레벨 완료 처리. `started = false`가 `level++`
+  직후 동기로 서서 duration 블록 재진입 불가 → **double transition 없음**.
+- **통과 연출 중 이탈**: `setTimeout(() => { if (!left && !over) finish(true) })`
+  — 나간 뒤 비워진 DOM에 결과 화면 안 그린다.
+- **archGate ≠ obstacle**: `kinds` 맵에 없어 `syncObstacles`가 건너뛴다.
+  포털은 씬 레벨 오브젝트. 일반 장애물이 finish로 안 나온다.
+- **visual ↔ trigger 정합**: 포털을 `course.zOf(gateEvent, now)`에 두고
+  `atHit`도 같은 `hitTime` 기준 — z가 어긋나지 않는다(쥬라기와 동일).
+
+### 2. Late 껍데기 GLB 콜백 가드 (`portal.js`)
+
+`createPortal`에 `opts.isAborted` + 내부 `disposed` 플래그 추가.
+껍데기 GLB `.then()`이 `gone() = disposed || isAborted()`면 **받은
+지오메트리만 버리고 리턴** — 이미 dispose된(또는 화면 나간) 포털 그룹에
+메시를 얹거나 새 메시를 새게 하지 않는다. `dispose()`가 `disposed = true`.
+오디세이 씬은 `isAborted: () => aborted` 전달. 쥬라기는 인자 없이 부르고
+기본 `() => false` + `disposed` 플래그만으로도 **이전보다 안전**(하위호환).
+
+장애물 GLB는 기존 가드 그대로 — `buildStage`의 `stageGone` 플래그,
+`glb(label).isAborted = () => aborted || stageGone`. 스테이지 dispose가
+`stageGone`을 세워 late 콜백이 `kinds`/`ownedGlb`/씬을 안 건드린다.
+
+### 3. preload — 파싱·디코드 중복 제거 (`models.js`)
+
+STEP 82의 `warmGlb`는 GLTFLoader로 로드해 **Draco 디코드를 두 번**
+했다(warm에서 한 번, `buildStage`에서 또). 이번에 **bare `THREE.FileLoader`
+(arraybuffer)**로 바꿔 **파일 바이트만** 캐시에 넣는다.
+
+- three FileLoader 캐시 키 `file:<url>` — GLTFLoader 내부 FileLoader와
+  같은 키. warm이 받아 두면 `buildStage`의 GLTFLoader가 `Cache.get` 히트
+  → 네트워크 0, **디코드는 그때 한 번만**.
+- FileLoader 모듈 전역 `loading[]` 맵이 동시 요청을 하나로 묶는다 — warm이
+  아직 받는 중에 `buildStage`가 같은 URL을 불러도 네트워크 1회.
+- `THREE.Cache.enabled = true`를 `models.js` 모듈 스코프로(getLoader
+  안에서 → 밖으로). models.js는 3D 러너 청크에서만 로드 → Home 영향 없음.
+- `warmGlb`는 `warmed` Set + `Cache.get('file:'+url)`로 이미 있으면 건너뜀.
+- `scene.preloadStage(levelIdx)`는 다음 스테이지의 **장애물 GLB만**
+  (lane·jump·crouch·pose, 프롭 제외 — "critical만"). 스테이지 안 바뀌면
+  no-op. `play3d.js`가 레벨 완료 배너 **직전**(setLevel보다 먼저) 호출.
+
+### 4. 자산
+
+무변경. Finish Gate source `~/Documents/playzera-assets/오디세이/glb/
+name_complete/finish_gate.glb`(61MB, repo 밖) → runtime `odyssey/finish/
+gate.glb`(0.60MB, Draco, mergeMaterial+fitHeight). raw GLB public 없음,
+중복 basename 없음. 예산 38.0MB / 7MB (baseline 25.6 + 오디세이 12.36) —
+이번 패스는 코드만이라 불변.
+
+### 확인
+
+`npm run check` — **테스트 1103건 통과** (STEP 82 1094 + 신규 9: completion
+1회 이중 가드 · passing 해제 · late 콜백 가드 · warmGlb 디코드 중복 없음 ·
+Cache 켬 · preloadStage critical만 · preload 순서) · 빌드 통과 · 맥 rollup OK ·
+`git diff --check` 클린. 쥬라기/runner3d 회귀(runner3d 82 · finishPortal 14 ·
+autopilot 7 · runner3dScreens 28 · storyDialogue 9 · gamePack 8 · runnerBoot ·
+keyboardIme 2 · runnerHud · resultQueue 9 · stats 18 · sourceParses ·
+brandUi 7) 전부 통과. 자산 예산 줄만 빨강.
+
+**브라우저 실플레이는 ken** — Codex 재검수 포인트: 관문 셰이더 문이 신전
+파사드 위에 빛나는지(벽처럼 안 보이는지) · 관문 껍데기 명암(텍스처 없이
+COLOR_0) · 느린 네트워크에서 전환 스토리가 다음 스테이지 GLB preload를
+커버하는지 · 재진입 시 Network 탭에서 GLB 재다운로드 없는지.
+
+
+## STEP 84 — 오디세이 런: ken 실플레이 QA 반영 (2026-09-10)
+
+ken이 브라우저에서 실제로 플레이하고 지적한 비주얼·게임플레이 12건.
+
+### 1. Finish Gate 흰색 과노출 → 텍스처 복구 ★
+
+STEP 82의 `mergeMaterial`이 **20파트 텍스처를 전부 버리고** 단색 마블 +
+정점 명암으로 바꿔서, 원본의 석재·금장·파란 banner·삼지창이 다 날아가
+흰 실루엣이 됐다.
+
+- `optimize.mjs` — `keepParts`(= `join: false`) 경로 정리. `flatten()`을
+  항상 돌리고(fitHeight가 정점 좌표를 직접 재므로), `join()`만 옵션.
+  `finish_gate` 잡: `mergeMaterial` 제거 · `join:false` · `tex:512` ·
+  `fitHeight:13` · Draco. → **20메시 · 20텍스처(512) · Draco, 1.72MB**
+  (단색 병합본 0.58MB 대비 +1.14MB, 원본 텍스처를 살렸으니 감수).
+- `models.js` — `loadMeshGroup(name, subdir, withCurve)` 추가. GLB의
+  **모든 메시**를 그룹으로 받아 각 부품의 baseColor 텍스처를
+  `MeshBasicMaterial`에 얹는다. 인스턴싱 통 밖에서 한 번만 그리는
+  물건(결승 관문)에만.
+- `portal.js` — `opts.shell.group: true`면 `loadMeshGroup` 경로. `dispose`가
+  그룹도 정리(`shellGroupDispose`). 기본(쥬라기)은 그대로 첫 메시만.
+- ⚠️ draw call: 관문 활성 시 20(껍데기) + 1(문). 스테이지 끝 ~5초만.
+  더 줄이려면 blender 아틀라스 패스 필요(`finish_portal`처럼) — 이번 범위 밖.
+
+### 2. Lv1 → Lv2 REST 비트 ★
+
+`storyDialogue.js` — `showRestBeat(app, { before, after, seconds, cast })`.
+**전체화면 그림이 아니라 게임 캔버스 위 오버레이**(`mount` 안 씀, 배경 없는
+`.r3s`). 대사창 모양(`.r3-story-box` 등)은 스토리 컷과 한 벌, 카운트다운
+칩(`REST 10` → `REST 0`)만 추가. 흐름: `before` 대사 → 10초 카운트다운 →
+`after` 대사 → `'done'`. Skip → 남은 것 전부 건너뛰고 `'skip'`.
+
+- `story.js` — `beats[0]`에 `{ afterLevel: 1, rest: {...} }` (scenes 없음).
+  대사는 ken 스크립트 그대로("헥헥… 힘들어" / "잠깐 쉬었다가" / "다시
+  외눈박이 거인이!").
+- `play3d.js` — 레벨 완료 배너(`showCue`, = MISSION CLEAR) 뒤, 스토리 컷
+  전에 `if (beat.rest)` 처리. `restRes` home/title/skip 분기.
+- **세계 정지**: `started = false`가 `level++` 직후 동기로 서 있어 루프가
+  `view.update`를 안 부른다 — 장애물 스폰·점수·`activeMs` 전부 정지.
+  REST가 이 위에서 돈다. Skip해도 `view.setLevel` → `started = true`는
+  한 번만(중복 전환 없음).
+
+### 3. Skip 정책 통일 ★
+
+전엔 인트로 컷만 스킵을 켰다. 이제 **전환 컷·피니시 컷·REST**에도 켠다
+(`skippable: idx < len - 1` — 마지막 컷은 제외, 기존 규칙). 스킵 결과
+`'skip'`을 각 루프가 `break`로 받아 남은 컷을 건너뛴다.
+
+### 4. Stage 2 폭풍 복구 ★
+
+`sea.js` 신규 — `#/lab-sea`(labsea.js) 프로토타입에서 이식:
+- 비(`LineSegments`, 곡률 없음) · 번개(지그재그 선, 가산 합성, 화면
+  플래시 없음) · 어두운 구름(`createClouds` 어두운 tint).
+- **기본 하늘(`ODYSSEY_SKY`)은 안 바꾼다** — 폭풍은 위에 덧씌우는 레이어.
+  `stages.js` Stage 2에 `weather: { clouds: '#39424f' }` + 짙은 안개 +
+  어두운 `scene.background`. Stage 1·3은 무변경.
+
+### 5. Stage 2 바다 트랙 시각화 ★
+
+`sea.js` — 흰 점선 가이드 라인(레인 경계 x = ±LANE_W/2) + 부표
+(`PropRow`, 트랙 바깥 끝 ±TRACK_W/2, bob). 옛 얇은 로프 박스 2개 제거.
+`| 부표 | lane1 | 흰선 | lane2 | 흰선 | lane3 | 부표 |`. `stages.js`
+`seaTrack: true`.
+
+### 6. Stage 2 crouch/pose → MISSING_SOURCE_ASSET
+
+ken이 Stage 2 crouch·pose asset을 새로 제작 중. `poseidon_crouch_gate` ·
+`poseidon_pose_01~03`을 **빼고**(slot만 `null`로 유지), 코스에서 해당
+이벤트(`hurdleWide` 전부 · `poseSign` 전부)를 제거(`scene.js` `stageCourse`
+필터). placeholder box 안 씀 — 안 보이는 장애물에 목숨이 주는 걸 막는다.
+Stage 2 = cube 회피 + 소용돌이 점프만(자산 오면 `null` 채우면 복구).
+
+### 7. Stage 3 시작 시 긴 box 제거
+
+원인: Stage 3에 crouch GLB가 없어 `hurdleWide` 도형 폴백(트랙 폭 ×0.95 ·
+y=3.4의 긴 가로 막대)이 매 hurdleWide 이벤트마다 떴다. → 6번의
+`stageCourse` 필터가 `hurdleWide` 이벤트를 빼면서 자동 해소. `kinds`에서도
+`delete kinds.hurdleWide`.
+
+### 8. Stage 3 Ithaca crouch → MISSING_SOURCE_ASSET
+
+`ithaca_crouch_gate` GLB가 name_complete에 없다(`ithaca_arrow_bg` 등은
+배경 프롭). placeholder box 금지 → `hurdleWide` 이벤트 제거(위).
+
+### 9. Stage 3 Pose
+
+- **Pose 01(런지)** — 실루엣이 캐릭터 런지와 반대 방향. `stages.js`
+  `poseFlip: [true, false, false]` → `scene.js` `swap`이 `geo.scale(-1,1,1)`
+  (GLB 재질 DoubleSide라 안 사라짐). Stage 1도 같은 문제라 같이 뒤집음.
+- **Pose 03(팔벌리기)** — `ithaca_pose_03` 없음. 전엔 `pose_ithaca_2`를
+  재사용했는데(ken: 다른 pose fallback 금지) → `null`로 두고 `armsopen`
+  poseSign 이벤트를 코스에서 제거. Stage 3 pose = lunge·forwardbend만.
+
+### 10. Stage 3 배경 밀도 보강
+
+기존 보유 asset만. landmark + 중형 + 소형 계층 (draw call 여유 위해
+prop URL 8개 × 2 side = 16):
+- 대형: 트로이 목마(유지) · `temple_odyssey`(신전, Stage 1 재사용).
+- 중형: goddess1(2→3) · knight(4→5) · bow_monument.
+- 소형: citizens_1(3→4) · citizens_2(2→3) · treasure.
+새 모델 안 만듦(`ithaca_*_bg` 추가 반입은 ken asset 전달 시).
+
+### 11~12. Finish Gate 크기·통과 (material 후속)
+
+관문이 15.5W × 13H × 6.7D. 셰이더 문 파사드 앞(z=3.8, w:6.8 h:9.8).
+접근 거리·통과 연출은 기존 lifecycle 그대로(archGate → funnel →
+passThrough). **화면 덮음/정렬은 ken 실QA 필요** — `portal.js opts.door`
+한 줄로 조정.
+
+### 확인
+
+`npm run check` — **테스트 1116건 통과** (STEP 83의 1103 + 신규 13:
+이벤트 필터 · REST 비트 · Skip · 폭풍/sea · poseFlip) · 빌드 통과 ·
+맥 rollup OK · `git diff --check` 클린. 쥬라기/runner3d 회귀 전부 통과
+(runner3d 82 · finishPortal 14 · storyDialogue 9 · gamePack 8 · autopilot 7 ·
+runner3dScreens 28 · keyboardIme 2 · resultQueue 9 · stats 18 · brandUi 7 ·
+sourceParses). 자산 예산 39.2MB / 7MB (baseline 25.6 + 오디세이 13.5 —
+finish gate 텍스처 복구로 +1.1). Finish Gate material·크기·폭풍 톤·부표
+배치·pose 방향은 **자동 테스트로 확인 불가 → ken 실QA**.
+
+
+## STEP 85 — 오디세이 런: 신규 asset 매핑 + REST/Story UX + 시각 QA 수정 (2026-09-11)
+
+### ⚠️ 자산 접근 재차단 (이번 패스의 최대 제약)
+
+작업 시작 시 `~/Documents/` 전체가 다시 **"Operation not permitted"**
+(macOS Full Disk Access 빠짐 — STEP 80·81에서 겪은 것과 같은 증상이
+재발했다). `ls`/`find`(디렉터리 나열)는 막혔지만 **정확한 경로를 아는
+파일의 `stat`(존재·크기)은 통과**하고 `open`(내용 읽기)은 `EPERM`으로
+막힌다 — bash `[ -f ]`·`stat`·Node `fs.readFileSync`·Read 도구 전부
+같은 지점에서 막힘을 재확인했다.
+
+ken이 이번에 지정한 GLB 9개 — `cyclops_crouch_gate` · `poseidon_crouch_mermaid`
+· `poseidon_pose_01~03` · `ithaca_crouch_gate` · `ithaca_pose_01~03` ·
+`finish_cyclops` · `finish_poseidon` · `finish_ithaca` — **전부
+`~/Documents/playzera-assets/오디세이/glb/name_complete/`에 정확한
+파일명으로 실재함을 확인했다**(파일 크기까지 확인, 아래 표). 다만
+**내용을 못 읽어 `tools/glb/optimize.mjs`를 못 돌렸다** — 그래서 이번
+패스는 이 9개 GLB도, PNG 9개(`odyssey_intro`·`odyssey_thumbnail`·
+`rest_cyclops/poseidon/ithaca`·`poseidon_crouch_hint`·`pose_hint_01~03`,
+경로 자체를 못 찾음 — 디렉터리 나열이 막혀서)도 **런타임에 못 붙였다**.
+원본을 public에 직접 복사하지 않았다(raw 30~60MB 금지, ken 지시 그대로).
+
+**해결책**: 시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 권한
+→ 이 세션이 쓰는 터미널/도구를 다시 추가(또는 재부팅 없이 토글 껐다 켜기).
+복구 확인: `stat`은 되지만 열기가 안 되는 지금 상태에서, `cat` 한 줄이
+성공하면 복구된 것.
+
+| GLB (ken 지정) | 확인된 실제 경로 | 크기 | 상태 |
+|---|---|---|---|
+| `cyclops_crouch_gate.glb` | `.../name_complete/cyclops_crouch_gate.glb` | 31.97MB | 존재, 미읽음 |
+| `poseidon_crouch_mermaid.glb` | 〃 | 27.67MB | 존재, 미읽음 |
+| `poseidon_pose_01.glb` | 〃 | 33.32MB | 존재, 미읽음 |
+| `poseidon_pose_02.glb` | 〃 | 32.27MB | 존재, 미읽음 |
+| `poseidon_pose_03.glb` | 〃 | 31.84MB | 존재, 미읽음 |
+| `ithaca_crouch_gate.glb` | 〃 | 57.32MB | 존재, 미읽음 |
+| `ithaca_pose_01.glb` | 〃 | 32.26MB | 존재, 미읽음 |
+| `ithaca_pose_02.glb` | 〃 | 32.14MB | 존재, 미읽음 |
+| **`ithaca_pose_03.glb`** | 〃 | **33.64MB** | **존재 확인!** (STEP 84는 "없음"으로 잘못 기록 — 정정) |
+| `finish_cyclops.glb` | 〃 | 40.94MB | 존재, 미읽음 |
+| `finish_poseidon.glb` | 〃 | 37.61MB | 존재, 미읽음 |
+| `finish_ithaca.glb` | 〃 | 61.42MB | 존재, 미읽음 |
+
+**중요 정정**: STEP 84에서 "`ithaca_pose_03.glb` 없음"이라고 기록한 것은
+그 세션의 접근 차단 때문에 확인 못 하고 넘겨짚은 것이었다 — 이번에
+`stat`으로 실재를 확인했다. `stages.js` 주석을 "MISSING_SOURCE_ASSET"에서
+"PENDING(접근 차단)"으로 정정했다. `crouch`·`pose[i]`가 여전히 `null`인
+이유는 자산이 없어서가 아니라 **내용을 못 읽어서**다 — 접근만 복구되면
+바로 `optimize.mjs`로 처리 가능(새 코드 작업 불필요, STEP 81~84의
+파이프라인 그대로).
+
+### 자산 없이(코드만으로) 처리한 것
+
+**1. 포세이돈→세이렌 그림 순서 오류 (B.3)** — 실제 그림을 열어 확인해보니
+`scene11.webp`가 **세이렌**(잔잔한 바다, 노래하는 인어 둘) 그림이고
+`scene12.webp`가 **포세이돈 폭풍**(번개·삼지창·성난 파도) 그림이었다 —
+대사와 그림이 서로 뒤바뀌어 있었다(대사는 순서가 맞았는데 `bg`가 반대
+컷을 가리켰다). `story.js`에서 두 항목의 `bg`를 맞바꿨다(그림 파일 자체는
+안 바꿈) — 이제 "포세이돈 폭풍 컷 → 세이렌 컷" 순서.
+
+**2. Story/Dialogue UI 공통 규칙 강제 (B.4)**
+- **Skip 버튼 항상 표시** — 전엔 각 컷 시퀀스의 **마지막 컷**에서 스킵을
+  껐다("이미 끝인데 스킵은 의미 없다"는 옛 규칙). ken이 "절대 누락 금지"로
+  명시해서 인트로·전환 컷·피니시 컷 전부 `skippable: true`로 바꿨다(마지막
+  컷도 예외 없음). REST는 애초에 항상 켜져 있었다(무변경).
+- **이름·대사 좌측 정렬** — `.r3s`(대화창을 담는 전체 오버레이)에
+  `text-align: center`가 걸려 있었고 `.r3-story-name`/`.r3-story-line`이
+  이걸 안 덮어써서 **중앙 정렬로 나가고 있었다**(실제 버그, ken QA로 발견).
+  `screens.js`에 `text-align: left` 명시 추가.
+- **대사 텍스트 비어있음 금지** — `story.js` 전수 검사 결과 빈 텍스트는
+  없었다(데이터는 이미 깨끗). 테스트로 고정(모든 story·rest 줄의
+  `text.trim().length > 0`).
+
+**3. REST — 스테이지별 재사용 구조 + 신규 2곳 (B.2, B.7, B.10, C.2)**
+- `story.js` `beats`에 `rest` 3곳: `afterLevel:1`(키클롭스, 기존 유지 +
+  ken 지정 최소 필수 대사 `"10초만 쉬었다가 바로 출발하자!"`를 `before`
+  마지막 줄로 확정) · `afterLevel:3`(포세이돈, 신규) ·
+  `afterLevel:5`(이타카, 신규) — 전부 ken이 준 대사 그대로.
+- `showRestBeat`가 이미 STEP 84부터 stage-agnostic(순수 `{before, after,
+  seconds, cast}` 인자)이라 재사용에 코드 변경 불필요 — **`bg` 파라미터만
+  추가**(스테이지 전용 REST 배경 이미지 슬롯). `bg` 있으면 스토리 컷과
+  같은 `mount()` 방식(미리 받고 나서 보여주기)으로 그 그림을 깔고, 없으면
+  기존처럼 게임 화면이 비치는 투명 오버레이.
+- `rest_cyclops/poseidon/ithaca.png` 3개 다 경로를 못 찾아(위 접근 차단)
+  `rest.bg = null`로 둠 — 슬롯은 준비, 파일 오면 문자열 한 줄.
+
+**4. Stage 2 폭풍 강화 (B.5)** — "쥬라기의 어두운 하늘 배경"이라는 특정
+이미지 자산은 이 저장소에 없다(쥬라기 sky는 `bg_sky.png` 하나뿐, 밝은
+파란 하늘). 새 파일 위치도 이번엔 못 찾아 **sky 텍스처 교체는 보류**하고,
+STEP 84의 오버레이 방식을 더 강하게:
+- 배경색·안개색 더 어둡게(`scene.background` `#2b3a4f`→`#131f2d`,
+  Stage2 `fog`/`groundColor`도 동반 조정).
+- **비에 바람** — 전엔 스트릭만 살짝 기울고 낙하는 순수 수직이라 바람
+  느낌이 없었다. 스트릭을 대각으로 더 눕히고, 매 프레임 `x`를
+  `WIND_X`(6.5유닛/초)만큼 옆으로도 밀어서 실제로 비스듬히 흘러가게.
+- **번개 강화** — 불투명도 0.95→1, 색 `#eaf3ff`→순백, 두 겹 겹쳐 그려
+  굵게, 치는 간격 5~12초→3~7초.
+- 부표·가이드 라인은 STEP 84에서 이미 있었다 — 가이드 라인 텍스처
+  알파 0.85→1(불투명), 두께 0.28→0.4로 더 또렷하게.
+
+**5. 포세이돈 점프 회피 모션 매끄럽게 (B.6) — 실제 버그 발견·수정** —
+`boat.js`가 `character.jumping`(불리언)만 받아 `y`를 0/1.4로 **그대로
+스냅**했다(보간 없음) — 점프 시작·착지가 뚝뚝 끊겨 보인 진짜 원인.
+`character.js`에 `get jumpOffset() { return jumpY() }` 추가(캐릭터
+자신의 점프 포물선을 그대로 노출, 기존 `jumping` getter는 무변경) →
+`boat.js`가 이 연속값을 `HOP_H`(1.4) 비율로 받아 **캐릭터와 같은 곡선**을
+따라간다. `scene.js`의 `boat.update()` 호출도 `character.jumping` →
+`character.jumpOffset`로 교체.
+
+**6. Stage 3 시작 box (B.8) / crouch·pose (B.9) — STEP 84에서 이미 해소,
+재확인만** — `crouch: null` + `stageCourse` 필터로 `hurdleWide` 이벤트
+자체가 코스에 없다. 회귀 없음 확인.
+
+### 이번에 못 한 것 (전부 위 접근 차단 때문)
+
+- 인트로 START 화면 교체(`odyssey_intro.png`) — 파일 위치 못 찾음.
+- 홈 썸네일 교체(`odyssey_thumbnail.png`) — 파일 위치 못 찾음.
+- Stage별 crouch/pose GLB 9개 — 파일은 실재 확인, 내용 못 읽어 최적화
+  파이프라인 미실행.
+- Stage별 finish gate 3종 분리(`finish_cyclops/poseidon/ithaca`) — 지금은
+  여전히 세 스테이지가 `odyssey/finish/gate.glb`(STEP 84 산출물) 공유.
+- REST 전용 배경 3장, crouch/pose 힌트 PNG 4장 — 경로 못 찾음, config
+  slot만 준비(`rest.bg = null`).
+
+### 확인
+
+`npm run check` — **테스트 1127건 통과** (STEP 84의 1116 + 신규 11:
+포세이돈/세이렌 순서 · Skip 항상 · 좌측 정렬 · REST 3곳 + 필수 대사 ·
+빈 텍스트 금지 · 비바람/번개 강화 · 배 점프 보간) · 빌드 통과 · 맥 rollup
+OK · `git diff --check` 클린. 쥬라기/runner3d 회귀 전부 통과(runner3d 82 ·
+finishPortal 14 · storyDialogue 9 · gamePack 8 · autopilot 7 ·
+runner3dScreens 28 · keyboardIme 2 · resultQueue 9 · stats 18 · brandUi 7 ·
+sourceParses). 자산 예산 39.2MB — 이번 패스는 자산 추가/삭제 없이 코드만
+(STEP 84와 동일).
+
+⚠️ 작업 중 `.r3-story-name`의 CSS 주석에 백틱(`` `.r3s` ``)을 썼다가
+`npm run check`의 storyDialogue·runner3dScreens 테스트가 즉시 잡았다
+(`CLAUDE.md`에 이미 6번 기록된 바로 그 버그) — 백틱 빼고 재확인, 통과.
+
+**브라우저 실플레이는 ken** — 자산 접근 복구 후 이어서 GLB 9종 최적화 +
+연결이 다음 우선순위.
+
+## STEP 86 — 오디세이 런: 남은 자산 9+9 전부 연결 + 스테이지별 Finish Gate (2026-09-11)
+
+### Full Disk Access 재발 — 이번엔 원인이 달랐다
+
+STEP 85에서 겪은 것과 같은 증상(`~/Documents/` `stat`은 되는데 `open`은
+`EPERM`)이 이 패스 시작 시에도 있었다. ken이 "Documents 접근 이미 켜져
+있다"·"Orca 재시작했다"고 여러 차례 확인했는데도 안 풀려서 더 깊이
+파봤다:
+
+1. `~/Desktop`·`~/Downloads`는 되는데 `~/Documents`만 막힘 → 일반
+   Full Disk Access가 아니라 macOS의 **별도 "Documents 폴더" 권한
+   카테고리** 문제로 좁혔다.
+2. 그래도 안 풀려서 내 셸의 프로세스 조상을 `ps -o pid=,ppid=,comm=`로
+   `launchd`까지 추적 → 진짜 부모가 `/Applications/Orca.app/Contents/
+   Frameworks/Orca Helper.app/.../Orca Helper`라는 걸 발견. `codesign
+   -dv`·`PlistBuddy`로 bundle id를 까보니 `com.stablyai.orca.helper` —
+   메인 앱(`com.stablyai.orca`)과 **다른 bundle id**였다.
+3. `~/Library/Application Support/com.apple.TCC/TCC.db`를 `sqlite3`로
+   직접 조회 → 메인 앱은 권한이 있는데 `.helper`는 항목이 아예 없음.
+   ken이 Orca Helper에도 권한을 켜고 재시작했다는데도 여전히 없음.
+4. `ps -p <pid> -o lstart=`로 그 헬퍼 데몬 프로세스의 실제 시작 시각을
+   보니 **앱을 재시작해도 그대로**였다 — Electron 헬퍼 데몬이 앱
+   재시작을 넘어 살아남는 흔한 패턴. 즉 권한을 새로 줘도 그 권한을
+   적용받을 프로세스 자체가 안 바뀌고 있었다.
+5. ken이 Orca 관련 프로세스를 Activity Monitor에서 **전부 강제 종료 후
+   재실행** → `ps`로 새 PID·새 시작 시각 확인, `ls ~/Documents` 정상
+   작동, 목표 파일 9+9개 전부 정확한 이름으로 확인, `fs.readFileSync`로
+   실제 바이트까지 읽힘 → **완전 복구**.
+
+말로 된 진단("권한 껐다 켰다")으로는 안 잡히고, 프로세스 트리 추적 +
+TCC.db 직접 조회 + 프로세스 시작 시각 비교까지 가야 진짜 원인(헬퍼
+데몬 미재시작)이 잡혔다. 다음에 이 증상이 또 나오면 이 순서부터 본다.
+
+### GLB 9개 — 전부 확인·최적화·배선
+
+STEP 85가 "존재는 확인, 못 읽음"으로 남긴 9개(§16 문서 표 참고)를 전부
+`node -e "fs.readFileSync(...)"` 로 실제로 읽어 `@gltf-transform`으로
+메시/재질/텍스처/삼각형 수까지 inspect한 뒤, `tools/glb/odyssey.sources.json`
+에 잡을 추가·수정해서 `node tools/glb/optimize.mjs --manifest ...`로
+한 번에 돌렸다(20개 잡, 663.29MB → 14.80MB, −97.8%, 전부 "✅ 검증
+통과"). `stages.js`에 결과 경로를 배선:
+
+- `STAGES[1]`(포세이돈) crouch + pose 3종 — 전부 null이던 슬롯 채움.
+- `STAGES[2]`(이타카) crouch + pose[2] — null이던 슬롯 채움
+  (`pose[0..1]`은 STEP 84부터 이미 있었음). **`ithaca_pose_03.glb`는
+  실재했다** — STEP 84가 "없음"으로 잘못 남긴 기록을 정정.
+
+### Finish Gate — 공유 1개 → 스테이지별 3개로 아키텍처 변경
+
+ken이 "결승 문이 스테이지마다 달라야 한다"고 명시해서, 기존 씬 레벨
+싱글턴 `FINISH_GATE` 상수(세 스테이지 공유)를 없애고 `stages.js`
+`StageDef`에 `finishGate: {name, subdir}` 필드를 추가했다. `scene.js`
+`buildStage(stageIdx)` 안에서 스테이지마다 자기 `createPortal(...)`을
+새로 만들어(`stage.portal`) 반환 객체에 포함시키고, `setLevel`/`update`/
+`dispose`의 모든 `portal.*` 참조를 `stage.portal.*`로 바꿨다 — dispose도
+스테이지 자체 disposer 목록에 편입돼 스테이지 전환 시 같이 정리된다
+(씬 레벨에서 따로 관리할 필요 없어짐).
+
+- `finish_cyclops.glb`(51파트) → `gate_cyclops.glb`
+- `finish_poseidon.glb`(59파트) → `gate_poseidon.glb`
+- `finish_ithaca.glb`(20파트, 구 공유 `finish_gate.glb`와 바이트 단위로
+  동일본) → `gate_ithaca.glb`
+
+셋 다 `models.loadMeshGroup`(멀티메시, 파트별 텍스처 보존 — STEP 84의
+백색 과노출 원인이었던 `mergeMaterial` 안 씀) + `portal.js` `shell.
+group:true` 경로를 쓴다. 텍스처는 384px로 통일.
+
+### PNG 9개 — 전부 변환·배선
+
+`tools/img/odyssey.ui.sources.json` 신규 작성, 기존 `to-webp.mjs`로
+9장 변환(18.97MB → 1.75MB):
+
+- `odyssey_intro.png` → `ui/intro.webp` → `manifest.json` `titleBg`
+- `odyssey_thumbnail.png` → `ui/thumbnail.webp` → `manifest.json`
+  `thumbnail`+`hero` (쥬라기 `manifest.json` 관례를 그대로 따름:
+  thumbnail===hero, titleBg는 별도 그림 — 코드 대조로 확인 후 결정)
+- `rest_cyclops/poseidon/ithaca.png` → `ui/rest_*.webp` → `story.js`의
+  `afterLevel: 1/3/5` 세 REST 비트 `bg` 필드(STEP 85가 `showRestBeat`에
+  만들어 둔 `bg` 슬롯을 이번에 실제로 채움)
+- `poseidon_crouch_hint.png`·`pose_hint_01~03.png` → `ui/hint_*.webp` —
+  **열어서 실제로 확인해 보니** 추상 포즈 다이어그램이 아니라 "보트 안
+  캐릭터가 그 동작을 하는" 삽화였다. `pose_hint_03`이 팔벌리기임이
+  육안으로 명확해 이 프로젝트의 1=lunge/2=forwardbend/3=armsopen 관례로
+  01=lunge·02=forwardbend 매핑. **UI 삽입 지점은 미정** — `runner/ui/
+  cues.js`의 `CUE.pose`가 스테이지 구분 없는 공용 아이콘 1장이라 자세별로
+  바꾸려면 그 공용 모듈을 손대야 함(이번 범위 밖). 런타임 경로만 준비,
+  존재 여부만 테스트로 고정(`docs/16` §"남은 질문" 참고).
+
+### 테스트
+
+`test/odysseyRun.test.js` — crouch/pose/finish gate 존재 테스트를
+"9개 중 일부 null 허용"에서 "세 스테이지 전부 실제 GLB, null 없음"으로
+재작성. Finish Gate 테스트를 "씬 레벨 싱글턴"에서 "스테이지 소유,
+3종 서로 다른 GLB"로 재작성. 타이틀/썸네일 테스트를 "슬롯만 있고 null"
+에서 "실제 webp 존재"로 재작성. REST bg 테스트도 동일하게 "슬롯 존재"
+에서 "실제 파일 존재 + 파일명 패턴"으로 재작성. 힌트 이미지 4장 존재
+테스트 신규 추가(UI 삽입 지점 미정임을 주석으로 남김). 최종 79개 통과.
+
+### 확인
+
+`npm run check` — **테스트 1129건 통과**(odysseyRun 79건 포함) · 빌드
+통과 · 맥 rollup OK · `git diff --check` 클린. 전체 61개 테스트 파일
+1129건 재확인(runner3d/jurassic 회귀 포함) 전부 통과. 자산 예산
+46.0MB/7MB FAIL — 내역은 pre-existing 약 26.3MB(`_lab/` 20MB + 쥬라기
+공용 obstacles/props 6.3MB, 전부 이미 `main`에 있던 것) + 오디세이
+순증가분 약 20.5MB(GLB 최적화본 + UI webp, source는 repo 밖에만 존재).
+STEP 84·85와 같은 pre-existing FAIL 패턴 — 이번 세션이 새로 깬 게 아님.
+
+**commit/push 안 함**(ken 지시) — odyssey-run worktree에만 반영, main/
+다른 워크트리 무영향.
+
+**브라우저 실플레이는 ken 몫** — 최소 QA 항목은 `docs/16` 및 최종
+완료 보고 참고.
+
+## STEP 87 — 오디세이 런: ken 실플레이 QA 2차 반영 (2026-09-11)
+
+새 기능·구조 변경 없이 **실제 확인된 오류만** 고쳤다(6-레벨 진행·속도·
+스토리 순서·기존 장애물 로직은 안 건드림).
+
+1. **Finish Gate 3종 mesh 깨짐** — 원인은 `weld`+`simplify`가 51~59개
+   부품을 **각자 다른 primitive**로 따로 깎으면서, 부품끼리 맞닿는 경계
+   정점(전부 그 부품 안에서는 "바깥 edge")이 `lockBorder` 없이 자유롭게
+   움직여 부품끼리 어긋난 것이었다(join:false라 join()이 부품을 하나로
+   못 합쳐 경계가 그대로 노출됨). `tools/glb/odyssey.sources.json`의 finish
+   3개 잡에 `lockBorder: true` 추가 + ratio 0.06→0.10(여유), 재생성
+   (2.19/2.44/1.65MB, 여전히 테스트 캡 3MB 안). Draco 압축이 문제가 아니었다
+   (소스 자체가 이미 <1유닛 스케일이라 weld tolerance도 원인이 아니었음 —
+   실측으로 배제).
+2. **관문 통과 후 완료 배너가 늦다** — `runner/game/course.js`의 archGate
+   `duration`이 `gateTime + 3`(3초 tail)였다. 최종 레벨은 `play3d.js`의
+   `PASS_MS`(0.9초)가 먼저 끝나 안 보이던 문제인데, 오디세이의 스테이지
+   경계(Lv2·Lv4)는 archGate가 있어도 마지막 레벨이 아니라서 `passThrough()`가
+   아무것도 안 하고 이 3초 `duration`이 **유일한** 완료 트리거였다 —
+   그래서 스테이지 경계에서만 유독 느리게 느껴졌다. `PASS_MS`와 맞춰
+   `gateTime + 0.9`로 축소. 최종 레벨엔 영향 없음(안전망일 뿐이라 도달 전에
+   `over`가 이미 true).
+3. **폭죽 없음** — `play3d.js` `passThrough()`에 `burstConfetti(root, {pieces:60,
+   bursts:2, seconds:1.6})`를 추가, Stage1/2/3 공통(archGate 지점마다). 짧고
+   가벼워서 곧이어 뜨는 레벨 완료 배너·REST·전환 스토리(z-index가 더 높다)를
+   안 가린다.
+4. **Intro 중복 텍스트** — `screens.js`의 `showTitle3d`가 `manifest.logo`가
+   없으면 `<h1>제목</h1>`을 그렸는데, 오디세이의 `titleBg`(ken 지정 intro
+   그림)엔 이미 제목이 그려져 있어 흰 글자가 겹쳤다. `logo` 없으면 아무
+   것도 안 그리도록(쥬라기는 `logo`가 있어 원래도 이 분기를 안 탐, 무영향).
+   시작/속도 버튼은 `#r3-title:not(:has(.logo)) .r3-title-actions`로 로고
+   없는 경우에만 `margin-top`을 줘서 배경 제목 위치를 피해 아래로 내렸다.
+5. **REST 카운트다운 위치 + 버튼** — `.r3-rest-count`를 대사창(`.r3-story-box`)
+   바깥에서 안(`.r3-story-body`)으로 옮겼다. "다음"(자동 넘김 앞당기기)을
+   "이전"(직전 대사 다시 보기)으로 교체 — 대사는 이미 타이머로 저절로
+   넘어가므로 사람이 누를 필요가 있는 쪽은 놓친 줄을 다시 보는 것.
+6. **Poseidon 하늘** — `backdrop.js`의 `BACKDROP_ART.sky`(쥬라기 3D 기본,
+   어두운 먹구름 원본)를 Stage 2 `weather`가 있을 때만 하늘 그림 자체로
+   교체(`scene.js`). 전엔 배경색만 어둡게 하고 하늘 그림은 밝은 것 그대로라
+   "여전히 밝다"로 보였다.
+7. **Poseidon crouch·pose 3종 동작 그림 미반영** — `boat.js`가 `row_up/pull`
+   2컷만 갖고 있었다. STEP 86에서 만들어 둔(당시엔 UI 삽입 지점 미정)
+   `hint_crouch_poseidon`·`hint_pose_lunge/forwardbend/armsopen` 4장을
+   추가로 받아 `character.ducking`/`character.posing`에 따라 텍스처를
+   갈아 끼운다(`scene.js`가 4번째 인자로 넘김) — 놓으면 자동으로 기본
+   노젓기 애니메이션으로 복귀.
+8. **파란 box placeholder** — 원인은 GLB 도착 전 도형 폴백(`box()`)의 색이
+   `cfg.obstacleColor`였고, 포세이돈 값이 `#2f6d9a`(파랑)였던 것. 이타카에서도
+   "순간적으로" 보인 건 전환 직후 GLB 로드 경합. 도형 폴백 자체를 없애고
+   (`bakeShade`·`box()` 삭제) GLB가 준비 안 됐으면(`kinds[key].geo === null`)
+   그 이벤트를 **아예 안 그린다**(`syncObstacles`) — 판정(`atHit`)은 시간
+   기준이라 시각 유무와 무관하게 그대로 돈다. 소용돌이(코드 생성)는 예외
+   (`k.whirlpool`로 항상 준비됨 처리).
+9. **Ithaca 배경 밀도** — 새 GLB 추가 없이 기존 8종 row의 `count`만 올렸다
+   (draw call 증가 0 — `InstancedMesh` 개수는 그대로, 인스턴스 수만 증가).
+   `PropRow`/`rowSpots`가 인스턴스마다 위치·회전·크기(0.75~1.25배)를 이미
+   흩뜨려서 복제 티가 덜 난다.
+10. **앵커+방패 기념물 확대** — `bow_monument.glb`(ken이 원래 "활 기념물"로
+    분류했으나 실제로는 앵커+방패+로프+조개 해양 장식이었다, 이름은 파일
+    경로만 그대로 둠)를 size 8→13(중형~대형)으로 확대. 좌우 각 1개(총
+    2곳) 유지 — 반복 대신 존재감을 키우는 쪽.
+
+### 확인
+
+`npx vitest run test/` — **1130건 통과**(odysseyRun 80건 포함, +1건
+동작 그림 전환 테스트) · `npm run build` 통과 · 맥 rollup OK · `git diff
+--check` 클린. 자산 예산 46.4MB/7MB FAIL — pre-existing(§STEP86 26.3MB) +
+오디세이 분(이번 lockBorder로 finish gate 3개 합계 +0.4MB, 그 외 변경
+없음) — 정책 범위 밖, 리팩터 안 함(ken 지시).
+
+⚠️ 이번에도 CSS 템플릿 문자열 안 주석에 백틱(`` `logo` ``)을 썼다가
+`sourceParses`/`runner3dScreens` 테스트가 즉시 잡았다(CLAUDE.md에 이미
+여러 번 기록된 바로 그 패턴) — 백틱 빼고 재확인, 통과.
+
+**commit/push 안 함**(ken 지시). **브라우저 실플레이는 ken 몫** — 최소
+QA 항목은 완료 보고 참고.
+
+## STEP 88 — 오디세이 런: 최종 Visual QA (BLOCKER 수정 + Finish Gate 근본 원인) (2026-09-11)
+
+이번 세션은 **Claude in Chrome로 실제 브라우저 렌더링을 직접 확인**하며
+진행했다 — 이전 패스들의 "브라우저는 ken 몫" 한계를 이번엔 넘었다
+(로컬 vite dev 서버(5176)가 이미 떠 있어 그대로 붙었다).
+
+1. **Ithaca 마지막 레벨이 Finish Gate 전에 Result로 끝나는 BLOCKER** —
+   원인은 STEP 87에서 스테이지 경계용 `duration` 안전망을 3초→0.9초로
+   줄인 것. `PASS_MS`(900ms) `setTimeout`과 실시간 간격이 거의 같아져
+   `requestAnimationFrame` 루프의 duration 체크(대체로 정확한 주기)와
+   지연될 수 있는 `setTimeout`이 경쟁했다 — 브라우저가 setTimeout을
+   조금만 늦게 돌려도 duration 체크가 먼저 이겨 통과 연출 없이
+   `finish(true)`가 불렸다. **고친 방식은 duration 재조정이 아니라
+   경로 통합**이다 — 마지막 레벨의 duration 안전망도 이제 `finish(true)`를
+   직접 안 부르고 `passThrough()`를 부른다(`passing` 가드로 멱등). 코드
+   전체에 `finish(true)` 호출이 단 한 곳(`passThrough()`의 `PASS_MS`
+   타이머)만 남도록 만들어, 이 경쟁 자체가 구조적으로 불가능해졌다.
+   테스트 3건 추가(`final Ithaca level does not show Result before
+   finish gate pass` 등, ken이 요청한 이름 그대로).
+2. **대화창 버튼 정책 통일** — STEP 87이 REST의 "다음"을 "이전"으로
+   **바꿔버린** 것을 되돌렸다. 이제 스토리 컷·REST 전부 [이전][다음][스킵]
+   셋이 항상 같이 뜬다 — 첫 줄에서 이전은 disabled, 마지막 줄에서 다음을
+   누르면 그 구간의 정상 완료로 이어진다. `showStoryScene`은 원래도 이
+   모양이었어서 실제 변경은 `showRestBeat`(storyDialogue.js)뿐이다.
+3. **Intro 버튼 재배치** — STEP 87의 `margin-top`+`justify-content:center`
+   방식(가운데 정렬 중 절반만 밀리는 셈이라 체감보다 덜 내려갔다) 대신
+   컨테이너를 `flex-end`로 바꾸고 `margin-bottom`으로 바닥과의 거리를
+   직접 지정 — "더 아래로, 그래도 바닥에 딱 붙지는 않게"를 숫자 하나로
+   조절할 수 있게 됐다.
+4. **Finish Gate 3종 mesh 깨짐 — 근본 원인 확정** ★★★ — Claude in Chrome로
+   원본 소스 GLB(`~/Documents`에서 임시로 `public/`에 복사해 보고 삭제)와
+   `optimize.mjs` 파이프라인의 각 단계(dedup→flatten→weld→simplify→
+   텍스처압축→prune) 산출물을 하나씩 렌더링해 대조했다. dedup부터
+   prune까지는 **전부 멀쩡했다** — 실제로 깨지는 지점은 `fitHeight`
+   단계 하나였다(fitHeight만 추가 → 깨짐, Draco만 추가 → 멀쩡). 원인:
+   AI 키트배시 부품(`tripo_part_N`, 51~59개)은 로컬 원점 부근 지오메트리
+   + **부품마다 다른 노드 translation**으로 조립돼 있는데, `fitHeight`가
+   **정점 좌표만** 전역 bbox 기준으로 재배치하고 노드 transform은 그대로
+   둬서 — 런타임이 그 노드 transform을 (이미 재배치된) 정점에 다시 얹어
+   부품끼리 서로 침범·이탈했다. `lockBorder`(직전 패스에서 시도)는 이
+   문제와 무관했다. 고친 것은 `optimize.mjs`의 `fitHeight` 블록 — bbox를
+   재기 전에 각 노드의 transform을 정점(POSITION+NORMAL)에 굽고 노드를
+   identity로 되돌린 뒤에 기존 균일 스케일+중심 이동을 적용한다. 세
+   관문 전부 재생성 후 Claude in Chrome로 직접 렌더 확인 — 외벽·기둥·
+   눈·횃불·삼지창 문양·아치문이 원본과 동일하게 조립됐다. 파일 크기는
+   거의 그대로(2.18/2.43/1.65MB, 이전 패스와 동일 — fitHeight 수정은
+   삼각형/텍스처 수를 안 바꾼다). 재발 방지 테스트 추가: 세 관문 GLB를
+   실제로 파싱해 모든 부품 노드가 identity transform인지 확인한다.
+
+### 확인
+
+`npx vitest run test/` — **1136건 통과**(odysseyRun 86건, +6). `npm run
+build` 통과. `git diff --check` 클린. Claude in Chrome로 실제 브라우저
+렌더링까지 직접 확인(Finish Gate 3종 + BLOCKER 시나리오 코드 경로).
+자산 예산 46.4MB/7MB FAIL — STEP 87과 동일(이번 수정은 파일 크기를 거의
+안 바꿈), pre-existing + 정책 범위 밖. 이번 세션에서도 CSS 템플릿 문자열
+안 주석에 백틱을 두 번 더 썼다가(`screens.js`) `sourceParses` 테스트가
+즉시 잡았다 — 매번 고쳤지만 반복되는 패턴이라 피드백으로 남겼다.
+
+**commit/push 안 함**(ken 지시). 디버그용 임시 파일(`debug-gate.html`,
+`tools/glb/_diag*.mjs`, `public/_debugsrc/`)은 전부 삭제하고 세션을
+마쳤다 — repo에 안 남는다.
+
+## STEP 89 — 오디세이 런: 최종 QA 3종 (REST 재구조·화살표 통일·Ithaca 블로커 실사용 조사) (2026-09-11)
+
+이번 세션은 Claude in Chrome로 실제 dev 서버(5176)에 붙어 **라이브 실행
+추적**까지 했다 — `window.__odysseyLoop` 임시 디버그 훅으로
+`requestAnimationFrame`(백그라운드 탭에서 멈춘다)을 우회해 Lv1~Lv6를
+수동으로 프레임 단위 재생하며 콘솔 로그로 실제 실행 순서를 봤다. 끝나고
+훅·로그는 전부 지웠다(코드에 흔적 없음, grep으로 재확인).
+
+1. **REST 20초 + 화면 위 카운트다운 + "휴식중..."** — `seconds`를 세
+   스테이지 다 10→20으로(대화 포함 전체 시간). 카운트다운을 대사창
+   안(STEP 88)에서 **화면 맨 위 중앙**(`#r3-rest-topcount`, absolute,
+   `screens.js`의 `.r3s > *:not(...)` 제외 목록에 등록)으로 옮기고,
+   REST 시작 즉시 독립적으로 돈다 — 대화 진행과 무관하게 20→0. 대화가
+   먼저 끝나면 대사창은 그대로 두고 본문을 "휴식중." → ".." → "..."
+   순환(0.5초 간격 JS 타이머, CSS keyframe 안 씀)으로 바꾼다. 0에
+   도달하면 대화 상태와 무관하게 곧장 `finish('done')`. before/after
+   대사는 이제 카운트다운이 끼어들지 않는 하나의 연속 대화다. `vi.
+   useFakeTimers()`로 실제 타이머를 굴려 검증(7개 신규 함수 테스트) —
+   소스 정규식보다 훨씬 정확하게 타이밍을 잡는다.
+2. **대화창 화살표 통일** — "이전"(스트로크 셰브론 `back`)과
+   "다음"(채운 삼각형 `play`)이 다른 그림 언어였다. 전역 `back`
+   아이콘(다른 화면 10여 곳의 일반 "뒤로" 버튼)은 안 건드리고, `icons.js`에
+   `playBack`(= `play`를 세로축으로 뒤집은 좌표)을 새로 추가해 대화창
+   전용으로만 바꿨다. jsdom으로 실제 렌더해 `fill`·`width`·`height`·
+   `stroke-width`가 완전히 같은지 확인.
+3. **Ithaca(Lv6) 조기 종료 — 재조사 결과: 완료 흐름 버그 아님** — 라이브
+   실행 추적으로 Lv1→Lv6 전체를 재생, `[ODYSSEY]` 콘솔 로그로 archGate
+   판정 → `passThrough()` → duration end 순서를 매 스테이지 경계(Lv2·
+   Lv4)에서 확인 — **전부 정상**이었다(관문 판정이 먼저, duration은
+   항상 나중에 조용히 통과). "매우 빠르게"(2.5배속) 설정으로 Lv6까지
+   갔을 때 재현된 조기 종료는 `finish(false)`(목숨 소진에 의한 정식
+   게임오버)였다 — Lv1~6가 공유하는 목숨 풀(기본 5, 레벨마다 안 채워짐)
+   이 가장 길고(3사이클) 가장 빠른(speed 1.85) Lv6에서 소진 위험이
+   가장 크고, 2.5배속에서 더 두드러졌다. **"보통" 배속으로 같은 경로를
+   재생하니 Lv1~3 목숨 100% 유지로 재현 안 됨** — 완료 흐름(passThrough→
+   PASS_MS→finish) 자체는 건드릴 필요가 없었다. ken이 요청한 정확한
+   이름의 회귀 테스트 5개를 추가해 이 구조적 보증을 고정했다(`final
+   Ithaca level does not show Result before finish gate pass` 등).
+   **남은 질문**: "매우 빠르게" 설정이 localStorage에 남아 다음 세션에도
+   유지된다(`core/runnerSpeed.js`) — ken이 예전에 속도 테스트하며 켜
+   둔 값이 계속 남아 있었을 가능성. Lv6가 공유 목숨 풀 안에서 유독
+   가혹한지(밸런스 이슈)는 이번 범위 밖이라 안 건드렸다 — 필요하면
+   "보통"으로 재확인해 달라고 완료 보고에 남긴다.
+
+### 확인
+
+`npx vitest run test/` — **1148건 통과**(odysseyRun 90건, storyDialogue
+17건 포함). `npm run build` 통과. `git diff --check` 클린. 자산 예산
+46.4MB/7MB FAIL — 이번 수정과 무관, pre-existing. 이번에도 CSS 템플릿
+문자열 안 주석에 백틱을 썼다가(`storyDialogue.js`) `sourceParses` 테스트가
+잡았다 — 세 번째, `SendFeedback`으로 이미 남겨 뒀다(한 세션 한 번 규칙).
+
+**commit/push 안 함**(ken 지시). 디버그 훅·로그·임시 파일 전부 제거,
+repo에 흔적 없음(grep으로 재확인).
+
+## STEP 90 — 오디세이 런: 본편 최종 마감 2건 (Poseidon 자세 방향 동기화 + 완주 Result) (2026-09-12)
+
+1. **Poseidon 자세 방향 동기화** — `course.js`의 `MIRROR_POSES`(lunge·
+   forwardbend, armsopen은 좌우대칭이라 대상 아님)가 사이클마다 좌우를
+   번갈아 뒤집는데, 장애물 mesh는 `e.mirror`로 뒤집히는 반면 배 위
+   소년/오디세우스(`boat.js`, Stage 2 전용 빌보드)는 그대로였다. 새
+   계산을 추가하는 대신 이미 있던 값을 공유했다 — `character.js`에
+   `get poseMirror()`(캐릭터 자신도 이 값으로 자기 pose 스프라이트를
+   뒤집는 데 쓰던 바로 그 상태) 게터를 추가하고, `scene.js`가
+   `character.posing ? character.poseMirror : false`를 `boat.update()`의
+   5번째 인자로 넘긴다. `boat.js`는 `mesh.scale.x`의 부호만 바꿔(CSS
+   `scaleX(-1)`과 같은 효과) 기존 텍스처를 그대로 반전한다 — 새 이미지·
+   복제 없음. 같은 자세가 반복돼도 방향이 바뀌면 다시 그리도록
+   `shown === key && shownMirror === mirror`로 조기 반환 조건을 좁혔다
+   (안 그러면 방향 전환을 놓친다). Stage1·3은 러닝 캐릭터 자신이 이미
+   `poseMirror`로 정확히 뒤집혀 있어 그대로 — 회귀 없음.
+2. **Odyssey 전용 완주 Result** — 공용 `showGameOver`(`gameShell.js`)에
+   `bg`·`scoreBlock`·`sparkle` 세 옵션을 추가했다. **셋 다 기본값이
+   꺼짐**이라 옵션을 안 주는 기존 호출(쥬라기 등)은 이전과 완전히 같은
+   화면·CSS 경로를 그대로 탄다 — 공용 결과 화면 자체를 바꾸지 않고
+   게임팩이 조건부로 켜는 구조. `play3d.js`의 `finish()`에서
+   `cleared && manifest.id === 'odyssey-run'`일 때만(게임 오버·다른
+   게임은 전부 false) `bg: manifest.thumbnail`(홈 카드와 같은 그림,
+   새 asset 없음) + `scoreBlock: {score: r.score, streak: r.bestCombo}`
+   (실제 runtime 값, 하드코딩 없음) + `sparkle: true`를 얹는다. 타이틀도
+   같은 조건에서만 "다 달렸어요!" → "오디세이 런 완주!"로 바뀐다(게임
+   오버 타이틀 "수고했어요!"는 안 건드림). 배경 위 다크 그라데이션은
+   `.pz-over-themed` 전용 CSS로 스코프해 다른 `.pz-over` 사용처에
+   무영향. 반짝임은 새 라이브러리 없이 기존 `core/confetti.js`의
+   `burstConfetti`를 그대로 재사용, 버튼 클릭 시 먼저 멈춰 리플레이 후
+   잔상이 안 남게 했다.
+
+### 확인
+
+`npx vitest run test/` — **1154건 통과**(신규: `boat.js`/`character.js`
+방향 동기화 구조 테스트, `showGameOver` 신규 옵션 5개 기능 테스트 —
+`test/finishPortal.test.js`에 jsdom으로 실제 렌더). `npm run build` 통과.
+`git diff --check` 클린. Chrome에서 `showGameOver`를 직접 모듈 임포트해
+렌더 확인 — 썸네일 배경+그라데이션·SCORE/BEST STREAK 실제 값·반짝임·
+버튼 두 개 전부 스크린샷으로 확인, 클릭 시 `onAgain`/`onQuit` 정상 호출,
+정리 후 잔상 DOM 없음. 자산 예산 46.4MB/7MB FAIL은 무관(새 GLB 없음).
+
+**commit/push 안 함**(ken 지시).
+
+## STEP 91 — 이타카 Lv6 조기 종료 BLOCKER: 진짜 원인 발견 (2026-09-12)
+
+ken이 실제 브라우저에서 재현: "매우 빠르게" + 자동재생으로 이타카 Lv6를
+돌리면 결승 관문에 닿기도 전에 Result로 넘어간다. **STEP 89의 결론(그냥
+목숨 소진, 버그 아님)은 틀렸다** — 원인을 "목숨이 줄었다"에서 멈추고
+**왜 자동재생이 목숨을 잃었는지**를 안 팠다.
+
+1. **재현** — 개발 서버(`#/play?id=odyssey-run`)에서 실제로 재생. RAF가
+   자동화 탭에서 `document.visibilityState:'hidden'`이라 실제로는 멈춰
+   있는 걸 STEP 89에서 이미 알아냈으므로, 이번엔 `play3d.js`에 임시
+   디버그 훅(`window.__odysseyDebug` — `jumpToLevel`·`loop` 노출, 조사
+   끝나고 완전히 제거)을 달아 **실제 캐릭터·판정·자동재생 객체**를 그대로
+   쓰면서 `now`만 합성 틱으로 밀어 Lv6를 끝까지 돌렸다. 결과: `lives=0`,
+   `now=39.89`(관문 hitTime 47.5보다 한참 전), `passing=false` — 관문
+   근처도 못 가고 `finish(false)`로 끝났다.
+2. **로그로 잡은 진짜 경로** — 매 프레임 `onResult` 로그를 남겨 보니
+   `poseSign` 이벤트가 사이클(3개)마다 **처음 둘은 항상 hit, 마지막
+   하나만 pass**를 반복했다. `duration`/`passThrough`/`finish` 순서는
+   전부 정상이었다 — 그 경로가 원인이 아니었다.
+3. **root cause** — `runner/game/autopilot.js`의 `LEAD.poseSign`(1.5초,
+   고정값)이 이타카 Lv6("매우 빠르게", cycles:3, speed 1.85)의 실제
+   사인판 간격(`poseGap/speed` = 6.0/(1.85×2.5) ≈ **1.3초**)보다 **넓다**.
+   자동재생은 각 사인판의 hitTime보다 LEAD만큼 미리 자세를 세팅하는데,
+   간격이 LEAD보다 좁으면 **다음 사인판의 세팅 시각이 앞 사인판의
+   hitTime보다 먼저 온다** — 앞 자세가 아직 판정도 안 됐는데 다음 자세로
+   덮어써 버려 앞 사인판은 무조건 `judge.js`의 `s.pose !== e.pose`로
+   틀린 것 처리된다. 한 사이클 3개 중 2개가 이렇게 새는 게 3사이클이면
+   최대 6개 — 목숨(기본 5)이 결승 전에 바닥난다. Lv5("매우 빠르게",
+   speed 1.64, 간격 1.46초)도 문턱을 살짝 넘어 같이 샜다.
+4. **고침** — `autopilot.js`의 `poseSign` 분기에 `if (activePose) continue`
+   한 줄 추가: 앞 자세가 `done`(판정 완료)되기 전엔 다음 사인판을 아예
+   건드리지 않고 매 프레임 다시 본다. 판정은 앞 사인판의 hitTime 부근에서
+   저절로 풀리므로(`activePose.done`), 레벨·배속별로 숫자를 맞출 필요가
+   없다 — 어떤 속도에서도 안전한 일반해다. `duration`/`passThrough`/
+   `finish` 쪽은 STEP 88에서 이미 정상이라 **한 줄도 안 건드렸다**(ken이
+   금지한 "duration/progress 숫자 조정"과는 무관한 진짜 로직 수정).
+5. **정상 lifecycle 재확인** — archGate onResult(now=47.49) →
+   `passThrough()`(confetti + `PASS_MS` 타이머) → `finish(true)`
+   (now=51.44, 스택 확인상 오직 그 타이머 콜백 하나) — 고치기 전/후 모두
+   이 순서 자체는 같았다. 달라진 건 **거기 도달하기 전에 목숨이 다
+   닳느냐**였다.
+6. **회귀 테스트** — `test/autopilot.test.js`에 `runAutoLevel`이
+   `speedMult`·`opts`를 받게 확장하고(기존 호출은 기본값이라 무영향),
+   `atHit`에 `course.hitWindow`(배속 보정 판정 창)를 실제로 넘기도록
+   고쳤다(전엔 조용히 기본 창만 썼다 — speedMult=1 테스트만 있어서
+   안 드러났을 뿐). 새 describe 3개: Lv6 "매우 빠르게" 전체 실행(hits=0,
+   관문 도달) · Lv5 "매우 빠르게" 경계값 · 최소 구성으로 레이스 조건
+   직접 재현("앞 사인판이 안 끝났으면 다음 자세로 안 넘어간다").
+
+### 확인
+
+`npx vitest run` — **1157건 통과**(신규 3건 포함, 기존 1154건 전부 그대로
+통과 — Poseidon 방향 동기화·REST 20초·finish 경로 회귀 없음). `npm run
+build` 통과. `git diff --check` 클린. 실제 브라우저(Chrome, dev server)에서
+고치기 전 재현(lives=0, now=39.89 < duration=48.44) → 고친 뒤 재검증
+(lives=5, `passing:true`, `over:true`, "오디세이 런 완주!" Result 화면을
+스크린샷으로 확인) — 둘 다 실제 `character.js`/`judge.js`/`autopilot.js`
+객체로 실행, 흉내 아님. 디버그 훅·로그 전부 제거, `grep -rn
+"ODYSSEY-TRACE\|__odysseyDebug" src/`로 흔적 없음 재확인.
+
+**commit/push 안 함**(ken 지시).
+
+## STEP 92 — 오디세이 런 1차 마감: 결과 화면 박스 + 엔딩 스토리(가족 상봉·작별) (2026-09-12)
+
+핵심 수정·엔딩 Result 화면은 STEP 88~91에서 이미 끝났다는 전제로, **1차
+완성 마감용 UI/스토리 정리만** 진행. 화살 미니게임/화살 스토리는 이번
+범위에서 계속 제외.
+
+1. **결과 화면 중앙 콘텐츠 박스(`gameShell.js`)** — ken 지적: "중앙 콘텐츠가
+   그냥 붕 떠 있는 느낌"(제목·SCORE·BEST STREAK·버튼이 테마 배경+그라데이션
+   위에 개별 요소로만 떠 있었다, STEP 90 스크린샷 참고). 새 디자인을 짜는
+   대신 **스토리 대화창(screens.js의 story-box 패널: 어두운 보라 반투명
+   rgba(15,7,34,.88) + 금색 테두리 + 24px 라운드)과 같은 값**을 그대로
+   재사용해 `.pz-over-box`를 추가 — `showGameOver`가 `themed`(=`bg` 있음,
+   즉 오디세이 런 완주 화면)일 때만 제목·보상·점수블록·버튼 전부를 이
+   박스 하나로 감싼다. **기본 결과 화면(쥬라기 등, `bg` 안 줌)은 이 클래스
+   자체가 마크업에 없어 완전히 무영향** — STEP 90과 같은 조건부 확장
+   패턴을 그대로 따랐다.
+2. **엔딩 스토리 실제 연결(`odyssey-run/story.js`)** — `STORY.finish.scenes`를
+   임시 마무리 컷(scene15 재사용) 대신 **ken이 지정한 scene18(가족 상봉)·
+   scene19(소년과 작별)** 두 장으로 교체. 원본 PNG는 repo 밖
+   (`~/Documents/playzera-assets/오디세이/story/final/img_scene18·19.png`)에
+   있어 기존 파이프라인(`tools/img/to-webp.mjs` + `odyssey.story.sources.json`에
+   두 job 추가)으로 새 webp 2장을 뽑았다(207KB·192KB, q80 — 다른 15장과
+   같은 처리). 대사는 ken이 준 문구 그대로, "오디 가족"/"오디와 가족들"은
+   여러 명이 한목소리로 말하는 줄이라 얼굴 없이 이름만(`cast.family =
+   {name:'가족'}`) — `cyclops`와 같은 패턴. **화살 스토리(scene16·17, 활
+   시험)는 손 안 댐** — `NEEDS_ART`에 여전히 미사용으로 남겨 뒀고, 실제
+   코드 어디에도 활 미니게임을 잇는 로직이 없었음을 grep으로 재확인.
+   **흐름은 `play3d.js`의 `finish()`를 그대로 탄다** — 이 함수가 이미
+   "`manifest.story.finish`가 있으면 그 scenes를 보여준 뒤 `showGameOver`
+   (결과 화면)로 이어간다"는 구조라(STEP 82~) `finish()` 로직은 한 줄도
+   안 건드리고 scene 내용만 바꿨다. 즉 실제 순서는 **Lv6 완주 → 엔딩
+   스토리(scene18→19) → 결과 화면** — ken이 적은 "권장 flow"(결과 먼저 →
+   스토리)와는 스토리/결과 순서가 반대이지만, "게임이 끝났다"는 감정이
+   가장 큰 순간(가족 재회·작별)에 점수 UI 없이 그림만 보이고 그다음에
+   점수를 읽는 편이 `CLAUDE.md`의 기존 원칙("엔딩과 결과 화면은 따로다 —
+   축하 감정이 제일 큰 순간엔 그림만, 읽을 것은 그다음")과 더 맞고, Lv6
+   완료 로직(`finish()`)을 안 건드리는 게 이번 범위(회귀 금지)에도 맞아
+   그대로 유지했다 — 최종적으로 "결과 화면 확인 후 엔딩을 볼 CTA"가 아니라
+   "엔딩을 다 보면 결과가 나오는" 한 흐름으로, ken이 적어 둔 예외 조건
+   ("최소한 결과 확인 후 CTA로 연결"과 대비되는, 완전히 하나로 이어진
+   더 강한 형태)을 만족한다.
+3. **회귀 테스트** — `test/odysseyRun.test.js`: 인트로·전환 배경은
+   scene01~15만 쓰는지, `finish.scenes`는 scene18·19를 **둘 다** 쓰는지
+   (실제 파일 존재까지) 검증하는 테스트로 나눴고, "Scene 16~19 미사용"
+   테스트는 "Scene 16·17(활 시험)만 미사용"으로 좁혔다(더는 사실이 아닌
+   부분만 고침). `test/finishPortal.test.js`: `.pz-over-box`가 `bg` 있을
+   때만 제목·점수·버튼을 감싸는지, `bg` 없을 때는 예전처럼 박스 없이
+   평평한 마크업인지 각각 확인하는 테스트 2개 추가.
+4. **재발한 백틱 버그** — `.pz-over-box` CSS 주석 안에 파일/선택자 이름을
+   백틱으로 감쌌다가 CSS 템플릿 문자열이 중간에 끊겨 `gameShell.js` 전체가
+   파싱 실패했다 — `test/finishPortal.test.js` 실행 시 Rollup 파스 에러로
+   바로 잡혔다(CLAUDE.md에 이미 6번 넘게 적힌 패턴). 백틱을 지우고 통과
+   확인.
+
+### 확인
+
+`npx vitest run` — **1160건 통과**(신규 5건: `.pz-over-box` 2건 +
+scene18·19/scene16·17 스토리 3건, 기존 1157건 전부 그대로 통과 — STEP 91
+자동재생 수정, Poseidon 방향 동기화, REST 20초, Finish Gate lifecycle
+회귀 없음). `npm run build` 통과. `git diff --check` 클린. `npm run check`의
+자산 예산 경고는 46.4MB → 46.8MB로 두 장(scene18·19, 총 0.4MB) 늘어난
+것 외 pre-existing FAIL 그대로(무관, STEP 89부터 이어진 상태). 실제
+브라우저(Chrome, dev server, "매우 빠르게" + 자동재생으로 Lv6를 임시
+디버그 훅으로 완주)에서 확인 끝난 뒤 **디버그 훅은 즉시 제거**(`grep`
+흔적 없음 재확인): (1) 결승 관문 통과 → confetti 속 scene18 "가족" 화자
+줄(얼굴 없이 이름만, 타이핑 효과) 정상 렌더 스크린샷 확인, (2) 이어서
+scene19(오디세우스 대사) 정상 렌더 확인, (3) 최종 결과 화면에서
+`.pz-over-box`가 제목("오디세이 런 완주!")·SCORE 8,750·BEST STREAK 46·
+버튼 둘을 하나의 금색 테두리 박스로 감싸 안정적으로 보이는 것을 확대
+스크린샷으로 확인, 화살/활 관련 화면·문구는 전체 흐름에 전혀 등장하지
+않음.
+
+**commit/push 안 함**(ken 지시).
+
+## STEP 93 — "JAPARI RUN" 사용자 노출 숨김 + 오디세이 런 배포 전 최종 점검 (2026-09-12)
+
+1. **"자파리 런" 정체 확인** — 코드·git 히스토리·문서 전체를 검색했지만
+   그 이름의 게임은 없었다(`docs/01`의 "자파리센터"는 무관한 테스트베드
+   명칭). ken에게 화면 위치로 재확인한 결과 **`warmup-obstacle`**(카드
+   표시명 "인터랙션 웜업 장애물 피하기") — 썸네일(`fx_title_screen.png`)
+   안에 박힌 타이틀 그림 글자가 "JAPARI RUN!"이라 정식 브랜드로 사용자
+   홈에 노출하기 전에 숨겨야 하는 게임이었다.
+2. **숨김 처리** — `runner-space/manifest.json`의 `status`를 `'active'` →
+   `'hidden'` 한 줄만 바꿨다. 기존 `registry.js`의 `visibleNow()`가 이미
+   `hidden`을 "사용자 목록(`getAll()`)에서 완전히 제외하되 registry·라우트는
+   그대로 둔다"는 정책으로 갖고 있어(fire-rescue·stone-bridge·jungle-run 등
+   5개 게임이 이미 같은 방식) — 새 메커니즘 없이 기존 정책을 그대로
+   따랐다. 코드·에셋·라우트 전부 그대로라 `/play?id=warmup-obstacle`
+   직접 접근(개발 확인용)은 그대로 살아 있다. `CLAUDE.md`의 "지금 위치"
+   표도 같이 갱신(노출 게임이 이제 둘뿐임을 반영).
+3. **회귀 테스트** — `test/gamePack.test.js`에 실제 registry로 "getAll()엔
+   없지만 GAME_REGISTRY엔 남아 개발 접근 가능"을 고정하는 테스트 추가 —
+   다음 세션이 실수로 `active`로 되돌리는 것을 잡는다.
+4. **오디세이 런 최종 regression** — 코드는 전혀 안 건드리고 "보통" 속도 +
+   자동재생으로 Intro(Skip/이전/다음 클릭 확인) → Stage1 Cyclops → REST →
+   Stage1→2 전환 스토리(포세이돈 예고) → Stage2 Poseidon(실제 3D: 폭풍·
+   세이렌·포세이돈 석상·배 빌보드 렌더 확인) → REST → Stage2→3 전환
+   스토리 → Stage3 Ithaca(실제 3D: 마른 트랙·목마·병사 렌더 확인) → REST →
+   Lv6 Finish Gate(목숨 5/5 유지, 정상 통과) → 엔딩 scene18→19 →
+   `.pz-over-box` 결과 화면(SCORE 40,100·BEST STREAK 148) → Home(실제
+   클릭, `#/`로 정상 이동, 홈 카드 4개 정상)까지 전 구간을 라이브
+   브라우저에서 통과 확인. 검증에는 임시 디버그 훅(`window.__odysseyDebug`
+   — 레벨 점프·합성 프레임 구동)을 다시 썼고 끝나고 즉시 제거했다
+   (`grep`로 흔적 없음 재확인). 중간에 자동화 탭 특유의 두 가지 함정을
+   다시 만났다 — ① `document.visibilityState:'hidden'`이라 실제 RAF가
+   멈춰 스크린샷이 "직전 프레임"을 그대로 보여준다(Stage3 전환 직후
+   한 번 낚였다가 프레임을 한 번 더 밀어서 실제로는 정상 전환된 것을
+   확인) ② 같은 합성 구동 함수를 반복 호출하며 `window.__t`를 매번
+   `performance.now()`로 리셋하면 클로저의 `last`와 크게 벌어져 dt가
+   음수로 튄다(Lv6에서 한 번 `lives`가 4로 떨어지는 오염을 봤다 — 실제
+   게임 버그가 아니라 **내 테스트 하네스의 버그**임을 확인하고 레벨을
+   깨끗이 리셋해 재검증, 최종 결과에는 반영 안 함). 둘 다 STEP 89·91에서
+   이미 문서화된 동일 환경 함정 — 앱 코드는 무죄.
+
+### 확인
+
+`npx vitest run` — **1161건 통과**(신규 1건: `warmup-obstacle` 숨김 고정
+테스트, 기존 1160건 전부 그대로 통과). `npm run build` 통과. `git diff
+--check` 클린. `npm run check`의 `public/assets/runner3d` 예산 FAIL은
+46.8MB로 STEP 92 종료 시점과 **완전히 동일**(이번 세션은 에셋을 하나도
+안 늘렸다) — 기존 known failure 그대로, 새 실패 없음. 실제 브라우저에서
+(1) 홈에서 "JAPARI RUN" 카드가 사라졌고 다른 카드 4개(오디세이 런·쥬라기
+대탐험·똥 피하기·풍선 팡팡) 순서·레이아웃 그대로임을 스크린샷 확인,
+(2) `/play?id=warmup-obstacle` 직접 접근 시 게임이 정상 실행됨(개발 접근
+유지)을 확인, (3) 오디세이 런 전 구간 regression 통과.
+
+**commit/push 안 함**(ken 지시).

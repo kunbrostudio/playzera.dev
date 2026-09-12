@@ -1,4 +1,9 @@
-import supabase from './supabase.js'
+import supabase, { isSupabaseConfigured } from './supabase.js'
+
+/** dev/로컬에서 Supabase 미설정 — 던지는 에러에 이 code를 달아 호출부가 조용히 넘기게 한다. */
+export class SupabaseNotConfigured extends Error {
+  constructor() { super('SUPABASE_NOT_CONFIGURED'); this.code = 'SUPABASE_NOT_CONFIGURED' }
+}
 
 export async function saveResult({
   sessionId   = null,
@@ -21,6 +26,11 @@ export async function saveResult({
     played_at:      new Date().toISOString(),
   }
 
+  // 미설정이면 네트워크를 안 친다 — `example.supabase.co`로 fetch가 나가
+  // `ERR_NAME_NOT_RESOLVED`가 반복되던 문제(ken 지적, 9/10). 호출부
+  // (`resultQueue.js`)가 `code`를 보고 큐에도 안 넣고 조용히 넘긴다.
+  if (!isSupabaseConfigured) throw new SupabaseNotConfigured()
+
   const { data, error } = await supabase.from('game_results').insert(payload).select()
   if (error) throw error
   return data
@@ -28,6 +38,8 @@ export async function saveResult({
 
 // game_id / center_code 필터링 지원 범용 조회
 export async function getResults({ gameId = null, limit = 20, centerCode = null } = {}) {
+  if (!isSupabaseConfigured) return []   // 미설정 — 빈 목록(조회 화면이 안 깨지게)
+
   let q = supabase
     .from('game_results')
     .select('*')
