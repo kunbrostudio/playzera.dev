@@ -18,8 +18,10 @@
 // 따른다.
 
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { PropRow } from './props.js'
+// Draco 디코더가 붙은 공용 GLTFLoader — 비-Draco GLB도 그대로 연다
+// (`models.js` 주석 참고). 오디세이 런의 Draco 압축 팻말을 열려면 필요하다.
+import { getLoader } from './models.js'
 
 /**
  * GLB 하나를 받아 **지오메트리+베이스텍스처만** 뽑고 목표 치수로
@@ -43,7 +45,7 @@ import { PropRow } from './props.js'
  */
 export function loadNormalizedGlb(url, fitBy, target, withCurve, onReady, opts = {}) {
   const { label = 'glbProp', isAborted = () => false } = opts
-  new GLTFLoader().load(
+  getLoader().then(loader => loader.load(
     url,
     gltf => {
       if (isAborted()) return
@@ -84,7 +86,7 @@ export function loadNormalizedGlb(url, fitBy, target, withCurve, onReady, opts =
     },
     undefined,
     err => console.warn(`[${label}] GLB(${url})를 못 받았다 — 없이 진행한다`, err),
-  )
+  ))
 }
 
 /**

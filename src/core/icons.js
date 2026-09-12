@@ -20,6 +20,12 @@
 
 const PATHS = {
   play:    '<polygon points="6 3 20 12 6 21 6 3"/>',
+  // `play`를 세로축으로 그대로 뒤집은 모양(좌우 반전 좌표) — 대화창의
+  // "이전"이 "다음"(play)과 stroke/fill/크기/정렬이 완전히 같아야 한다는
+  // ken 요청(STEP 89)으로 추가했다. 기존 `back`(스트로크 셰브론)은 이
+  // 프로젝트 전체의 일반 "뒤로/나가기" 버튼(`readyScreen.js`·`start.js`
+  // 등 10곳 이상)에서 계속 쓰므로 그대로 두고, 대화창 전용으로 새로 뺐다.
+  playBack: '<polygon points="18 3 4 12 18 21 18 3"/>',
   pause:   '<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
   back:    '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
   home:    '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/>'
@@ -94,7 +100,7 @@ const PATHS = {
 
 
 /** 면으로 칠하는 아이콘 — 선으로 그리면 존재감이 약하다. */
-const FILLED = new Set(['play', 'pause', 'star', 'heart', 'sound', 'soundOff', 'flame', 'zap', 'egg'])
+const FILLED = new Set(['play', 'playBack', 'pause', 'star', 'heart', 'sound', 'soundOff', 'flame', 'zap', 'egg'])
 
 /**
  * 아이콘 SVG 한 조각.

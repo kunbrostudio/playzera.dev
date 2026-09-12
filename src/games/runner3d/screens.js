@@ -53,8 +53,12 @@ const CSS = `
    왼쪽 위에 둔 "게임 목록"이 화면 한가운데로 끌려왔다(8/26).
    .r3s-smoke도 같은 이유로 뺐다 — 이 셀렉터가 .r3s-smoke 자체 규칙보다
    구체적이라(클래스 3개) position: relative가 이겨서 absolute+inset:0이
-   먹히지 않고 연기 층이 문서 흐름에 끼어 대사창을 밀어낼 뻔했다(9/2). */
-.r3s > *:not(.r3s-bg):not(.r3s-corner):not(.r3s-smoke) { position: relative; z-index: 1; }
+   먹히지 않고 연기 층이 문서 흐름에 끼어 대사창을 밀어낼 뻔했다(9/2).
+   .r3-rest-topcount도 같은 이유로 뺐다(STEP 89) — REST 카운트다운을
+   대사창(하단, flex-end로 밀림)과 무관하게 **화면 맨 위 중앙**에 고정해야
+   해서 absolute+top+left:50%를 쓰는데, 이 규칙이 이겨서 relative로
+   되돌리면 대사창 옆(문서 흐름 안)으로 끌려 내려간다. */
+.r3s > *:not(.r3s-bg):not(.r3s-corner):not(.r3s-smoke):not(.r3-rest-topcount) { position: relative; z-index: 1; }
 
 /* 화면 모서리에 붙는 것 — 2.5D 타이틀과 같은 자리다. */
 .r3s-corner {
@@ -91,6 +95,22 @@ const CSS = `
 .r3-title-actions {
   display: flex; flex-direction: column; align-items: center;
   gap: clamp(12px, 2.6vh, 26px);
+}
+/* 로고 이미지가 없는 게임(오디세이 런) — 배경 그림 자체에 이미 제목이
+   그려져 있어 logo를 안 준다(ken 지정 intro 그림). 로고가 없으면
+   시작+속도만 flex 안에 남아 화면 세로 가운데(=배경의 제목 자리)로
+   끌려온다 — 아래로 밀어 제목을 안 가리게 한다(ken QA, STEP 87·88).
+   logo가 있는 쥬라기는 이 규칙에 안 걸린다(:has로 한정).
+   STEP 88 — margin-top+justify-content:center(가운데 정렬 중 절반만
+   밀리는 셈이라 체감보다 덜 내려간다) 대신 컨테이너를 통째로
+   flex-end로 바꾸고 margin-bottom으로 바닥에서 뗀 거리를 직접
+   준다 — "더 아래로, 그래도 바닥에 딱 붙지는 않게"를 숫자 하나로 바로
+   조절할 수 있다(ken QA: "아직 너무 위쪽"). .r3s-corner(Home/Menu)는
+   absolute라 이 변경과 무관하다. */
+#r3-title:not(:has(.logo)) { justify-content: flex-end; }
+#r3-title:not(:has(.logo)) .r3-title-actions { margin-bottom: clamp(6vh, 11vh, 15vh); }
+@media (max-height: 560px) {
+  #r3-title:not(:has(.logo)) .r3-title-actions { margin-bottom: clamp(3vh, 6vh, 9vh); }
 }
 #r3-title .speed-btn {
   min-height: 56px; padding: 0 clamp(22px, 4vw, 34px);
@@ -197,10 +217,19 @@ const CSS = `
   box-shadow: 0 6px 14px rgba(0,0,0,.4);
 }
 .r3-story-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
-                 gap: clamp(12px, 2vh, 20px); }
+                 gap: clamp(8px, 1.4vh, 14px); }
+/* 화자명 — 대사 위 작은 금색 줄. 나레이션 줄에서는 hidden으로 숨는다
+   (storyDialogue.js가 줄마다 켜고 끈다). 얼굴 그림이 없어도 누가
+   말하는지는 이름으로 전해진다. */
+.r3-story-name {
+  margin: 0; font-size: clamp(.85rem, 1.9vw, 1.15rem); font-weight: 800;
+  letter-spacing: .02em; color: var(--pz-gold, #ffd23e);
+  text-align: left;   /* .r3s의 center를 덮는다(ken 요청 — 이름은 왼쪽) */
+}
 .r3-story-line {
   margin: 0; font-size: clamp(1.2rem, 3vw, 1.9rem); font-weight: 700; line-height: 1.5;
   min-height: 2.2em; display: flex; align-items: center;
+  text-align: left;   /* 대사도 왼쪽 — 얼굴이 왼쪽에 붙는 레이아웃과 맞춘다 */
 }
 /* 이전·다음은 서로 가깝게 붙이고(손 제스처로 오갈 때 이동이 작게,
    ken 확인 9/2), 스킵은 반대쪽 끝으로 뗀다 — 아이패드 실사용에서 셋이
@@ -341,9 +370,13 @@ export function mount(app, id, html, bg) {
  */
 export function showTitle3d(app, manifest) {
   return new Promise(resolve => {
+    // `logo`가 없으면 글자를 안 띄운다 — 예전엔 `<h1>`로 제목을 텍스트로
+    // 대신 그렸는데, 오디세이 런의 `titleBg`(ken 지정 intro 그림)는 이미
+    // 제목이 그림 안에 그려져 있어 그 위에 흰 글자가 또 겹쳐 보였다(ken QA,
+    // STEP 87). `logo`가 있는 쥬라기는 이 분기를 안 탄다(원래도 안 탔다).
     const logo = manifest.logo
       ? `<img class="logo" src="${manifest.logo}" alt="${manifest.title}">`
-      : `<h1 style="font-size:clamp(1.6rem,5vw,3rem)">${manifest.title}</h1>`
+      : ''
     let speedId = getRunnerSpeedId()
     // ── 배경은 **글자 없는 판**이다 ★ ──
     // `hero`는 허브 썸네일이라 그림에 게임 로고가 박혀 있다. 그걸 깔고 그 위에

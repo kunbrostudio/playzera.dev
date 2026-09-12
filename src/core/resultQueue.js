@@ -62,6 +62,9 @@ export async function sendResult(payload) {
     await saveResult(payload)
     return { ok: true }
   } catch (e) {
+    // dev/로컬에서 Supabase 미설정 — 큐에 넣어 봐야 flush에서 또 실패한다.
+    // 조용히 넘긴다(로컬 진행에는 영향 없음, `progress/state.js`는 그대로 쌓인다).
+    if (e?.code === 'SUPABASE_NOT_CONFIGURED') return { ok: false, skipped: true }
     console.info('[resultQueue] 저장 실패 — 큐에 넣는다:', e?.message ?? e)
     queueResult(payload)
     return { ok: false, queued: true }
@@ -80,7 +83,12 @@ export async function flushResults() {
   let flushed = 0
   for (const payload of q) {
     try { await saveResult(payload); flushed++ }
-    catch { remain.push(payload) }
+    catch (e) {
+      // 미설정이면 이번 세션에선 아무것도 못 보낸다 — 큐는 그대로 두고 멈춘다
+      // (다음에 설정되면 그때 나간다). `ERR_NAME_NOT_RESOLVED` 반복 차단.
+      if (e?.code === 'SUPABASE_NOT_CONFIGURED') { return { flushed, remain: q.length, skipped: true } }
+      remain.push(payload)
+    }
   }
   write(remain)
   if (flushed) console.info(`[resultQueue] ${flushed}건 전송 완료, ${remain.length}건 남음`)

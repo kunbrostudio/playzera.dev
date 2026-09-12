@@ -24,7 +24,7 @@
 // 어긋난다 — 문은 벽에 남고 빛만 허공에 뜬다.
 
 import * as THREE from 'three'
-import { loadGeometries } from './models.js'
+import { loadGeometries, loadMeshGroup } from './models.js'
 
 /**
  * 문의 자리와 크기 — **`import_ai.py`가 잰 값을 옮겨 적은 것이다.**
@@ -179,13 +179,45 @@ function glowMaterial(fs, kUniform, extra = {}) {
 /**
  * 결승 포털 하나. **씬에 한 번 붙이고 z만 옮긴다.**
  *
+ * ── 다른 테마도 이걸 쓴다 ★ ─────────────────────────────────
+ *
+ * 쥬라기는 인자 없이 부른다(발굴 현장 아치 `finish_portal.glb` + 셰이더 문 +
+ * 탑 불꽃, 아래 기본값 그대로). 오디세이 런은 스테이지마다 이 lifecycle
+ * (archGate 이벤트 → funnel → passThrough → finish)을 그대로 재사용하되
+ * **껍데기만 자기 관문 GLB로 바꾼다**(`opts.shell`) — 그리스 신전이라
+ * 탑 불꽃은 안 어울려서 끈다(`opts.fire: null`). 새 finish 시스템을
+ * 만들지 않는다는 뜻이다(`docs/04` STEP 82).
+ *
  * @param {(m: import('three').Material) => import('three').Material} withCurve
  * @param {{value:number}} kUniform 곡률 유니폼 — 셰이더 재질은 직접 받는다
+ * @param {object} [opts]
+ * @param {{name:string, subdir:string, height?:number, color?:number, group?:boolean}} [opts.shell]
+ *   껍데기 GLB — 기본 `finish_portal`(obstacles/). `height`를 주면 로드 후 그
+ *   높이로 정규화한다(발밑 y=0, x·z 중심). `color`는 텍스처가 없는 GLB일 때
+ *   쓸 단색. **`group: true`면** `models.loadMeshGroup`으로 **모든 메시**를
+ *   받는다 — 부품마다 텍스처가 다른 관문(석재·금장·파란 banner·삼지창)이라
+ *   합칠 수 없을 때. 안 주면 GLB의 원본 스케일 그대로 · 첫 메시만.
+ * @param {{w,h,y,z}} [opts.door] 셰이더 문 판의 크기·자리 — 기본 `DOOR`.
+ * @param {{x,base,z,w,h}|null} [opts.fire] 탑 불꽃 — 기본 `FIRE`, `null`이면 끈다.
+ * @param {() => boolean} [opts.isAborted] 껍데기 GLB가 도착하기 전에 화면을
+ *   나갔는지 — 참이면 받은 지오메트리를 버리고 씬을 안 건드린다(늦게 오는
+ *   콜백이 이미 dispose된 그룹을 오염시키거나 새 메시를 새게 하는 걸 막는다).
  */
-export function createPortal(withCurve, kUniform) {
+export function createPortal(withCurve, kUniform, opts = {}) {
+  const {
+    shell: shellCfg = { name: 'finish_portal', subdir: 'obstacles' },
+    door: doorCfg = DOOR,
+    fire: fireCfg = FIRE,
+    isAborted = () => false,
+  } = opts
+
   const group = new THREE.Group()
   group.visible = false          // 마지막 레벨 끝에만 나온다
   group.frustumCulled = false
+
+  // dispose된 뒤(또는 화면을 나간 뒤) 도착하는 껍데기 GLB 콜백을 막는다.
+  let disposed = false
+  const gone = () => disposed || isAborted()
 
   // ── 뼈대: 도형으로 먼저, 모델이 오면 갈아 낀다 ──
   // 다른 장애물과 같은 규율이다. 모델이 안 와도 게임이 멈추지 않는다.
@@ -198,42 +230,78 @@ export function createPortal(withCurve, kUniform) {
   group.add(stub)
 
   let shell = stub
-  loadGeometries(['finish_portal'], 'obstacles').then(geos => {
-    const g = geos.finish_portal
-    if (!g) return
-    const map = g.userData?.pzMap
-    const m = new THREE.Mesh(g, withCurve(new THREE.MeshBasicMaterial({
-      map: map ?? null, color: map ? 0xffffff : 0x8a6a52, fog: true,
-    })))
-    m.frustumCulled = false
-    group.remove(shell)
-    shell.geometry.dispose()
-    shell = m
-    group.add(m)
-  })
+  let shellGroupDispose = null
+
+  if (shellCfg.group) {
+    // 멀티메시 관문 — 부품마다 텍스처가 다르다(`models.loadMeshGroup`).
+    // 빌드 때 `fitHeight`로 이미 게임 유닛이라 스케일 안 건드린다.
+    loadMeshGroup(shellCfg.name, shellCfg.subdir, withCurve, shellCfg.color ?? 0xcfc3aa).then(res => {
+      if (!res) return
+      if (gone()) { res.dispose(); return }
+      group.remove(shell)
+      shell.geometry.dispose(); shell.material.dispose()
+      shell = res.group
+      shellGroupDispose = res.dispose
+      group.add(res.group)
+    })
+  } else {
+    loadGeometries([shellCfg.name], shellCfg.subdir).then(geos => {
+      const g = geos[shellCfg.name]
+      if (!g) return
+      // 늦게 도착 — 화면을 나갔거나 dispose됐으면 받은 것만 버리고 끝낸다.
+      if (gone()) { g.dispose?.(); return }
+      // `opts.shell.height`가 있으면 게임 유닛으로 정규화한다.
+      if (shellCfg.height) {
+        g.computeBoundingBox()
+        const b = g.boundingBox
+        const s = shellCfg.height / Math.max(b.max.y - b.min.y, 1e-6)
+        g.scale(s, s, s)
+        g.computeBoundingBox()
+        const b2 = g.boundingBox
+        g.translate(-(b2.min.x + b2.max.x) / 2, -b2.min.y, -(b2.min.z + b2.max.z) / 2)
+      }
+      const map = g.userData?.pzMap
+      const hasVertColor = !map && !!g.attributes.color
+      const m = new THREE.Mesh(g, withCurve(new THREE.MeshBasicMaterial({
+        map: map ?? null,
+        color: (map || hasVertColor) ? 0xffffff : (shellCfg.color ?? 0x8a6a52),
+        vertexColors: hasVertColor,
+        fog: true,
+      })))
+      m.frustumCulled = false
+      group.remove(shell)
+      shell.geometry.dispose()
+      shell = m
+      group.add(m)
+    })
+  }
 
   // ── 문 ──
   const doorMat = glowMaterial(DOOR_FS, kUniform)
-  const door = new THREE.Mesh(new THREE.PlaneGeometry(DOOR.w, DOOR.h), doorMat)
-  door.position.set(0, DOOR.y, DOOR.z)
+  const door = new THREE.Mesh(new THREE.PlaneGeometry(doorCfg.w, doorCfg.h), doorMat)
+  door.position.set(0, doorCfg.y, doorCfg.z)
   door.frustumCulled = false
   // 빛은 **맨 나중에** 그린다. 안 그러면 뒤에 오는 물건이 빛 위에 얹힌다.
   door.renderOrder = 5
   group.add(door)
 
-  // ── 불 ──
+  // ── 불 (opts.fire === null이면 없음) ──
   // 두 개를 하나의 지오메트리로 묶었다. 따로 두면 draw call이 하나 더 는다.
-  const fireGeo = new THREE.PlaneGeometry(FIRE.w, FIRE.h)
+  let fireGeo = null
+  let fireMat = null
   const fires = []
-  const fireMat = glowMaterial(FIRE_FS, kUniform, { vs: FIRE_VS })
-  for (const side of [-1, 1]) {
-    const f = new THREE.Mesh(fireGeo, fireMat)
-    // 판의 한가운데를 밑동 위 절반에 둔다 — 그래야 불이 탑에 **붙는다**
-    f.position.set(side * FIRE.x, FIRE.base + FIRE.h / 2, FIRE.z)
-    f.frustumCulled = false
-    f.renderOrder = 5
-    fires.push(f)
-    group.add(f)
+  if (fireCfg) {
+    fireGeo = new THREE.PlaneGeometry(fireCfg.w, fireCfg.h)
+    fireMat = glowMaterial(FIRE_FS, kUniform, { vs: FIRE_VS })
+    for (const side of [-1, 1]) {
+      const f = new THREE.Mesh(fireGeo, fireMat)
+      // 판의 한가운데를 밑동 위 절반에 둔다 — 그래야 불이 탑에 **붙는다**
+      f.position.set(side * fireCfg.x, fireCfg.base + fireCfg.h / 2, fireCfg.z)
+      f.frustumCulled = false
+      f.renderOrder = 5
+      fires.push(f)
+      group.add(f)
+    }
   }
 
   let t = 0
@@ -255,17 +323,20 @@ export function createPortal(withCurve, kUniform) {
       t += dt
       doorMat.uniforms.uTime.value = t
       doorMat.uniforms.uOpen.value = 0.45 + 0.55 * near
-      fireMat.uniforms.uTime.value = t
-      // 불은 판이라 옆에서 보면 종잇장이다. **언제나 카메라를 보게** 돌린다 —
-      // 빌보드는 스프라이트가 아니라 회전으로 한다(스프라이트는 곡률을 못 받는다).
-      for (const f of fires) f.rotation.y = -group.rotation.y
+      if (fireMat) {
+        fireMat.uniforms.uTime.value = t
+        // 불은 판이라 옆에서 보면 종잇장이다. **언제나 카메라를 보게** 돌린다 —
+        // 빌보드는 스프라이트가 아니라 회전으로 한다(스프라이트는 곡률을 못 받는다).
+        for (const f of fires) f.rotation.y = -group.rotation.y
+      }
     },
 
     dispose() {
-      shell.geometry.dispose()
-      shell.material.dispose()
+      disposed = true   // 아직 안 온 껍데기 GLB 콜백을 막는다
+      if (shellGroupDispose) shellGroupDispose()
+      else { shell.geometry?.dispose(); shell.material?.dispose() }
       door.geometry.dispose(); doorMat.dispose()
-      fireGeo.dispose(); fireMat.dispose()
+      fireGeo?.dispose(); fireMat?.dispose()
     },
   }
 }

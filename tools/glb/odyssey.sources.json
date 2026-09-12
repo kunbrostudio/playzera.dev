@@ -1,0 +1,196 @@
+{
+  "note": "오디세이 런 장애물·배경·관문 GLB — name_complete 폴더(ken 정리). 원본은 repo 밖. 이 파일이 원본→런타임 매핑의 정본. tools/glb/optimize.mjs가 읽는다. warrior_lane은 STEP 77의 statue_warrior.glb(같은 gladiator 모델)를 재사용 — 여기 없음. STEP 86부터 finish gate는 스테이지별로 다른 원본(finish_cyclops/poseidon/ithaca.glb, 각각 51/59/20파트 keitbash)을 쓴다 — join 안 하고 멀티메시 그대로(models.loadMeshGroup, portal.js shell.group), 텍스처는 384로 축소해 부품이 많아도 용량을 억제하면서 재질(석재·금장·banner·삼지창 등)을 그대로 보존한다. 구 shared finish_gate.glb(→odyssey/finish/gate.glb, STEP 82 mergeMaterial 단색본)는 폐기 — Ithaca용으로 새로 낸 finish_ithaca.glb(같은 원본, 텍스처 보존판)로 대체됐다. siren_crouch.glb는 코스가 숙이기 이벤트를 한 종류만 내보내서 미배선 — 죽은 자산이라 뺐다. draco:true — simplify로 안 깎이는 AI 키트배시(자세 팻말 83k삼각형·관문 15만대)를 Draco 압축, 런타임 로더는 이미 디코더가 붙어 있다(models.js getLoader). statue_warrior.glb(STEP 77 산출물)도 --ratio 1 --draco로 제자리 재압축.",
+  "sourceDir": "~/Documents/playzera-assets/오디세이/glb/name_complete",
+  "draco": true,
+  "jobs": [
+    {
+      "source": "finish_cyclops.glb",
+      "out": "public/assets/runner3d/odyssey/finish/gate_cyclops.glb",
+      "usage": "Stage1(키클롭스) 전용 Finish Gate — portal.js shell via models.loadMeshGroup. 51파트/51재질(석재 아치) 텍스처를 살린다 — join 안 하고 멀티메시, 텍스처 384로 축소 + Draco. fitHeight로 게임 유닛 스케일. lockBorder(STEP 87, ken 시각 QA — 문이 깨져 보임): 부품끼리 맞닿는 51개 경계가 join 없이 각자 simplify되면서 서로 어긋났다(각 부품의 바깥 테두리가 전부 '경계 edge'라 lockBorder 없인 자유롭게 움직인다) — lockBorder로 경계 정점을 고정해 부품이 서로 맞물린 자리를 지킨다.",
+      "ratio": 0.1,
+      "error": 0.02,
+      "join": false,
+      "lockBorder": true,
+      "tex": 384,
+      "texQuality": 82,
+      "fitHeight": 13
+    },
+    {
+      "source": "finish_poseidon.glb",
+      "out": "public/assets/runner3d/odyssey/finish/gate_poseidon.glb",
+      "usage": "Stage2(포세이돈) 전용 Finish Gate — 판타지 포탈 문. 59파트/59재질, 텍스처 살려서 멀티메시(384) + Draco. lockBorder — 사유는 gate_cyclops와 같다(STEP 87).",
+      "ratio": 0.1,
+      "error": 0.02,
+      "join": false,
+      "lockBorder": true,
+      "tex": 384,
+      "texQuality": 82,
+      "fitHeight": 13
+    },
+    {
+      "source": "finish_ithaca.glb",
+      "out": "public/assets/runner3d/odyssey/finish/gate_ithaca.glb",
+      "usage": "Stage3(이타카) 전용 Finish Gate — 신전 문(구 공용 finish_gate.glb와 같은 원본). 20파트/20재질, 텍스처 살려서 멀티메시(384) + Draco. lockBorder — 사유는 gate_cyclops와 같다(STEP 87).",
+      "ratio": 0.1,
+      "error": 0.02,
+      "join": false,
+      "lockBorder": true,
+      "tex": 384,
+      "texQuality": 82,
+      "fitHeight": 13
+    },
+    {
+      "source": "sheep_jump.glb",
+      "out": "public/assets/runner3d/odyssey/island/obstacles/jump_sheep.glb",
+      "usage": "Stage1 점프(양떼)",
+      "ratio": 0.04,
+      "error": 0.02,
+      "tex": 1024,
+      "texQuality": 84
+    },
+    {
+      "source": "cyclops_crouch_gate.glb",
+      "out": "public/assets/runner3d/odyssey/island/obstacles/crouch_cyclops.glb",
+      "usage": "Stage1 숙이기(돌기둥 게이트)",
+      "ratio": 0.035,
+      "error": 0.02,
+      "tex": 1024,
+      "texQuality": 84
+    },
+    {
+      "source": "cyclops_pose_01.glb",
+      "out": "public/assets/runner3d/odyssey/island/obstacles/pose_cyclops_1.glb",
+      "usage": "Stage1 자세 팻말 1",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "cyclops_pose_02.glb",
+      "out": "public/assets/runner3d/odyssey/island/obstacles/pose_cyclops_2.glb",
+      "usage": "Stage1 자세 팻말 2",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "cyclops_pose_03.glb",
+      "out": "public/assets/runner3d/odyssey/island/obstacles/pose_cyclops_3.glb",
+      "usage": "Stage1 자세 팻말 3",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "poseidon_crouch_mermaid.glb",
+      "out": "public/assets/runner3d/odyssey/sea/obstacles/crouch_poseidon.glb",
+      "usage": "Stage2 숙이기(인어 듀오 아치) — ken 지정(STEP 86). 구 poseidon_crouch_gate.glb 대체.",
+      "ratio": 0.035,
+      "error": 0.02,
+      "tex": 1024,
+      "texQuality": 84
+    },
+    {
+      "source": "poseidon_pose_01.glb",
+      "out": "public/assets/runner3d/odyssey/sea/obstacles/pose_poseidon_1.glb",
+      "usage": "Stage2 자세 팻말 1",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "poseidon_pose_02.glb",
+      "out": "public/assets/runner3d/odyssey/sea/obstacles/pose_poseidon_2.glb",
+      "usage": "Stage2 자세 팻말 2",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "poseidon_pose_03.glb",
+      "out": "public/assets/runner3d/odyssey/sea/obstacles/pose_poseidon_3.glb",
+      "usage": "Stage2 자세 팻말 3",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "axe_row_jump.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/obstacles/jump_axe.glb",
+      "usage": "Stage3 점프(도끼 줄)",
+      "ratio": 0.04,
+      "error": 0.02,
+      "tex": 1024,
+      "texQuality": 84
+    },
+    {
+      "source": "ithaca_pose_01.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/obstacles/pose_ithaca_1.glb",
+      "usage": "Stage3 자세 팻말 1",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "ithaca_pose_02.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/obstacles/pose_ithaca_2.glb",
+      "usage": "Stage3 자세 팻말 2",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "ithaca_pose_03.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/obstacles/pose_ithaca_3.glb",
+      "usage": "Stage3 자세 팻말 3(팔벌리기) — STEP 86, 접근 복구 후 확보",
+      "ratio": 0.02,
+      "error": 0.05,
+      "tex": 1024,
+      "texQuality": 88
+    },
+    {
+      "source": "ithaca_crouch_gate.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/obstacles/crouch_ithaca.glb",
+      "usage": "Stage3 숙이기(이타카 그리스 게이트) — STEP 86, 접근 복구 후 확보",
+      "ratio": 0.035,
+      "error": 0.02,
+      "tex": 1024,
+      "texQuality": 84
+    },
+    {
+      "source": "bow_monument_bg.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/props/bow_monument.glb",
+      "usage": "Stage3 배경(활 기념물)",
+      "ratio": 0.03,
+      "error": 0.03,
+      "tex": 1024,
+      "texQuality": 80
+    },
+    {
+      "source": "ithaca_people_bg.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/props/citizens_1.glb",
+      "usage": "Stage3 배경(시민/가족 무리 1)",
+      "ratio": 0.03,
+      "error": 0.03,
+      "tex": 1024,
+      "texQuality": 82
+    },
+    {
+      "source": "ithaca_people02_bg.glb",
+      "out": "public/assets/runner3d/odyssey/ithaca/props/citizens_2.glb",
+      "usage": "Stage3 배경(시민/가족 무리 2)",
+      "ratio": 0.03,
+      "error": 0.03,
+      "tex": 1024,
+      "texQuality": 82
+    }
+  ]
+}

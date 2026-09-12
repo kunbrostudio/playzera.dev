@@ -1,0 +1,15 @@
+{
+  "note": "오디세이 런 UI 이미지 — ken이 ~/Documents/playzera-assets/오디세이/ui/에 정리(STEP 86). 원본은 repo 밖, 여기가 원본→런타임 매핑의 정본. to-webp.mjs가 읽는다. odyssey_intro/odyssey_thumbnail은 쥬라기 manifest.json 관례(thumbnail===hero, titleBg는 별도 그림)를 따른다 — intro.webp가 titleBg(START 화면), thumbnail.webp가 thumbnail+hero(홈 카드). rest_*는 story.js beats[].rest.bg 슬롯. hint_*(poseidon_crouch_hint·pose_hint_01~03)는 실제로 열어 보니 '보트 안에서 소년+오디세우스가 그 동작을 하는' 그림이었다(추상 포즈 다이어그램 아님) — pose_hint_03은 팔벌리기가 육안으로 명확해서, 이 프로젝트 전체의 1=lunge/2=forwardbend/3=armsopen 번호 관례와 맞춰 01=lunge·02=forwardbend로 매핑했다. 아직 UI 삽입 지점은 미정(runner/ui/cues.js의 CUE.pose는 스테이지 구분 없는 공용 아이콘 1장이라, 자세별로 바꾸려면 그 공용 모듈을 손대야 한다 — 이번 범위 밖) — 런타임 경로만 준비.",
+  "sourceDir": "~/Documents/playzera-assets/오디세이/ui",
+  "jobs": [
+    { "source": "odyssey_intro.png", "out": "public/assets/runner3d/odyssey/ui/intro.webp", "width": 1600, "quality": 82 },
+    { "source": "odyssey_thumbnail.png", "out": "public/assets/runner3d/odyssey/ui/thumbnail.webp", "width": 1600, "quality": 82 },
+    { "source": "rest_cyclops.png", "out": "public/assets/runner3d/odyssey/ui/rest_cyclops.webp", "width": 1600, "quality": 80 },
+    { "source": "rest_poseidon.png", "out": "public/assets/runner3d/odyssey/ui/rest_poseidon.webp", "width": 1600, "quality": 80 },
+    { "source": "rest_ithaca.png", "out": "public/assets/runner3d/odyssey/ui/rest_ithaca.webp", "width": 1600, "quality": 80 },
+    { "source": "poseidon_crouch_hint.png", "out": "public/assets/runner3d/odyssey/ui/hint_crouch_poseidon.webp", "width": 900, "quality": 85 },
+    { "source": "pose_hint_01.png", "out": "public/assets/runner3d/odyssey/ui/hint_pose_lunge.webp", "width": 900, "quality": 85 },
+    { "source": "pose_hint_02.png", "out": "public/assets/runner3d/odyssey/ui/hint_pose_forwardbend.webp", "width": 900, "quality": 85 },
+    { "source": "pose_hint_03.png", "out": "public/assets/runner3d/odyssey/ui/hint_pose_armsopen.webp", "width": 900, "quality": 85 }
+  ]
+}

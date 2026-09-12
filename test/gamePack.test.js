@@ -48,6 +48,22 @@ describe('게임팩 규격', () => {
   })
 })
 
+// ── STEP 93 — "JAPARI RUN" 썸네일 숨김 ★ ─────────────────────────
+// 인터랙션 웜업 장애물 피하기(id: warmup-obstacle)는 썸네일
+// (`runner-space/manifest.json`의 `fx_title_screen.png`) 안에 박힌 타이틀
+// 글자가 "JAPARI RUN"이라 정식 브랜드로 사용자 홈에 노출하기 전에 숨겼다
+// (`status: 'hidden'`) — 코드·에셋·라우트는 그대로다. 말로만 적어두면
+// 다음 세션이 실수로 다시 `active`로 되돌릴 수 있으니 테스트로 고정한다.
+describe('★ 인터랙션 웜업(warmup-obstacle) — 사용자 노출 숨김(STEP 93)', () => {
+  it('사용자 목록(getAll)에는 안 보이지만, registry에는 그대로 남아 개발 접근이 된다', () => {
+    expect(getAll().some(m => m.id === 'warmup-obstacle'), 'getAll()에 노출되면 안 된다').toBe(false)
+    expect(GAME_REGISTRY['warmup-obstacle'], 'registry에서 지우면 안 된다').toBeTruthy()
+    expect(GAME_REGISTRY['warmup-obstacle'].manifest.status).toBe('hidden')
+    expect(getManifest('warmup-obstacle'), '/play?id=로 직접 접근할 매니페스트가 있어야 한다').toBeTruthy()
+    expect(GAME_REGISTRY['warmup-obstacle'].play).toBeTypeOf('function')
+  })
+})
+
 describe('경로', () => {
   it('인트로가 있으면 인트로부터, 없으면 곧장 플레이', () => {
     for (const [id, g] of real) {

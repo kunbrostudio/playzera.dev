@@ -1,0 +1,23 @@
+{
+  "note": "오디세이 런 스토리 배경 — play_zera_odyssey_run_story_sequence_with_image_names.md 기준. img_scene01~15 + 18~19 활성(STEP 92 — 엔딩 가족 상봉·작별). 16~17(활 시험)은 화살 미니게임 범위라 이번에도 미사용. 원본 PNG는 repo 밖.",
+  "sourceDir": "~/Documents/playzera-assets/오디세이/story/final",
+  "jobs": [
+    { "source": "img_scene01.png", "out": "public/assets/runner3d/odyssey/story/scene01.webp", "width": 1600, "quality": 80, "usage": "인트로 — 바다에서 길을 잃은 오디세우스" },
+    { "source": "img_scene02.png", "out": "public/assets/runner3d/odyssey/story/scene02.webp", "width": 1600, "quality": 80, "usage": "인트로 — 소년의 등장" },
+    { "source": "img_scene03.png", "out": "public/assets/runner3d/odyssey/story/scene03.webp", "width": 1600, "quality": 80, "usage": "인트로 — 오디세우스의 부탁" },
+    { "source": "img_scene04.png", "out": "public/assets/runner3d/odyssey/story/scene04.webp", "width": 1600, "quality": 80, "usage": "인트로 — 소년의 승낙" },
+    { "source": "img_scene05.png", "out": "public/assets/runner3d/odyssey/story/scene05.webp", "width": 1600, "quality": 80, "usage": "인트로 — 키클롭스 섬 발견" },
+    { "source": "img_scene06.png", "out": "public/assets/runner3d/odyssey/story/scene06.webp", "width": 1600, "quality": 80, "usage": "인트로 — 배고픈 오디세우스" },
+    { "source": "img_scene07.png", "out": "public/assets/runner3d/odyssey/story/scene07.webp", "width": 1600, "quality": 80, "usage": "인트로 — 동굴 발견" },
+    { "source": "img_scene08.png", "out": "public/assets/runner3d/odyssey/story/scene08.webp", "width": 1600, "quality": 80, "usage": "인트로 — 키클롭스 등장 / 탈출 (stinger)" },
+    { "source": "img_scene09.png", "out": "public/assets/runner3d/odyssey/story/scene09.webp", "width": 1600, "quality": 80, "usage": "Stage1→2 — 탈출 직후 숨 고르기" },
+    { "source": "img_scene10.png", "out": "public/assets/runner3d/odyssey/story/scene10.webp", "width": 1600, "quality": 80, "usage": "Stage1→2 — 다시 출발" },
+    { "source": "img_scene11.png", "out": "public/assets/runner3d/odyssey/story/scene11.webp", "width": 1600, "quality": 80, "usage": "Stage1→2 — 포세이돈의 폭풍 예고" },
+    { "source": "img_scene12.png", "out": "public/assets/runner3d/odyssey/story/scene12.webp", "width": 1600, "quality": 80, "usage": "Stage1→2 — 세이렌의 노래" },
+    { "source": "img_scene13.png", "out": "public/assets/runner3d/odyssey/story/scene13.webp", "width": 1600, "quality": 80, "usage": "Stage1→2 — 스킬라 & 카리브디스" },
+    { "source": "img_scene14.png", "out": "public/assets/runner3d/odyssey/story/scene14.webp", "width": 1600, "quality": 80, "usage": "Stage2→3 — 이타카 상륙" },
+    { "source": "img_scene15.png", "out": "public/assets/runner3d/odyssey/story/scene15.webp", "width": 1600, "quality": 80, "usage": "Stage2→3 — 가족을 향해 출발 (confetti)" },
+    { "source": "img_scene18.png", "out": "public/assets/runner3d/odyssey/story/scene18.webp", "width": 1600, "quality": 80, "usage": "엔딩 — 가족 상봉 (STEP 92)" },
+    { "source": "img_scene19.png", "out": "public/assets/runner3d/odyssey/story/scene19.webp", "width": 1600, "quality": 80, "usage": "엔딩 — 소년과 작별 (STEP 92)" }
+  ]
+}

@@ -136,6 +136,9 @@ export class Stats {
       console.info(`[stats] ✔ Supabase 저장 완료 (run_id ${this.runId})`);
       return { ok: true };
     } catch (e) {
+      // dev/로컬에서 Supabase 미설정 — 큐에 넣어도 flush에서 또 실패한다.
+      // 조용히 넘긴다(localStorage 성장 기록은 그대로 쌓인다).
+      if (e?.code === 'SUPABASE_NOT_CONFIGURED') return { ok: false, skipped: true };
       // 네트워크 단절·키 누락 등 — 기록을 버리지 않고 브라우저에 쌓아둔다
       Stats.enqueue(rec);
       console.warn('[stats] 저장 실패 → 큐잉:', e?.message ?? e);
@@ -242,7 +245,9 @@ export class Stats {
       try {
         await Stats.push(rec);
         flushed++;
-      } catch {
+      } catch (e) {
+        // 미설정이면 이번 세션엔 아무것도 못 보낸다 — 큐를 그대로 두고 멈춘다.
+        if (e?.code === 'SUPABASE_NOT_CONFIGURED') return { flushed, remain: q.length, skipped: true };
         remain.push(rec);
       }
     }

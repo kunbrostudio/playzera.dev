@@ -75,6 +75,55 @@ function ensureStyle() {
     .pz-reward { width: min(520px, 100%); }
     .pz-line { font-size: clamp(0.9rem, 1.9vw, 1.15rem); font-weight: 800; color: var(--pz-gold, #ffd23e); }
 
+    /* ── 게임팩 전용 결과 배경(STEP 90) — bg를 준 호출에서만 켜진다 ★ ──
+       기본 .pz-over(다른 게임 전부)는 이 규칙들에 안 걸린다 — 클래스
+       자체가 없다. .pz-over-themed에서만 불투명 검정 배경을 걷어내고
+       그림 + 그라데이션으로 바꾼다. */
+    .pz-over.pz-over-themed { background: transparent; }
+    .pz-over-bg {
+      position: absolute; inset: 0; z-index: 0;
+      background-size: cover; background-position: center;
+    }
+    .pz-over-overlay {
+      position: absolute; inset: 0; z-index: 1;
+      /* 위는 그림이 보이게 옅게, 아래(글자 자리)로 갈수록 짙게 — 그림을
+         완전히 덮지 않으면서 점수·버튼 글자는 확실히 읽히게. */
+      background: linear-gradient(180deg, rgba(8,6,20,.35) 0%, rgba(8,6,20,.55) 45%, rgba(8,6,20,.86) 100%);
+    }
+    /* 배경·오버레이 위로 실제 내용을 올린다 — screens.js의 .r3s-bg
+       제외 패턴과 같은 이유(절대 위치 두 장 다음에 오는 것들만). */
+    .pz-over-themed > *:not(.pz-over-bg):not(.pz-over-overlay) { position: relative; z-index: 2; }
+
+    /* ── 중앙 콘텐츠 배경 박스(STEP 92) — themed(bg 있는) 결과 화면 전용 ★ ──
+       ken 지적: "중앙 콘텐츠가 그냥 붕 떠 있는 느낌" — 제목·점수·버튼이
+       테마 배경+그라데이션 위에 개별 요소로만 떠 있어서 안정감이 없었다.
+       새 디자인을 짜는 대신 스토리 대화창(runner3d/screens.js의 story-box
+       패널)과 같은 배경·테두리·모서리 값을 그대로 재사용한다 — 플레이
+       제라 전체에서 "이건 우리 박스다"로 읽히는 값(어두운 보라 반투명 +
+       금색 테두리 + 24px 라운드)이 이미 있는데 새로 만들 이유가 없다.
+       themed가 아닌 기본 pz-over(쥬라기 등)는 이 클래스 자체가 마크업에
+       없어 완전히 무영향 — 기존 화면 회귀 없음. */
+    .pz-over-box {
+      width: min(94vw, 560px);
+      padding: clamp(20px, 4vh, 36px) clamp(20px, 4vw, 34px);
+      border-radius: 24px;
+      background: rgba(15,7,34,.88);
+      border: 2px solid var(--pz-gold, #ffd23e);
+      box-shadow: 0 10px 30px rgba(0,0,0,.45);
+      display: flex; flex-direction: column; align-items: center;
+      gap: clamp(10px, 2vh, 18px);
+    }
+
+    /* ── SCORE / BEST STREAK — .pz-line 대신 scoreBlock을 줬을 때만(STEP 90) ──
+       점수가 제일 크게(금색), 연속 콤보는 한 단계 낮게(청록) — Odyssey의
+       골드+블루 톤을 그대로 쓴다. */
+    .pz-score-block { display: flex; flex-direction: column; align-items: center; gap: clamp(6px, 1.2vh, 14px); margin: clamp(2px, 0.6vh, 8px) 0; }
+    .pz-score-row { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .pz-score-label { font-size: clamp(.72rem, 1.4vw, .9rem); font-weight: 800; letter-spacing: .12em; color: var(--pz-lavender, #a78bda); }
+    .pz-score-value { font-size: clamp(1.9rem, 5.2vw, 3.1rem); font-weight: 900; line-height: 1; color: var(--pz-gold, #ffd23e); text-shadow: 0 2px 10px rgba(0,0,0,.55); }
+    .pz-score-row.pz-score-sub .pz-score-label { color: var(--pz-blue-start, #0ECAFD); }
+    .pz-score-row.pz-score-sub .pz-score-value { font-size: clamp(1.25rem, 3.2vw, 1.9rem); color: #fff; }
+
     /* 카메라 미리보기 — 내 몸이 잡히고 있다는 걸 보여준다 */
     .pz-pip {
       position: absolute; right: clamp(10px, 2vw, 20px); bottom: clamp(10px, 2vh, 20px);
@@ -217,17 +266,42 @@ export function mountGuide(host, { title, demo = '', how = '', why = '', autoSec
  * 결과 화면 — 모든 게임이 같은 자리에서 같은 모양으로 끝난다.
  *
  * 보상(배지·레벨)은 **점수보다 위에** 온다. 방금 몸을 움직인 직후라 감정이 열려 있다.
+ *
+ * ── `bg`/`scoreBlock`/`sparkle` — 게임팩별 조건부 꾸미기(STEP 90) ★ ──
+ *
+ * 오디세이 런이 "완주 느낌이 부족하다"(ken QA)고 해서 생겼다. 셋 다
+ * **기본값이 꺼짐**이라 이 옵션들을 안 주는 기존 호출(쥬라기 등)은 전과
+ * 완전히 같은 화면·CSS 경로를 탄다 — 공용 결과 화면 자체를 바꾸지 않고,
+ * 부르는 쪽(게임팩)이 자기 조건에서만 켜는 식으로 범위를 좁혔다.
  */
-export function showGameOver(host, { title, line = '', reward = null, onAgain, onQuit } = {}) {
+export function showGameOver(host, {
+  title, line = '', reward = null, onAgain, onQuit,
+  bg = null, scoreBlock = null, sparkle = false,
+} = {}) {
   ensureStyle()
   host.querySelector('.pz-over')?.remove()
 
+  const themed = !!bg
   const el = document.createElement('div')
-  el.className = 'pz-veil pz-over'
-  el.innerHTML = `
+  el.className = themed ? 'pz-veil pz-over pz-over-themed' : 'pz-veil pz-over'
+  // ── 중앙 콘텐츠 묶음(STEP 92) ★ ──────────────────────────────
+  // themed(bg 있음)일 때만 `.pz-over-box`로 감싼다 — 제목·보상·점수·버튼이
+  // 배경 위에 개별로 떠 있지 않고 하나의 패널 안에 자리잡는다(위 CSS 주석).
+  // 기본 결과 화면(다른 게임)은 이 래퍼 없이 예전 마크업 그대로다.
+  const centerHtml = `
     <h2>${title}</h2>
     <div class="pz-reward"></div>
-    <div class="pz-line">${line}</div>
+    ${scoreBlock ? `
+    <div class="pz-score-block">
+      <div class="pz-score-row">
+        <span class="pz-score-label">SCORE</span>
+        <span class="pz-score-value">${Number(scoreBlock.score ?? 0).toLocaleString()}</span>
+      </div>
+      <div class="pz-score-row pz-score-sub">
+        <span class="pz-score-label">BEST STREAK</span>
+        <span class="pz-score-value">${Number(scoreBlock.streak ?? 0).toLocaleString()}</span>
+      </div>
+    </div>` : `<div class="pz-line">${line}</div>`}
     <div class="pz-actions">
       <button class="pz-gbtn" type="button" data-act="again">다시 하기</button>
       <!-- 나가는 버튼의 이름은 **가는 곳**이다. "그만하기"는 무엇이 그만되는지
@@ -237,14 +311,26 @@ export function showGameOver(host, { title, line = '', reward = null, onAgain, o
       <button class="pz-gbtn alt" type="button" data-act="quit">Home으로</button>
     </div>
   `
+  el.innerHTML = `
+    ${themed ? `<div class="pz-over-bg" style="background-image:url('${bg}')"></div><div class="pz-over-overlay"></div>` : ''}
+    ${themed ? `<div class="pz-over-box">${centerHtml}</div>` : centerHtml}
+  `
   host.appendChild(el)
 
   const rewardHost = el.querySelector('.pz-reward')
   if (hasReward(reward)) mountReward(rewardHost, reward)
   else rewardHost.remove()
 
-  el.querySelector('[data-act="again"]').addEventListener('click', () => onAgain?.())
-  el.querySelector('[data-act="quit"]').addEventListener('click', () => onQuit?.())
+  // 가볍게 한 번 — 무거운 라이브러리 없이 기존 꽃가루 헬퍼 재사용(STEP 90).
+  // 화면을 떠나면(다시 하기/Home 전부 페이지 자체가 새로고침되거나 라우트가
+  // 바뀐다) DOM이 통째로 사라지므로, 버튼을 누르는 순간 먼저 멈춰 둔다 —
+  // 다음 판에 잔상 파티클이 안 남게(리플레이 후 stale 상태 방지).
+  let stopSparkle = null
+  if (sparkle) stopSparkle = burstConfetti(el, { pieces: 60, bursts: 2, seconds: 3 })
+  const cleanup = () => stopSparkle?.()
+
+  el.querySelector('[data-act="again"]').addEventListener('click', () => { cleanup(); onAgain?.() })
+  el.querySelector('[data-act="quit"]').addEventListener('click', () => { cleanup(); onQuit?.() })
   return el
 }
 
