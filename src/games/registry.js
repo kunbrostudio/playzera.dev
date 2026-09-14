@@ -116,9 +116,33 @@ export const GAME_REGISTRY = {
 // 전략적으로 숨긴 게임, 어느 환경에서도 안 보임)과는 다르다. ken이 로컬에서
 // 카드를 눌러 바로 테스트해야 하는데, `hidden`으로 두면 로컬에서도 안 보여서
 // 매번 `/play?id=`를 손으로 쳐야 했다(9/5, 풍선 팡팡 작업 중 발견).
+//
+// ── Branch Deploy 미리보기 ★ (2026-09-14) ─────────────────────────
+//
+// 외부 TEST/BETA 사용자에게는 `/play?id=` 직접 접근이 아니라 실제
+// 허브 흐름(HOME → 카드 → 진입)까지 보여줘야 할 때가 있다(풍선 팡팡
+// Family Co-op BETA). 그렇다고 "프로덕션 빌드=DEV 아님" 규칙 자체를
+// 넓히면, 지금은 `wip` 게임이 풍선 팡팡뿐이라도 **나중에 다른 게임이
+// wip가 됐을 때** 그 게임까지 정식 production에 새어 나갈 위험이
+// 생긴다.
+//
+// 그래서 두 조건을 **같이** 건다 — 하나라도 없으면 그대로 숨는다:
+//   1) 그 게임 매니페스트가 `previewOnBranchDeploy: true`로 **직접
+//      opt-in**했을 것(지금은 풍선 팡팡만 켜져 있다).
+//   2) 지금 빌드가 Netlify **branch-deploy 컨텍스트**일 것 —
+//      `netlify.toml`의 `[context.branch-deploy.environment]`에서만
+//      `VITE_BRANCH_PREVIEW=true`를 심는다. `[context.production]`
+//      (main 자동 배포)에는 이 변수가 없어서, 이 브랜치가 나중에
+//      main에 merge돼도 정식 배포 화면은 안 바뀐다.
+//
+// 즉 이 한 줄은 "wip가 프로덕션에 숨는다"는 정책을 안 바꾸고, opt-in
+// 안 한 wip 게임에는 전혀 영향이 없다.
 const visibleNow = m => {
   if (m.status === 'hidden') return false
-  if (m.status === 'wip') return import.meta.env.DEV
+  if (m.status === 'wip') {
+    return import.meta.env.DEV
+      || (m.previewOnBranchDeploy === true && import.meta.env.VITE_BRANCH_PREVIEW === 'true')
+  }
   return true
 }
 

@@ -6,6 +6,7 @@
 // 필드라 몇 달을 그대로 있었고, 이제 그 필드로 **무엇을 기록할지 정한다.**
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { GAME_REGISTRY, getAll, getManifest, getEntry, getBackTo, getPlayRoute } from '../src/games/registry.js'
 import { getExercise } from '../src/progress/exercises.js'
 
@@ -61,6 +62,47 @@ describe('★ 인터랙션 웜업(warmup-obstacle) — 사용자 노출 숨김(S
     expect(GAME_REGISTRY['warmup-obstacle'].manifest.status).toBe('hidden')
     expect(getManifest('warmup-obstacle'), '/play?id=로 직접 접근할 매니페스트가 있어야 한다').toBeTruthy()
     expect(GAME_REGISTRY['warmup-obstacle'].play).toBeTypeOf('function')
+  })
+})
+
+// ── Branch Deploy 미리보기 ★ (2026-09-14) ────────────────────────
+//
+// `visibleNow()`는 `import.meta.env.DEV`를 읽는데, vitest 자체가 DEV=true로
+// 돈다(위 warmup-obstacle 검사와 달리 이 로직은 DEV=false인 실제 production
+// 빌드에서만 갈린다) — 그래서 동작을 vitest 안에서 직접 재현하는 대신,
+// 이 저장소의 다른 "빌드 시점에만 갈리는" 코드(STEP 103의 `#bf-diag` DEV
+// 게이팅)와 같은 방식으로 **소스 문자열**을 검사해 조건이 실제로 코드에
+// 박혀 있는지 못박는다.
+describe('★ Branch Deploy 미리보기 — 풍선 팡팡 카드만 opt-in으로 노출(2026-09-14)', () => {
+  const registrySrc = readFileSync('src/games/registry.js', 'utf8')
+  const netlifyToml = readFileSync('netlify.toml', 'utf8')
+
+  it('풍선 팡팡 매니페스트가 previewOnBranchDeploy: true로 opt-in했다', () => {
+    expect(GAME_REGISTRY['balloon-festival'].manifest.previewOnBranchDeploy).toBe(true)
+  })
+
+  it('다른 게임은 이 필드로 opt-in하지 않았다 — 정책을 광범위하게 안 넓혔다', () => {
+    // 지금은 wip 게임이 풍선 팡팡 하나뿐이지만(다른 게임은 active·hidden),
+    // 이 필드 자체는 풍선 팡팡 매니페스트에만 있어야 한다 — 나중에 다른
+    // 게임이 wip가 되더라도 opt-in을 직접 안 하면 여전히 숨어야 한다.
+    const optedIn = Object.values(GAME_REGISTRY)
+      .map(g => g.manifest)
+      .filter(m => m.previewOnBranchDeploy === true)
+    expect(optedIn.map(m => m.id)).toEqual(['balloon-festival'])
+  })
+
+  it('visibleNow가 DEV 여부와 별개로 previewOnBranchDeploy + VITE_BRANCH_PREVIEW 조건을 같이 본다', () => {
+    expect(registrySrc.includes(
+      "return import.meta.env.DEV\n      || (m.previewOnBranchDeploy === true && import.meta.env.VITE_BRANCH_PREVIEW === 'true')"
+    )).toBe(true)
+  })
+
+  it('netlify.toml — VITE_BRANCH_PREVIEW는 branch-deploy 컨텍스트에만 있고 production에는 없다', () => {
+    expect(netlifyToml.includes('[context.branch-deploy.environment]')).toBe(true)
+    expect(netlifyToml.includes('VITE_BRANCH_PREVIEW = "true"')).toBe(true)
+    // 실제 TOML 섹션 헤더로만 찾는다(줄 맨앞 `[context.production]`) —
+    // 설명 주석 안에 같은 문자열이 나와도 그건 실제 블록이 아니다.
+    expect(/^\[context\.production\]/m.test(netlifyToml), 'production 컨텍스트 블록 자체가 없어야 이 변수도 안 심긴다').toBe(false)
   })
 })
 

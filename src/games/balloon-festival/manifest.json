@@ -10,6 +10,7 @@
   "tags": ["풍선", "손", "카메라"],
   "metrics": ["left_hand_hits", "right_hand_hits", "active_sec"],
   "status": "wip",
+  "previewOnBranchDeploy": true,
   "createdAt": "2026-09-05",
   "story": {
     "intro": {

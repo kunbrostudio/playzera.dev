@@ -15,6 +15,15 @@
 [context.branch-deploy]
   command = "npm run build"
 
+# TEST/BETA 허브 카드 노출(2026-09-14) — `previewOnBranchDeploy: true`를
+# 매니페스트에 둔 wip 게임(지금은 풍선 팡팡만)만 이 값을 보고 HOME에
+# 카드로 나타난다(src/games/registry.js의 visibleNow 참고). 이 블록은
+# branch-deploy 컨텍스트에만 있고 [context.production]에는 없어서,
+# main 자동 배포(정식 사이트)에는 이 변수가 안 심긴다 — 이 브랜치가
+# main에 merge돼도 정식 배포 화면은 그대로다.
+[context.branch-deploy.environment]
+  VITE_BRANCH_PREVIEW = "true"
+
 [context.deploy-preview]
   command = "npm run build"
 
