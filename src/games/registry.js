@@ -21,6 +21,7 @@ import fireRescueManifest from './fire-rescue/manifest.json'
 import stoneBridgeManifest from './stone-bridge/manifest.json'
 import popClickerManifest from './pop-clicker/manifest.json'
 import balloonFestivalManifest from './balloon-festival/manifest.json'
+import bodyQuizManifest from './body-quiz/manifest.json'
 import { getPlaceholderManifests } from './placeholders.js'
 
 export const GAME_REGISTRY = {
@@ -83,6 +84,18 @@ export const GAME_REGISTRY = {
   'balloon-festival': {
     manifest: balloonFestivalManifest,
     play:     () => import('./balloon-festival/play.js'),
+  },
+
+  // 바디 퀴즈 — 스쿼트로 MOVE ENERGY를 채우고, 좌우로 몸을 움직여 답을 고른다.
+  // 인트로(`thum_bodyquiz.png` 한 장 + START)가 있어 entry는 인트로부터다.
+  // 튜토리얼은 별도 라우트가 아니라 `play.js`가 자기 화면 위에 얹는
+  // 오버레이라(`body-quiz/tutorial.js`) 여기 `tutorial` 로더로는 안 잡힌다.
+  // 지금은 상태 머신 프로토타입 하나뿐(문제 1개, 키보드 입력).
+  // `status: 'wip'`라 개발 중에만 허브에 보인다.
+  'body-quiz': {
+    manifest: bodyQuizManifest,
+    intro:    () => import('./body-quiz/intro.js'),
+    play:     () => import('./body-quiz/play.js'),
   },
 }
 

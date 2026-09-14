@@ -1,0 +1,15 @@
+{
+  "id": "body-quiz",
+  "title": "바디 퀴즈",
+  "description": "스쿼트로 힘을 모으고, 몸을 움직여 정답을 골라요!",
+  "thumbnail": "/assets/body-quiz/intro/thum_bodyquiz.png",
+  "hero": "/assets/body-quiz/intro/thum_bodyquiz.png",
+  "ageRange": "4-8",
+  "players": { "min": 1, "max": 1 },
+  "gestures": [],
+  "detectors": ["squat", "zone"],
+  "tags": ["퀴즈", "스쿼트"],
+  "metrics": ["squats", "active_sec"],
+  "status": "wip",
+  "createdAt": "2026-09-12"
+}

@@ -9889,3 +9889,173 @@ HTML 주석을 달면서 "test/brandUi.test.js가"처럼 백틱으로 코드를
 게임으로 보내는지, D-pad "화면 조작" 이름표가 실제로 혼동을 줄이는지,
 햄버거 소리 버튼이 게임 중에도(BGM이 게임마다 다른 곡일 때) 잘
 먹히는지, 태블릿 폭에서 그리드 열 수가 실제로 몇 개로 보이는지.
+
+## STEP 77 — BODY QUIZ 튜토리얼 레이아웃 안전화 (2026-09-13)
+
+마지막 UI 피드백의 핵심은 장식을 더하는 것이 아니라 **어떤 가로 화면에서도
+내용을 자르지 않는 것**이었다. 기존 화면은 상단·중앙·하단을 각각 절대
+배치하고, 중앙 보드에 `max-height` + `overflow: hidden`을 걸었다. STEP마다
+내용 높이가 달라지는 상태에서 이 구조를 쓰면 2/4의 SQUAT 패널이나 3/4의
+MOVE UNLOCK처럼 한 줄이 더 생기는 순간 보드 아래가 조용히 잘린다.
+
+`body-quiz/tutorial.js`의 화면 전체를 **상단 / 남은 높이를 쓰는 무대 / 하단
+대화창** 3행 grid로 바꿨다. 중앙 폼은 무대의 위에 고정하고, 카드·중앙 그림은
+`min(폭 기준, 화면 높이 기준)`으로 함께 줄어든다. 520px 이하에서는 테두리·
+gap·padding·카드·운동 패널·버튼을 한 단계 더 줄이며, 360px 이하에서는
+SQUAT 숫자와 에너지바를 남긴 채 보조 에너지 문구만 접는다. safe-area도 루트
+padding에 포함했다. `overflow: hidden`으로 결과를 감추지 않고 실제 구성요소의
+높이 예산을 줄이는 방식이다.
+
+같이 정리한 시각 규칙:
+
+- TUTORIAL 이미지 뒤 어두운 칩을 제거하고 약한 밝은 글로우만 남김.
+- QUESTION 라벨과 질문을 같은 flex 행에 두고, 라벨은 왼쪽에 고정한 채 질문은
+  남은 폭에서 중앙 정렬함. 좁은 가로 화면에서도 둘 다 한 줄을 유지하며 물음표
+  아이콘은 제거된 상태를 유지함.
+- 건너뛰기 버튼에 이전/다음과 같은 눌림 깊이와 그림자를 주고 세 버튼의
+  높이·글자 크기·수직 정렬을 하나로 맞춤.
+- 좌우 답안 카드의 Y축 회전을 서로 바꿔 중앙을 바라보게 함. 같은 CSS 변수
+  규칙을 `body-quiz/play.js`에도 적용해 실제 플레이 카드도 같은 방향을 쓴다.
+- 타이핑 타이머, 이전/다음/건너뛰기, 완료 기억과 인트로 진입 흐름은 건드리지
+  않음. BODY QUIZ 밖의 게임 파일도 수정하지 않음.
+
+헤더 최종안(9/14)은 왼쪽 BODY QUIZ 배지를 **`← 인트로`** 버튼으로 바꿨다.
+STEP의 "이전"과 이름부터 구분하고, 목적지는 허브가 아니라
+`/intro?id=body-quiz`다. 오른쪽에는 STEP 표시를 유지한 채 공통
+`runner/ui/systemBar.js`의 햄버거·나가기·확인창을 그대로 붙였다. 확인창의
+"게임 처음으로"는 BODY QUIZ 인트로, "Home으로"만 허브로 간다. 좁은 가로
+화면에서는 타이틀을 건드리지 않고 양쪽 버튼의 padding·gap·아이콘만 줄인다.
+
+헤더 색·크기 최종 폴리싱(9/14): 인트로 버튼은 새 색을 만들지 않고 하단
+`#bqt-prev`의 보라/파랑 gradient·흰 border·glow/depth shadow를 CSS 변수로
+공유한다. 우측 STEP/menu/exit는 한 높이 변수(58px 상한, 가로 폰
+34px/32px)를 쓰고 border·highlight·shadow depth도 같은 계산으로 맞췄다.
+menu/exit의 공용 PNG는 BODY QUIZ 헤더에서만 `core/icons.js`의 menu/exit SVG로
+바꿨다. 공통 `bindSysBar()`에는 SVG 상태 어댑터만 끼워 메뉴 패널·음소거·
+전체화면·나가기 확인 동작은 분기시키거나 복사하지 않았다.
+
+시스템 UI 마감(9/14): menu/exit를 `border-radius: 9999px`의 완전한 원으로
+통일하고, 메뉴 안 음악·효과음·전체화면도 BODY QUIZ 범위에서 코드 SVG로
+바꿨다. 공통 `sysBarMarkup()`·`bindSysBar()`는 그대로 두고 이미지 `src` 상태
+계약만 `svgState` 어댑터가 받아 SVG를 교체한다. 따라서 메뉴 바깥 클릭·ESC·
+음소거·전체화면·종료 경로는 공통 동작을 그대로 쓰면서, 이후 튜토리얼에도
+같은 어댑터/skin을 옮길 수 있다. 패널은 밝은 라벤더/화이트 floating panel,
+종료 확인은 같은 계열의 dim modal로 BODY QUIZ 안에서만 재스킨했다. 확인창
+dim 클릭은 공통 "계속하기" 버튼을 호출해 안전하게 닫고, 메뉴와 확인창은
+동시에 열리지 않는다. 짧은 landscape에서는 panel/button/modal padding과
+높이를 함께 줄여 중앙 튜토리얼의 기존 높이 예산을 바꾸지 않는다.
+
+확인: BODY QUIZ 튜토리얼 테스트 45건, 전체 1127건 통과. 프로덕션 빌드도
+통과했다. 기존 `core/remote/session.js`의 BGM export 경고와 dynamic import/chunk
+크기 경고는 이번 BODY QUIZ 범위 밖이라 그대로다. localhost:5176의 실제 Chrome
+렌더로 1920×1080·1366×768·932×430·844×390·667×375 기본 화면과,
+844×390의 시스템 패널·종료 모달 열린 상태까지 확인했다.
+`npm run check`의 기존 `public/assets/runner3d` 용량 제한(25.6MB / 7MB)은
+이번 범위 밖이라 남아 있다.
+
+## STEP 78 — BODY QUIZ 실제 카메라 플레이 화면 (2026-09-14)
+
+튜토리얼 뒤의 실제 판은 지금까지 보라 단색 배경과 키보드만 있는 상태 머신
+프로토타입이었다. 이번 단계는 이미 검증된 `BodyQuizRun` 규칙과 detector 수치는
+그대로 두고, **카메라 영상을 무대 전체로 쓰는 실제 플레이 화면**으로 완성했다.
+
+`body-quiz/play.js`는 진입 즉시 `poseEngineCore.acquire()`로 공유 카메라 참조 하나를
+빌리고, 전체 화면 `<video>`에 `attach()`한다. 랜드마크 한 구독에서 기존
+`MoveDetector`의 완성된 `MOVE.SQUAT`만 `game.registerSquat()`으로 넘기고,
+기존 3-zone detector의 0/1/2를 left/clear/right로 `BodyQuizRun`에 전달한다.
+화면 이탈 시에는 unsubscribe → video detach → `release()` 순서로 정리한다.
+튜토리얼 중에도 카메라 준비는 병렬로 하되 detector 입력은 막아서 스쿼트나 답
+유지 시간이 GAME START 전에 진행되지 않는다. 권한 실패 시 blank 대신 간단한
+"카메라를 확인해주세요" + 재시도만 보여주며, 별도 Ready Screen 설계는 다음
+공통화 단계로 남겼다.
+
+화면은 카메라 / 옅은 상하·좌우 readability gradient / UI의 세 layer다. UI는
+header, 한 줄 QUESTION banner, 좌·중앙·우 stage, 하단 motion HUD의 4행 grid다.
+중앙 열은 실제 아이의 머리부터 발까지를 위해 비워 두고 얇은 바닥 guide만 둔다.
+좌우 답 카드는 tutorial과 같은 asset을 크게 쓰며 left `+5deg`, right `-5deg`로
+중앙을 바라본다(짧은 landscape는 ±3deg). 선택 유지 중에는 해당 카드 glow와
+반대 카드 opacity를 같이 바꾸고, 확정 뒤에는 정답 green/gold, 오답 soft red로
+상태 머신 결과를 그대로 시각화한다.
+
+하단 HUD는 `game.squatCount`, `game.moveEnergy`, `game.locked`를 매 frame 그린다.
+따라서 `SQUAT 0/5`, 실제 bar/%, MOVE LOCK이 5회 완료 즉시 100%와 MOVE UNLOCK
+gold 상태로 바뀐다. 별도 큰 LOCK modal을 만들지 않았다. header/menu/exit는
+STEP 77에서 정리한 `bodyQuizSystemBarMarkup()`과 `bindBodyQuizSystemBar()`를
+tutorial과 play가 함께 쓰도록 helper로 뽑아, 같은 SVG와 공통 systemBar 동작을
+재사용한다. 플레이에는 tutorial step counter만 없다.
+
+반응형은 root를 `overflow:hidden`으로 잘라 해결한 것이 아니라 header/question/
+stage/HUD에 높이 예산을 먼저 나누고, answer 크기를 `min(폭, dvh)`로 줄인다.
+Chrome 실측에서 1920×1080, 1366×768, 932×430, 844×390, 667×375 모두
+document scroll 크기가 viewport와 같았고 각 핵심 요소 경계가 안쪽이었다. 처음
+667px에서 MOVE ENERGY label을 숨긴 뒤 grid 자동 배치가 bar를 2px로 줄이는 문제가
+실제 캡처에서 발견돼, 그 breakpoint만 `minmax(70px,1fr) auto` 두 열로 바꿨다.
+재측정 bar 폭은 약 451px다. 667×375의 메뉴와 종료창 열린 상태도 화면 안이다.
+
+카메라가 없는 headless Chrome에서는 fallback만 검증됐다. 실제 영상에서 아이
+전신이 `object-fit:cover` 프레임 안에 드는지, 실기기 스쿼트 문턱과 zone 이동 폭,
+0.6초 답 유지 감각은 아이가 실제로 움직여 확인해야 한다. 이 수치들은 근거 없이
+조정하지 않았다.
+
+확인: BODY QUIZ 관련 테스트 79건, 전체 1133건 통과. 프로덕션 빌드 통과.
+기존 `core/remote/session.js` BGM export 및 dynamic import/chunk 경고는 이번
+BODY QUIZ 범위 밖이라 그대로 남겼다.
+
+플레이 시각 밀도 폴리싱(9/14): QUESTION banner를 고정 `92vw`에서
+`fit-content` + viewport별 `min-width`/`max-width`로 바꿨다. 현재 질문은
+데스크톱 약 600px, 짧은 landscape 420~440px라 문장 주변의 빈 보라 영역이
+과하지 않고, 긴 문장은 max-width 안에서만 wrap된다. 답 카드는 폭/dvh 상한을
+함께 약 10~14%(모바일 7~9%) 키우되 중앙 열은 그대로 유지했다. 중앙을 보는
+Y축 회전은 desktop left/right `+12deg/-12deg`, 짧은 landscape `+7deg/-7deg`다.
+선택/정오답은 기존 `--bq-card-scale`만 바꾸므로 회전 transform과 충돌하지 않는다.
+카드별 blue/gold glow와 두 CSS pseudo sparkle을 3초 주기로 추가했고
+`prefers-reduced-motion`에서는 animation을 멈춘다.
+
+Chrome 재검증: 1920×1080, 1366×768, 932×430, 844×390, 667×375 모두
+scroll 크기가 viewport와 같고 header/question/cards/HUD가 화면 안이다.
+667×375 energy bar 폭은 451px를 유지했다. 같은 화면에서 menu panel과 exit
+confirm 경계도 viewport 내부이고, exit를 열면 menu가 닫힌다.
+
+확인: BODY QUIZ 관련 테스트 85건, 전체 1134건 통과. 프로덕션 빌드 통과.
+
+실제 플레이 최종 폴리싱(9/14): 왼쪽의 인트로 바로가기는 오른쪽 종료 확인의
+"게임 처음으로"와 역할이 겹쳐 제거하고, 그 자리를 실제 session의
+`QUIZ current / total` blue glossy pill로 바꿨다. 문제 선택은
+`body-quiz/session.js`로 분리했다. Fisher-Yates로 원본을 건드리지 않고 최대
+10개를 중복 없이 고른 다음, 각 문제의 답 위치를 별도로 섞으며 `correctSide`도
+같이 뒤집는다. 현재 문제 사전이 1개라 실제 표시는 `1 / 1`이고, 데이터만 늘리면
+코드 변경 없이 최대 10문제가 이어진다. 결과는 1.2초 보여준 뒤 다음 문제가 있을
+때만 넘어간다.
+
+화면에는 countdown을 만들지 않았다. 대신 질문 시작·운동 완료·답 확정 시각과
+전체 소요 시간을 session 메모리에만 기록한다. 저장/API는 아직 연결하지 않았다.
+답 카드는 기존 크기·안쪽 tilt·sparkle·선택 효과를 보존한 채 짧은 landscape에서
+3px, 큰 화면에서 8~22px만 위로 올렸다. transform에 위치 보정을 섞지 않아 기존
+상태 scale과 회전이 충돌하지 않는다. 하단 SQUAT 왼쪽에는 BODY QUIZ 안의
+`squat/jump/run/pose` key 기반 white SVG pictogram helper를 추가했다. detector와
+tuning 값은 바꾸지 않았다.
+
+가이드 문구/화자 규칙은 i18n 데이터로 옮길 수 있게 `body-quiz/guide.js`에
+분리했고, 한 상태에서 한 명만 말하도록 배선했다. 다만 요청된
+`public/assets/body-quiz/play/guide_girl.png`와 `guide_boy.png`가 저장소에 없다.
+튜토리얼 그림을 임의 대체하지 않고, 지정 파일이 실제 load되기 전에는 캐릭터와
+말풍선 전체를 숨긴다. 두 파일이 같은 경로에 들어오면 별도 코드 수정 없이 idle과
+상태 말풍선이 활성화된다. reduced-motion에서는 idle/pop과 카드 sparkle을 멈춘다.
+
+자동 브라우저 binding이 없는 실행 환경이라 이번 변경 뒤 새 screenshot/bounds
+측정은 진행하지 못했다. 5176의 기존 listener는 확인했고 중복 서버는 띄우지 않았다.
+5개 landscape breakpoint의 CSS/DOM 회귀 테스트는 추가했지만, 가이드 원본 asset이
+들어온 뒤 1920×1080·1366×768·932×430·844×390·667×375 실제 화면 bounds는 다시
+확인해야 한다.
+
+확인: BODY QUIZ 관련 테스트 93건, 전체 1144건 통과. 프로덕션 빌드 통과.
+기존 `core/remote/session.js`의 BGM export 경고와 dynamic import/chunk 경고는
+BODY QUIZ 범위 밖이라 그대로 두었다.
+
+1차 테스트 배포 점검에서 인트로가 `handSession`의 손 커서/PIP를 켠 뒤 실제
+플레이가 이를 끄지 않는 누락을 발견했다. 다른 몸 게임과 같은
+`setPointerActive(false)`를 BODY QUIZ play 진입부에 추가했다. 공용 카메라
+참조는 유지하고 화면 위 커서/PIP만 숨기는 변경이라 별도 카메라를 다시 열지
+않으며, 중앙 전신 영역과 머무르기 오입력을 동시에 보호한다.
+
+확인: BODY QUIZ 관련 테스트 94건, 전체 1145건 통과. 프로덕션 빌드 통과.
