@@ -153,6 +153,9 @@ class PoseEngineCore {
     this._lastVideoTime = -1
     this._smoothed = null
     this._callbacks = new Set()
+    // 다인 후보 구독(STEP 105, 풍선 팡팡 DUO 전용 opt-in). 한 사람만 받는
+    // `_callbacks` 길과는 완전히 따로다 — 여기 아무도 없으면 기존 동작 그대로.
+    this._candidateCallbacks = new Set()
     this._refs = 0           // acquire/release 참조 수
     this._startPromise = null
     this._detectCount = 0    // 진단용 — 아래 `stats` 참고
@@ -190,6 +193,16 @@ class PoseEngineCore {
    */
   confirmLock() { this._personLock.confirmLock() }
 
+  /**
+   * 잠금을 풀고 다음 프레임부터 처음부터 다시 고른다(STEP 105).
+   *
+   * 카메라는 앱 수명 동안 하나라 잠금도 화면을 넘어 살아남는다 — 메뉴를 손
+   * 제스처로 조작한 보호자(다른 게임의 준비 화면에서 잠겼을 수도 있다)가
+   * 그대로 게임 플레이어로 남으면 안 된다. 게임이 **플레이 직전**에 불러
+   * 실제로 화면 앞에 선 사람을 새로 확보한다.
+   */
+  resetLock() { this._personLock.reset() }
+
   // ⚠️ setPaused()는 없애 두었다.
   //
   // 엔진이 게임 전용일 때는 "타이틀 화면에서는 추론을 쉰다"가 맞는 절약이었다.
@@ -203,6 +216,18 @@ class PoseEngineCore {
   onLandmarks(callback) {
     this._callbacks.add(callback)
     return () => this._callbacks.delete(callback)
+  }
+
+  /**
+   * 이번 프레임에 잡힌 **모든 사람**의 랜드마크(거울 좌표, 스무딩 없음)를
+   * 받는다 — `(people: Array<lms>, nowMs) => void`. personLock을 거치지
+   * 않는다. 풍선 팡팡 DUO가 두 사람을 동시에 쓰려고 연 길이고(STEP 105),
+   * 다른 구독자(`onLandmarks`)가 받는 "한 사람"은 이 구독과 무관하게
+   * 예전과 똑같다. 반환값을 호출하면 구독 해제.
+   */
+  onCandidates(callback) {
+    this._candidateCallbacks.add(callback)
+    return () => this._candidateCallbacks.delete(callback)
   }
 
   isRunning() { return this._running }
@@ -365,7 +390,7 @@ class PoseEngineCore {
     this._rafId = requestAnimationFrame(this._loop)
 
     // 듣는 사람이 없으면 추론하지 않는다 (전역 pause 스위치를 대신한다)
-    if (this._callbacks.size === 0) return
+    if (this._callbacks.size === 0 && this._candidateCallbacks.size === 0) return
     const video = this._video
     if (!video || video.currentTime === this._lastVideoTime) return
     this._lastVideoTime = video.currentTime
@@ -374,6 +399,13 @@ class PoseEngineCore {
       const result = this._landmarker.detectForVideo(video, performance.now())
       this._detectCount++
       const candidates = result.landmarks || []
+      // 다인 구독자(DUO)에게는 personLock을 거치기 **전** 전원을 준다 —
+      // 사람이 0명인 프레임도 준다(그래야 "사라졌다"를 셀 수 있다).
+      if (this._candidateCallbacks.size) {
+        const people = candidates.map(mirrorPose)
+        const now = performance.now()
+        for (const cb of this._candidateCallbacks) cb(people, now)
+      }
       // 여럿 잡혀도 "그 아이 한 명"만 고른다 — 나머지 코드는 이전처럼 한
       // 사람만 받는다는 전제를 그대로 지킨다. 시각은 밖(여기)에서 넘긴다.
       const raw = this._personLock.select(candidates, performance.now())
@@ -474,3 +506,12 @@ class PoseEngineCore {
 }
 
 export const poseEngineCore = new PoseEngineCore()
+
+/**
+ * 원본 랜드마크 한 사람분 → 거울 좌표 사본(`1 - x`). 스무딩은 안 한다 —
+ * `_mirrorAndSmooth`의 EMA 상태는 "한 사람"용이라 여러 사람에게 나눠 쓸
+ * 수 없다. 원본 배열은 안 건드린다(personLock이 같은 후보를 이어서 쓴다).
+ */
+export function mirrorPose(raw) {
+  return raw.map(p => (p ? { x: 1 - p.x, y: p.y, z: p.z, visibility: p.visibility } : p))
+}

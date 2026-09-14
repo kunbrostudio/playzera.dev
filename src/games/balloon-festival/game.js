@@ -5,143 +5,208 @@
 //
 // ── 한 판 ────────────────────────────────────────────────────
 //
-//   1부 BALLOON CATCH  3단계 — 1분 안에 5·10·15개를 붙잡아 바구니에 넣는다
+//   1부 BALLOON CATCH  3레벨 — 5·10·15개를 붙잡아 바구니에 넣는다
 //   (파트 전환 — 축제 장면, 화면 쪽 몫)
-//   2부 BALLOON POP    3단계 — 1분 안에 5·10·15개를 터뜨린다
+//   2부 BALLOON POP    3레벨 — 5·10·15개를 터뜨린다
 //
-// 두 파트가 **같은 `SpriteField`/이동 패턴**을 쓴다(기획서 13장:
-// "동일한 카메라 기반 충돌 시스템을 사용"). 다른 것은 손이 오브젝트를
-// 만났을 때의 결과뿐이다 — 1부는 붙잡아 옮기고(attach/collect),
+// 두 파트가 **같은 `SpriteField`/이동 패턴**을 쓴다. 다른 것은 손이
+// 오브젝트를 만났을 때의 결과뿐이다 — 1부는 붙잡아 옮기고(attach/collect),
 // 2부는 그 자리에서 없앤다(pop).
 //
-// ── 단계는 **개수 목표**로 넘어가고, 시간은 제한이다 ★ ────────
+// ── 레벨은 "정해진 개수를 전부 처리"로만 끝난다 ★ (재구성) ────
 //
-// ken 6차 피드백이 이 구조를 확정했다: "1단계로 5개의 풍선으로 진행돼.
-// 그래서 1분 안에 5개를 바구니에 담으면 돼. 5개 완료하면 2단계로
-// 넘어가는데 2단계는 10개, 완료해서 3단계는 15개로 진행."
+// STEP 76 계열은 "quota(목표) + timeLimitSec(제한시간) + count(동시
+// 노출수, 담을수록 다시 채움)"이었다. 이번 요청은 그 세 축을 걷어내고
+// 하나로 합친다 — **레벨 시작 때 quota만큼 딱 한 번 스폰**하고, 그
+// 이후로는 절대 다시 안 채운다(담거나 터뜨릴 때마다 화면의 풍선 수가
+// quota → quota-1 → … → 0으로 줄어든다). 그래서 "동시 노출 수"라는
+// 별도 개념이 없다 — 노출 수는 항상 남은 목표 수와 같다.
 //
-// 그 전 라운드들이 이 지점에서 헤맸다 — 3차에서 "타이머로 진행하자"를
-// **타이머가 클리어 조건**이라는 뜻으로 읽고 quota를 전부 걷어냈고,
-// 5차에서는 숫자 5·7·10을 **화면에 뜨는 개수**로 읽었다. 6차에서 ken이
-// 문장으로 풀어 준 걸 보면 두 축이 처음부터 따로였다:
+// 레벨 완료의 source of truth는 **이번 레벨에서 처리한 개수
+// (collected/popped) === quota** 하나뿐이다. quota만큼만 스폰하므로
+// "화면에 남은 자유 풍선이 0"은 이 조건의 **결과**이지 별도로 검사할
+// 필요가 없다 — 두 조건을 따로 관리하면 언젠가 어긋난다.
 //
-//   quota        이 단계를 **넘어가는 조건** — 담거나 터뜨릴 개수(5·10·15)
-//   timeLimitSec 그걸 해내야 하는 **제한 시간** (1분)
-//   count        그 동안 화면에 떠 있는 풍선 수 — 난이도(체감)일 뿐 목표가 아니다
-//
-// 그래서 타이머는 더 이상 "다 되면 다음 단계"가 아니다. 시간 안에
-// 목표를 못 채우면 **실패**다(아래 timeUp). 3차의 "목숨값은 없다"는
-// 그대로 지킨다 — 하트를 깎지 않고, 실패는 판 전체가 한 번 끝나는 것뿐이다.
-//
-// 화면에 뜨는 개수(count)는 5차 요청을 그대로 둔다: "풍선은 너무 많으면
-// 아이들이 어지럽고 힘들어 할거야." 목표가 15개라고 15개를 한꺼번에
-// 띄우지 않는다 — 담은 만큼 다시 채워지므로(`_spawnUpTo`) 목표는
-// 채워지고 화면은 한산하다.
-const STAGE_SEC = 60   // 단계마다 1분 (ken: "1분 안에 5개를 바구니에 담으면 돼")
-//
-// 초 단위·개수 전부 어림값이다(pop-clicker의 `ROUNDS`처럼 **실기기에서
-// 조정할 값**) — 특히 CATCH 파트는 "한 번에 하나만 잡는다" 제약이
-// 붙어서(아래 참고) 3단계 15개가 1분 안에 되는지 봐야 한다.
-//
-// ── 3부(바람 곡선 이동)는 MVP에서 단순화했다 ─────────────────
-//
-// 기획서 1부 STAGE3("부드러운 곡선 이동")은 화면 안을 계속 돌아다니는
-// 잡기용 풍선에는 안 맞는 패턴이다(`arcade2d/movement.js`의 CURVE는
-// 위로 떠오르며 사라지는 비눗방울류 전용이다). MVP에서는 1부 전
-// 스테이지를 DRIFT(등속+가장자리 튕김)로 통일하고, 속도·개수만
-// 스테이지별로 올린다 — "곡선 이동" 질감은 다음 다듬기 대상이다.
+// 시간 제한은 없앴다("정해진 풍선 모두 처리"가 유일한 완료 조건이라
+// 타이머가 레벨을 강제로 끝내거나 실패시키면 새 규칙과 충돌한다) —
+// 그래서 `failed`/`timeUp` 개념도 함께 걷어냈다. 실기기에서 "너무
+// 오래 걸린다"는 피드백이 나오면 그때 다시 넣는다.
 
-import { PATTERN } from '../arcade2d/movement.js'
+import { PATTERN, avoidZone } from '../arcade2d/movement.js'
 import { SpriteField } from '../arcade2d/spriteField.js'
 
 export const PART = { CATCH: 'catch', POP: 'pop', DONE: 'done' }
 
-// count는 STEP 76 후속에서 ken 요청으로 올렸다("풍선은 처음부터 많이
-// 보여줘도 될 거 같아") — 원래 값(1~5개, 아래 주석)은 한산해서 화면이
-// 심심했다. r(반지름)은 3차 피드백에서 다시 키웠다("풍선 크기는 더
-// 키워주고") — 원래 값도 주석으로 남긴다. 여전히 둘 다 어림값이다.
-//
-// quota(목표)는 ken이 6차에서 준 값이다 — 5 → 10 → 15, 두 파트 다 같다.
-// count(화면에 뜨는 수)는 5차의 "어지럽다" 요청을 그대로 지킨다(5·7·10).
-// 풍선이 커질수록 화면이 빨리 차므로 count가 늘 때 r을 조금씩 줄인다 —
-// 안 줄이면 3단계에서 풍선끼리 겹쳐 어느 게 어느 건지 안 보인다.
-/** 1부 — BALLOON CATCH. 3단계, 각 1분 안에 5·10·15개를 바구니에. */
-export const CATCH_STAGES = [
-  { id: 1, name: '풍선을 담아봐!',      quota: 5,  count: 5,  speed: 0.06, r: 0.135 },
-  { id: 2, name: '조금 더 많아졌어!',   quota: 10, count: 7,  speed: 0.09, r: 0.12  },
-  { id: 3, name: 'FESTIVAL READY',     quota: 15, count: 10, speed: 0.12, r: 0.105 },
-].map(s => ({ ...s, kind: 'balloon', pattern: PATTERN.DRIFT, points: 10, timeLimitSec: STAGE_SEC }))
+/** 레벨별 목표 개수 — 1부·2부 둘 다 5 → 10 → 15(ken 6차 값 그대로). */
+export const PART1_LEVEL_QUOTAS = [5, 10, 15]
+export const PART2_LEVEL_QUOTAS = [5, 10, 15]
 
-/** 2부 — BALLOON POP. 3단계, 각 1분 안에 5·10·15개를 터뜨린다. STAGE2만 FLEE. */
-export const POP_STAGES = [
-  { id: 1, name: 'EASY POP',   quota: 5,  count: 5,  speed: 0.08, r: 0.135, pattern: PATTERN.DRIFT },
-  { id: 2, name: 'CHASE POP',  quota: 10, count: 7,  speed: 0.10, r: 0.12,  pattern: PATTERN.FLEE  },
-  { id: 3, name: 'POP FEVER',  quota: 15, count: 10, speed: 0.14, r: 0.105, pattern: PATTERN.DRIFT },
-].map(s => ({ ...s, kind: 'balloon', points: 10, timeLimitSec: STAGE_SEC }))
+/**
+ * 2부(POP) 시작 시 바구니 안에 **장식용**으로 쌓아 두는 풍선 개수 —
+ * 레벨이 올라갈수록(=축제가 끝나가면서) 줄어들다 3레벨엔 빈 바구니가
+ * 된다. 게임 지표와 완전히 무관한 연출 값이라 여기 있지만 실제로는
+ * `ui/playScreen.js`만 읽는다(장식 풍선은 `SpriteField`에 안 들어가므로
+ * `game.js`의 판정 로직은 이 값의 존재 자체를 모른다).
+ */
+export const PART2_BASKET_DECOR_COUNTS = [10, 5, 0]
+
+// ── 레벨 사이 쉬는 시간(초) ★ (재구성 STEP 96) ─────────────────
+//
+// ken 요청: "다음 레벨이 너무 즉시 시작돼서 성공을 인식할 시간이 없다."
+// LEVEL_CLEAR 배너 → 캐릭터 대사 → 이 시간만큼 숫자 카운트다운(10…4는
+// 평범한 숫자, 마지막 3·2·1·START!는 러너 엔진의 기존 카운트다운
+// 그림(`runner/ui/cues.js`의 `runCountdown`)을 그대로 재사용한다 —
+// 화면·타이밍은 `ui/playScreen.js`가 갖고, 여기는 값만 정본으로 둔다.
+export const LEVEL_REST_SECONDS = 10
+
+/**
+ * 레벨 클리어 직후 캐릭터가 하는 말 — 인덱스는 방금 깬 레벨(0-based).
+ * ken이 준 문구를 톤만 살짝 다듬었다. 마지막 줄(2번, 레벨 3)은 다음
+ * 파트/엔딩으로 넘어간다는 걸 알려준다.
+ *
+ * ── 목표 개수는 문자열에 안 박는다 ★ (STEP 107) ─────────────────
+ *
+ * DUO(10→20→30)를 붙이면서(STEP 104/105) 이 대사들이 "5개"·"10개"·
+ * "15개"를 그대로 문자열에 박아 둔 게 드러났다 — DUO로 플레이하면
+ * 실제로는 10개를 모았는데 대사가 "5개를 모았어!"라고 말하는 식으로
+ * 어긋난다. 그래서 각 항목을 `(quotas) => string` 함수로 바꿨다 —
+ * `quotas`는 그 판이 실제로 쓰는 `run.part1Quotas`/`run.part2Quotas`
+ * 배열(모드 설정 `modes.js`에서 온 값, `game.js` 생성자 옵션)이다.
+ * 대사가 "지금 막 몇 개를 채웠는지"·"다음엔 몇 개인지"를 하드코딩된
+ * 숫자가 아니라 **그 판의 실제 quota**에서 읽으므로, SOLO(5/10/15)든
+ * DUO(10/20/30)든 같은 함수가 항상 맞는 숫자를 낸다 — 복제된 숫자가
+ * 어디에도 없다(HUD·게임 판정·대사가 전부 `run.quotas` 하나를 본다).
+ * 숫자가 없는 줄(마지막 줄들)은 그대로 함수로만 감싸 모양을 맞췄다.
+ */
+export const PART1_LEVEL_CLEAR_LINES = [
+  quotas => `잘했어! 풍선 ${quotas[0]}개를 모두 모았어! 이번에는 풍선 ${quotas[1]}개를 바구니에 담아보자!`,
+  quotas => `대단해! 이번에는 마지막으로 풍선 ${quotas[2]}개를 모아보자!`,
+  () => '모든 풍선을 모았어! 잠깐 쉬었다가 이제 풍선을 팡팡 터뜨려보자!',
+]
+export const PART2_LEVEL_CLEAR_LINES = [
+  quotas => `멋져! 이번에는 풍선 ${quotas[1]}개를 터뜨려보자!`,
+  quotas => `거의 다 왔어! 마지막으로 풍선 ${quotas[2]}개를 터뜨려보자!`,
+  // 이 줄(레벨 3=gameDone)은 STEP 100부터 실제로는 안 뜬다 — 화면 없는
+  // 배경(짙은 남색 단색)에 이 대사만 떠서 "암전"으로 보였고, 곧이어
+  // 나오는 진짜 엔딩 스토리가 이미 같은 내용을 그림과 함께 말한다.
+  // `ui/playScreen.js`의 `runLevelTransition()`이 gameDone일 때 이
+  // 대사 단계를 건너뛰고 곧장 엔딩으로 간다 — 배열은 레벨 수(3)와
+  // 자리를 맞추려고 그대로 두되, 실제 표시는 안 된다.
+  () => '축제 준비 완료! 정말 잘했어!',
+]
+
+// r(반지름)을 원래 값(0.135 / 0.12 / 0.105, STEP 76 후속 3차 값) 대비
+// 20% 줄였다(ken 요청, "실제 플레이 화면의 풍선이 크게 느껴진다") —
+// 중간에 한 번 15%(0.85배)를 시도했었지만 그 빌드가 실제 브라우저에
+// 반영된 적이 없어서(다른 작업 디렉터리를 보고 있었다, STEP 95 참고)
+// 사용자가 실제로 본 크기는 항상 이 **원래 값**이었다. 그래서 15%
+// 위에 20%를 또 곱하지 않고, 원래 값 기준으로 다시 20%를 줄인다
+// (0.8배). 레벨이 오를수록(풍선 수가 늘수록) 조금씩 더 줄여 겹침을
+// 막는 기존 방식은 그대로 둔다.
+//
+// r은 시각 크기(`playScreen.js`의 `s.r * 200vmin`)와 충돌 판정 반경
+// (`s.r + handRadius`, spriteField.js attach/popAt)에 **같은 값**이
+// 들어가므로 그림만 작아지고 판정 영역이 그대로 넓게 남는 어긋남은
+// 없다 — 시각·판정이 항상 같이 줄어든다.
+export const BALLOON_R = [0.108, 0.096, 0.084]
+
+const CATCH_SPEED = [0.06, 0.09, 0.12]
+const POP_SPEED = [0.08, 0.10, 0.14]
+// 2레벨만 CHASE(손이 가까우면 살짝 피한다) — 기획서의 "레벨이 오를수록
+// 더 활발히 움직인다"를 그대로 잇는다.
+const POP_PATTERN = [PATTERN.DRIFT, PATTERN.FLEE, PATTERN.DRIFT]
 
 const COMBO_BREAK_SEC = 2.5   // 이만큼 아무것도 못 잡거나 못 터뜨리면 콤보가 끊긴다 (어림값)
 const HAND_HIT_R = 0.04       // 손 좌표의 충돌 반경 (정규화). 실기기에서 손 크기 보고 조정
 
 export class BalloonFestivalRun {
-  constructor({ catchStages = CATCH_STAGES, popStages = POP_STAGES, rng = Math.random, comboBreakSec = COMBO_BREAK_SEC } = {}) {
-    this.catchStages = catchStages
-    this.popStages = popStages
+  constructor({
+    rng = Math.random,
+    comboBreakSec = COMBO_BREAK_SEC,
+    part1Quotas = PART1_LEVEL_QUOTAS,
+    part2Quotas = PART2_LEVEL_QUOTAS,
+    // 동시에 붙잡고 있을 수 있는 풍선 수(게임 전체) — SOLO는 1(3차
+    // 피드백 "풍선 하나만 잡게"), DUO는 2(플레이어마다 한 개, STEP 105).
+    // 한 손이 두 개를 잡는 건 이 값과 무관하게 `SpriteField.attach()`가
+    // 이미 막는다.
+    maxHeld = 1,
+  } = {}) {
     this.rng = rng
     this.comboBreakSec = comboBreakSec
+    this.part1Quotas = part1Quotas
+    this.part2Quotas = part2Quotas
+    this.maxHeld = maxHeld
     this.field = new SpriteField({ rng })
 
     this.part = PART.CATCH
-    this.stageIndex = 0
-    this.collected = 0        // 지금 스테이지에서 모은 개수
-    this.popped = 0           // 지금 스테이지에서 터뜨린 개수
+    this.levelIndex = 0
+    this.collected = 0        // 지금 레벨에서 모은 개수
+    this.popped = 0           // 지금 레벨에서 터뜨린 개수
     this.totalCollected = 0
     this.totalPopped = 0
     this.score = 0
     this.combo = 0
     this.bestCombo = 0
-    this.stageTimeLeft = null
-    this.failed = false       // 시간 안에 목표를 못 채워 끝났나
     this._sinceHit = 0
+    // 레벨을 막 깨서 다음 레벨 시작을 기다리는 중인가 — 이 동안은
+    // `tick()`이 아무것도 안 한다(스폰도 안 하고 판정도 안 본다).
+    // 화면이 LEVEL_CLEAR 배너·대사·Rest 카운트다운을 다 보여준 뒤
+    // `startNextLevel()`을 불러야 실제로 다음 레벨이 열린다 — "레벨
+    // 완료 순간부터 다음 레벨 시작까지 새 풍선을 만들지 않는다"는
+    // 요청을 지키려면 스폰 자체를 이 시점까지 미뤄야 한다.
+    this.awaitingNext = false
 
-    this._startStage()
+    this._startLevel()
   }
 
   // ── 상태 읽기 ──────────────────────────────────────────────
 
-  get stageList() { return this.part === PART.CATCH ? this.catchStages : this.popStages }
-  get stage() { return this.stageList[this.stageIndex] ?? null }
-  get stageNo() { return this.stageIndex + 1 }
-  get totalStages() { return this.stageList.length }
+  get quotas() { return this.part === PART.CATCH ? this.part1Quotas : this.part2Quotas }
+  /** 이번 레벨 목표(없으면 null) — 화면이 "3 / 5"를 그리는 데 쓴다. */
+  get quota() { return this.quotas[this.levelIndex] ?? null }
+  get levelNo() { return this.levelIndex + 1 }
+  get totalLevels() { return this.quotas.length }
   get done() { return this.part === PART.DONE }
 
-  /** 이번 단계 목표(없으면 null) — 화면이 "3 / 5"를 그리는 데 쓴다. */
-  get quota() { return this.stage?.quota ?? null }
-
-  /** 이번 단계에서 지금까지 해낸 개수. */
+  /** 이번 레벨에서 지금까지 해낸 개수. */
   get progress() { return this.part === PART.CATCH ? this.collected : this.popped }
 
-  _startStage() {
+  _startLevel() {
     this.collected = 0
     this.popped = 0
     this.combo = 0
     this._sinceHit = 0
-    const st = this.stage
-    this.stageTimeLeft = st?.timeLimitSec ?? null
-    this.field.active.length = 0   // 스테이지가 바뀌면 이전 풍선은 정리하고 새로 채운다
-  }
+    this.field.active.length = 0   // 레벨이 바뀌면 이전 풍선은 모두 정리한다
 
-  _spawnUpTo(count, st) {
-    while (this.field.count < count) {
-      const speed = st.speed * (0.85 + this.rng() * 0.3)   // 스테이지 안에서도 살짝 다르게
+    const quota = this.quota
+    if (quota == null) return
+
+    const r = BALLOON_R[this.levelIndex] ?? BALLOON_R[BALLOON_R.length - 1]
+    const speed = this.part === PART.CATCH
+      ? CATCH_SPEED[this.levelIndex] ?? CATCH_SPEED[CATCH_SPEED.length - 1]
+      : POP_SPEED[this.levelIndex] ?? POP_SPEED[POP_SPEED.length - 1]
+    const pattern = this.part === PART.CATCH
+      ? PATTERN.DRIFT
+      : (POP_PATTERN[this.levelIndex] ?? PATTERN.DRIFT)
+
+    // ── 레벨 시작 시 quota만큼 딱 한 번 스폰 ★ ─────────────────
+    //
+    // 예전 `_spawnUpTo()`는 "화면에 떠 있는 수(count)가 목표(quota)보다
+    // 늘 적게" 유지하며 담을 때마다 다시 채웠다. 이번 요청은 그 반대다
+    // — 처음부터 quota개를 전부 띄우고, 그 이후로는 **절대 다시 안
+    // 채운다**. 그래서 화면의 풍선 수가 quota → quota-1 → … → 0으로
+    // 곧장 줄어든다.
+    for (let i = 0; i < quota; i++) {
+      const spd = speed * (0.85 + this.rng() * 0.3)   // 레벨 안에서도 살짝 다르게
       const angle = this.rng() * Math.PI * 2
       this.field.spawn({
-        kind: st.kind,
-        pattern: st.pattern,
-        r: st.r,
-        speed,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        points: st.points,
+        kind: 'balloon',
+        pattern,
+        r,
+        speed: spd,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd,
+        points: 10,
       })
     }
   }
@@ -152,15 +217,31 @@ export class BalloonFestivalRun {
    * @param {number} dt 초
    * @param {{left?:{x,y}|null, right?:{x,y}|null}} hands 정규화 좌표
    * @param {{x0,x1,y0,y1}|null} basketRect 1부에서만 쓴다(바구니 영역, 정규화)
-   * @returns {{ events: Array<object>, stageCleared?:boolean, partDone?:boolean, gameDone?:boolean }}
+   * @returns {{ events: Array<object>, levelCleared?:boolean, clearedLevel?:number, partDone?:boolean, gameDone?:boolean }}
    */
   tick(dt, hands = {}, basketRect = null) {
     if (this.done) return { events: [] }
-    const st = this.stage
-    if (!st) return { events: [] }
+    if (this.awaitingNext) return { events: [] }   // 다음 레벨 시작 대기 중 — 아무 것도 안 한다
+    if (this.quota == null) return { events: [] }
 
-    this._spawnUpTo(st.count, st)
     this.field.tick(dt, hands)
+
+    // ── 바구니 주변 safe zone — 자유 풍선만 ★ ────────────────
+    //
+    // 1부(CATCH)에서만 의미가 있다(바구니가 그때만 화면에 있다).
+    // `attach()`는 이미 붙잡힌 풍선인지만 보고 위치는 안 보므로, 자유
+    // 풍선이 바구니 자리를 떠다니다가 손이 (다른 풍선을 넣으려고)
+    // 그 자리에 머무는 순간 함께 붙잡혀 버렸다 — 겉보기엔 "잡지도
+    // 않았는데 저절로 담긴" 것처럼 보였다. 여백은 풍선 반지름
+    // (`s.r`, 레벨마다 다르다) + 손 충돌 반경(HAND_HIT_R) + 여유
+    // 조금이다 — 손이 바구니 위에 있어도 자유 풍선과 거리가 항상
+    // HAND_HIT_R보다 멀어야 저 우연이 안 생긴다.
+    if (this.part === PART.CATCH && basketRect) {
+      for (const s of this.field.active) {
+        avoidZone(s, basketRect, s.r + HAND_HIT_R + 0.02)
+      }
+    }
+
     this._sinceHit += dt
     if (this._sinceHit >= this.comboBreakSec) this.combo = 0
 
@@ -172,14 +253,19 @@ export class BalloonFestivalRun {
       // 이미 붙잡힌 풍선이 하나라도 있으면 다른 손은 이번 틱에 새로 못
       // 잡는다. 루프 안에서 즉시 갱신해야(let, 반복문 중간에 true로 바뀜)
       // 같은 프레임에 두 손이 동시에 서로 다른 풍선을 잡는 경우까지 막는다.
-      let anyHeld = this.field.active.some(s => s.attachedTo)
+      //
+      // STEP 105 — "하나만"을 `maxHeld`(기본 1)로 일반화했다. SOLO는 1이라
+      // 예전 `anyHeld`와 완전히 같고, DUO는 2라 두 플레이어가 서로 다른
+      // 풍선을 동시에 잡는다. 같은 풍선을 두 손이 같은 틱에 노려도
+      // `attach()`가 `attachedTo`를 즉시 써서 두 번째 손은 못 잡는다.
+      let heldCount = this.field.active.filter(s => s.attachedTo).length
       for (const [handKey, point] of Object.entries(hands)) {
         if (!point) continue
         const holding = this.field.active.some(s => s.attachedTo === handKey)
         if (!holding) {
-          if (anyHeld) continue
+          if (heldCount >= this.maxHeld) continue
           const s = this.field.attach(handKey, point, HAND_HIT_R)
-          if (s) { events.push({ type: 'grab', handKey, id: s.id }); anyHeld = true }
+          if (s) { events.push({ type: 'grab', handKey, id: s.id }); heldCount++ }
         } else if (basketRect) {
           const s = this.field.collectInBasket(handKey, basketRect)
           if (s) {
@@ -197,50 +283,75 @@ export class BalloonFestivalRun {
         this.combo++; this.bestCombo = Math.max(this.bestCombo, this.combo)
         this._sinceHit = 0
         this.score += sprite.points
-        events.push({ type: 'pop', handKey, gained: sprite.points })
+        // id·x·y·r을 같이 보낸다 — 화면이 "터진 자리에 색 맞는 Pop FX"를
+        // 띄우려면 터진 순간의 위치와 어느 색(=id로 정해짐, assets.js
+        // colorFor)인지가 필요하다. 이미 `field.active`에서 빠진 뒤라
+        // 이벤트에 안 실으면 화면 쪽에서 되찾을 방법이 없다.
+        events.push({ type: 'pop', handKey, gained: sprite.points, id: sprite.id, x: sprite.x, y: sprite.y, r: sprite.r })
       }
     }
 
-    // ── 단계 판정 — 목표를 채우면 통과, 시간이 다하면 실패 ★ ──
+    // ── 레벨 판정 — collected/popped === quota 하나만 본다 ★ ──
     //
-    // 순서가 중요하다. 시간을 먼저 깎되 **목표 달성을 먼저 본다** —
-    // 마지막 남은 하나를 시간이 0이 되는 그 틱에 담았다면 성공이어야
-    // 한다. 반대로 두면 다 해놓고 실패로 끝나는 억울한 판이 생긴다.
-    if (st.timeLimitSec != null) {
-      this.stageTimeLeft = Math.max(0, this.stageTimeLeft - dt)
-    }
+    // quota만큼만 스폰하므로 "남은 자유 풍선이 0"은 이 조건이 참이 되는
+    // 순간과 항상 같은 프레임에 일어난다(다 처리하면 자동으로 화면에
+    // 아무것도 안 남는다) — 그래서 두 조건을 따로 검사하지 않고 하나를
+    // source of truth로 둔다. 따로 관리하면 언젠가 둘이 어긋난다.
     const progress = this.part === PART.CATCH ? this.collected : this.popped
-    const stageCleared = st.quota != null && progress >= st.quota
+    const levelCleared = progress >= this.quota
+    if (!levelCleared) return { events }
 
-    if (!stageCleared) {
-      if (st.timeLimitSec != null && this.stageTimeLeft <= 0) {
-        // 시간 안에 목표를 못 채웠다 — 판이 여기서 끝난다.
-        // 하트를 깎지 않는다(ken 3차: "목숨값 그런것은 없고"). 실패는
-        // "한 번 더 도전"으로만 이어진다 — 화면이 안내를 띄우고 게임
-        // 인트로로 돌려보낸다(ken 4차 요청, 6차에서 목표 구조가 생기며
-        // 비로소 의미가 생겼다).
-        this.part = PART.DONE
-        this.failed = true
-        return { events, timeUp: true, gameDone: true }
-      }
-      return { events }
+    // ── 여기서는 아직 다음 레벨을 열지 않는다 ★ ────────────────
+    //
+    // 예전엔 이 지점에서 곧장 `_startLevel()`을 불러 다음 레벨의 풍선을
+    // 스폰했다 — 그래서 클리어를 인식할 새도 없이 새 풍선이 떴다(ken
+    // 지적). 이제는 `awaitingNext`만 세우고 실제 전환은 `startNextLevel()`
+    // 호출 때까지 미룬다 — 화면이 LEVEL_CLEAR 배너·대사·Rest 카운트다운을
+    // 다 보여준 뒤에야 부른다. `partDone`/`gameDone`은 **지금 상태
+    // 기준으로 미리 계산**해 화면에 알려준다 — 화면이 어떤 다음 화면
+    // (레벨 계속/파트 전환/엔딩)을 보여줄지 이 시점에 알아야 한다.
+    const clearedLevel = this.levelNo
+    this.awaitingNext = true
+    const isLastLevelOfPart = this.levelIndex + 1 >= this.quotas.length
+    const partDone = isLastLevelOfPart
+    const gameDone = partDone && this.part === PART.POP
+    return { events, levelCleared: true, clearedLevel, partDone, gameDone }
+  }
+
+  /**
+   * 그 손이 붙잡고 있던 풍선을 놓는다(STEP 105, DUO에서 한 플레이어가
+   * 유예를 넘겨 사라졌을 때). 안 놓으면 그 풍선이 떠난 사람 몫으로
+   * 계속 묶여 남은 사람이 못 잡고, 레벨을 영영 못 끝낼 수 있다.
+   */
+  releaseHand(handKey) {
+    this.field.release(handKey)
+  }
+
+  /**
+   * 화면이 LEVEL_CLEAR 배너·대사·Rest 카운트다운을 전부 보여준 뒤에만
+   * 부른다. 이 호출 안에서만 실제로 레벨(또는 파트)이 넘어가고, 다음
+   * 레벨의 quota만큼 풍선이 스폰된다 — "0초가 된 뒤에만 startLevel을
+   * 부른다"는 요청을 그대로 지킨다. `awaitingNext`가 아니면(중복 호출
+   * 등) 아무 것도 안 한다.
+   */
+  startNextLevel() {
+    if (!this.awaitingNext) return
+    this.awaitingNext = false
+
+    const nextIndex = this.levelIndex + 1
+    if (nextIndex < this.quotas.length) {
+      this.levelIndex = nextIndex
+      this._startLevel()
+      return
     }
-
-    this.stageIndex++
-    if (this.stageIndex < this.totalStages) {
-      this._startStage()
-      return { events, stageCleared: true }
-    }
-
-    // 파트 하나 끝
+    // 이 파트의 마지막 레벨이었다.
     if (this.part === PART.CATCH) {
       this.part = PART.POP
-      this.stageIndex = 0
-      this._startStage()
-      return { events, stageCleared: true, partDone: true }
+      this.levelIndex = 0
+      this._startLevel()
+      return
     }
-    this.part = PART.DONE
-    return { events, stageCleared: true, partDone: true, gameDone: true }
+    this.part = PART.DONE   // 2부 마지막 레벨까지 끝 — 스폰 없이 종료
   }
 
   /**
@@ -254,9 +365,7 @@ export class BalloonFestivalRun {
       collected: this.totalCollected,
       popped: this.totalPopped,
       bestCombo: this.bestCombo,
-      // 시간 초과로 끝난 판은 **깬 게 아니다.** `part`만 보면 실패도
-      // DONE이라 완주로 기록돼 배지·레벨이 잘못 붙는다.
-      completed: this.part === PART.DONE && !this.failed,
+      completed: this.part === PART.DONE,
       ...handCounts,
     }
   }
@@ -264,12 +373,6 @@ export class BalloonFestivalRun {
 
 /** 결과 화면 한 줄. */
 export function cheer(run) {
-  // 시간이 모자라 끝난 판에는 "잘했다"가 아니라 **다음이 있다**고 말한다.
-  // 몇 개까지 했는지를 같이 보여줘야 아이가 얼마나 모자랐는지 안다.
-  if (run.failed) {
-    const goal = run.quota
-    return goal ? `조금만 더! ${run.progress}/${goal}개까지 했어요` : '조금만 더 해볼까요?'
-  }
   if (run.part === PART.DONE && run.bestCombo >= 15) return `${run.bestCombo}연속 콤보! 손이 빨라졌어요`
   if (run.totalCollected >= 20) return '풍선을 정말 많이 모았어요!'
   if (run.totalPopped >= 30) return '팡팡! 신나게 터뜨렸어요'

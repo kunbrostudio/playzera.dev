@@ -11250,3 +11250,1436 @@ scene19(오디세우스 대사) 정상 렌더 확인, (3) 최종 결과 화면�
 유지)을 확인, (3) 오디세이 런 전 구간 regression 통과.
 
 **commit/push 안 함**(ken 지시).
+
+## STEP 94 — 풍선 팡팡: 바구니 오탐·풍선 크기·2부 진입 암전 3건 (2026-09-12)
+
+STEP 76 후속 라운드 6(9/5) 뒤로 멈춰 있던 풍선 팡팡에 실기기 재확인
+없이 세 가지를 고쳤다. Stage/Wave 구조·난이도 값은 손대지 않았다(다음
+작업으로 미룸, ken 지시).
+
+### 1) 바구니 근처 자유 풍선이 우연히 붙잡히던 문제
+
+`SpriteField.attach()`는 이미 붙잡힌 풍선인지·터졌는지만 보고 **위치는
+안 본다.** 자유 풍선이 DRIFT로 떠다니다 바구니 자리까지 오면, 손이
+(다른 풍선을 넣으려고) 바구니 위에 머무는 순간 그 자유 풍선까지
+`attach()`에 걸려 버렸다 — 겉보기엔 "잡지도 않았는데 저절로 담겼다."
+
+`arcade2d/movement.js`에 `avoidZone(s, zone, pad)`을 추가했다 —
+`bounceEdges`와 같은 방식으로, 지정 구역(정규화 사각형) 안으로 들어온
+자유 스프라이트를 가장 가까운 바깥 경계로 밀어내고 그 방향 속도를
+반사한다. `attachedTo`가 있으면 곧장 리턴(손에 잡힌 풍선은 절대
+안 건드림). `game.js`의 `tick()`에서 1부(CATCH)일 때만, `basketRect`가
+있을 때만 모든 자유 풍선에 건다 — 여백은 `s.r + HAND_HIT_R + 0.02`(풍선
+반지름 + 손 충돌 반경 + 여유)라 스테이지·화면 비율이 달라져도 고정
+px 없이 따라간다. 순간이동이 아니다 — dt당 이동량이 작아 경계에서
+튕기는 것처럼 보인다(화면 가장자리 튕김과 같은 성질).
+
+**회귀 하나 잡음** — 기존 테스트 3건(`balloonFestivalGame.test.js`)이
+바구니 판정 자체만 보려고 `basket = {x0:0,x1:1,y0:0,y1:1}`(화면 전체)를
+썼는데, 이 구역에 `avoidZone`을 걸면 밀어낼 "바깥"이 없어 풍선이 화면
+밖(-0.16 등)으로 튕겨 나갔다. `avoidZone`에 "여백까지 합쳐 구역이
+화면 전체를 덮으면 그냥 리턴" 가드를 추가해 해결 — 실제 바구니는
+`clamp(220px, 34vw, 440px)`라 이 정도로 커질 수 없으니 진짜 게임
+동작에는 영향이 없다.
+
+### 2) 실제 플레이 풍선 크기 15% 축소
+
+`game.js`에 `BALLOON_SIZE_SCALE = 0.85`를 두고 `CATCH_STAGES`·
+`POP_STAGES`의 `r`(0.135/0.12/0.105, STEP 76 후속 3차 값)에 곱했다.
+`r`은 `playScreen.js`의 시각 크기(`s.r * 200vmin`)와 `spriteField.js`의
+충돌 판정 반경(`attach`/`popAt`의 `dist <= s.r + handRadius`)에 **같은
+값**이 들어가므로, 그림만 작아지고 판정 영역이 예전 크기로 남는
+어긋남은 생기지 않는다. 타이틀·스토리 그림(정적 이미지)은 이 상수를
+안 써서 영향 없다.
+
+### 3) 2부(POP) 진입 시 "카메라를 켜는 중..." 오버레이가 안 사라지던 버그
+
+**증상**: 1부 완료 → 전환 스토리 → 2부 진입 시 화면이 어두워지고
+"카메라를 켜는 중..."이 계속 떠 있었다. 그런데 그 뒤로 풍선은 실제로
+생성돼 있고 손을 움직이면 pop도 동작했다 — 카메라·게임 루프 자체는
+안 죽었다는 뜻.
+
+**원인**: `mountUI()`는 `#bf`를 통째로 새로 그리므로 `#bf-loading`도
+매번 새로 생긴다. 맨 처음 진입 경로(`await tracker.ready` 뒤)에서만
+`$('#bf-loading').remove()`를 불렀지, `showTransition()`이 스토리
+뒤에 다시 부르는 `mountUI()`에서는 지운 적이 없었다. 카메라·손
+트래커(`tracker`)는 1부와 2부가 **같은 인스턴스를 그대로 이어 쓴다**
+(`poseEngineCore.acquire()`를 다시 안 부른다, `mountUI()`가 매번
+`bf.prepend(tracker.video)`로 같은 video 엘리먼트를 재부착) — 그래서
+카메라는 이미 켜져 있는데 화면만 계속 로딩 오버레이에 덮여 있었다.
+
+**수정**: `showTransition()`에서 `mountUI()` 직후 `$('#bf-loading')
+?.remove()`를 한 줄 추가 — 카메라 재초기화 없이 이미 켜진 카메라를
+그대로 보여준다(CSS로 오버레이만 숨기는 게 아니라, 애초에 다시
+생성된 오버레이 엘리먼트를 지우는 것).
+
+### 확인
+
+`npx vitest run` — **1161건 전부 통과**(회귀 없음, 위 3건 수정 뒤
+재확인). `npm run build` 통과. 실기기(카메라) 재테스트는 안 함 — ken이
+직접 확인해야 한다(수동 테스트 항목은 보고에 남김).
+
+**commit/push 안 함**.
+
+## STEP 95 — 풍선 팡팡: 레벨 재구성 + Phase 0 근본 원인 발견 (2026-09-12)
+
+### Phase 0 — STEP 94 수정이 왜 화면에 하나도 안 보였나
+
+STEP 94에서 세 가지(바구니 오탐 safe zone·풍선 크기 15%·2부 진입 암전)를
+고쳤다고 보고했지만, ken이 `localhost:5173`에서 확인한 결과 **전혀
+반영되지 않았다.** 코드가 틀렸다고 가정하지 않고 실제 실행 경로부터
+추적했다.
+
+**확인 방법**: Chrome 제어 도구로 `localhost:5173/#/play?id=balloon-festival`을
+열고, `fetch('/src/games/balloon-festival/game.js')`로 그 페이지가
+실제로 받는 소스를 브라우저 안에서 직접 읽었다.
+
+**결과**: 받아온 소스에 `BALLOON_SIZE_SCALE`도 `avoidZone`도 없었다 —
+`r: 0.135` 원본 그대로였다. `arcade2d/movement.js`도 마찬가지로
+`avoidZone` 자체가 없는 버전이었다.
+
+**원인**: 이 저장소는 git worktree로 여러 벌 체크아웃돼 있다
+(`git worktree list`) — 이 세션이 작업 중인 경로는
+`/Users/ken.choi/orca/workspaces/playzera.dev/balloon-festival`
+(`kunbrostudio/balloon-festival` 브랜치)이고, STEP 94의 수정은 전부 이
+worktree 안에서만 커밋 없이 존재했다. `localhost:5173`의 `npm run dev`가
+가리키는 디렉터리는 이 worktree가 아니었다(다른 worktree 또는
+`/Users/ken.choi/Documents/playzera.dev`의 main 체크아웃으로 보인다) —
+그래서 STEP 94의 파일 수정은 애초에 브라우저에 한 번도 도달한 적이
+없었다. 코드 자체는 틀리지 않았다(아래에서 유닛 테스트로 재확인) —
+**서로 다른 디렉터리를 보고 있었을 뿐**이다.
+
+**결론**: ken이 `npm run dev`를 이 worktree 경로에서 다시 실행해야
+이번 STEP 95 변경(과 STEP 94 변경)이 실제로 보인다. 이 세션의 Bash는
+별도 리눅스 샌드박스라 ken의 맥에서 도는 dev 서버를 직접 재시작할
+수 없다(CLAUDE.md에 이미 적혀 있던 제약과 같다).
+
+### 1) 1부·2부 레벨 구조를 전면 재구성 — quota만큼 한 번 스폰, 재충전 없음
+
+`game.js`를 다시 짰다. 예전 구조(`CATCH_STAGES`/`POP_STAGES`,
+quota+timeLimitSec+count<quota 재충전)를 걷어내고:
+
+- `PART1_LEVEL_QUOTAS = [5, 10, 15]`, `PART2_LEVEL_QUOTAS = [5, 10, 15]`
+- 레벨 시작(`_startLevel()`) 시 quota만큼 **딱 한 번** 스폰. 담거나
+  터뜨려도 다시 안 채운다 — 화면의 자유 풍선 수가 quota → quota-1 →
+  … → 0으로 곧장 줄어든다.
+- 레벨 클리어의 source of truth는 `collected`/`popped` === `quota`
+  **하나뿐**이다(요청대로 "하나의 명확한 source of truth"). quota만큼만
+  스폰하므로 "남은 자유 풍선 0"은 이 조건의 결과이지 별도로 검사하지
+  않는다.
+- 시간 제한(`timeLimitSec`)·실패(`failed`/`timeUp`) 개념을 전부
+  없앴다 — "정해진 개수 전부 처리"가 유일한 완료 조건이라 타이머가
+  레벨을 강제로 끝내면 새 규칙과 충돌하기 때문(요청 지시).
+
+### 2) 풍선 크기 — 원래 값 기준으로 20% 축소
+
+Phase 0에서 확인했듯 STEP 94의 15% 축소는 브라우저에 한 번도 반영된
+적이 없어서, 사용자가 실제로 본 크기는 항상 **원래 값**(0.135/0.12/0.105)
+이었다. 그래서 15% 위에 20%를 또 곱하지 않고, 원래 값에서 바로 20%를
+줄였다(`BALLOON_R = [0.108, 0.096, 0.084]`, ×0.8). 시각 크기
+(`s.r * 200vmin`)와 충돌 판정 반경(`s.r + handRadius`)이 같은 값을
+쓰므로 그림만 작아지고 판정 영역이 남는 어긋남은 없다.
+
+### 3) 바구니 Safe Zone — 로직은 그대로, 재확인만
+
+STEP 94에서 만든 `arcade2d/movement.js`의 `avoidZone()`은 로직상
+문제가 없었다(Phase 0에서 확인한 것처럼 브라우저에 안 보인 이유는
+다른 디렉터리를 보고 있어서였다). 스폰 방식이 바뀌어도(quota만큼
+한 번 스폰) 그대로 유효해서 손대지 않았다 — `game.js`의 `tick()`에서
+1부(CATCH)일 때만, 미부착 풍선에만 여전히 건다.
+
+### 4) 2부 — 장식용 바구니 풍선(순수 연출)
+
+`PART2_BASKET_DECOR_COUNTS = [10, 5, 0]`을 `game.js`에 데이터로 추가.
+`ui/playScreen.js`의 `fillDecorPile()`이 2부 진입/레벨 전환마다 바구니
+안을 이 개수만큼 정적 `<img>`로 채운다 — `run.field`(SpriteField)에
+전혀 안 들어가므로 손 트래커·충돌·pop·점수·남은 개수 어느 것에도
+안 걸린다. 구조적으로 게임 규칙과 분리돼 있어 "손으로 흔들어도 안
+터진다"가 자동으로 보장된다(장식 DOM을 `popAtHands`가 아예 모른다).
+바구니(`#bf-basket-wrap`)를 1부·2부 내내 항상 보이게 바꿨다(이전엔
+2부에서 `off` 클래스로 숨겼다).
+
+### 5) HUD — LEVEL 배지 + LEVEL CLEAR 배너
+
+`#bf-level`(상시 "LEVEL n")과 `#bf-levelclear`(레벨 클리어 때만 잠깐
+"LEVEL n CLEAR!")를 추가. 예전의 스테이지 이름("풍선을 담아봐!" 등)
+플레이버 텍스트는 요청대로 단순한 LEVEL n 표기로 바꿨다 — 과도한
+신규 UI를 안 만들기 위해서다. 타이머 뱃지·시간초과 안내(`bf-timeup`)는
+완전히 제거했다(더 이상 쓰이는 로직이 없다).
+
+### 회귀 — 템플릿 문자열 안 주석 백틱
+
+작성 중 CLAUDE.md가 경고하는 바로 그 함정을 또 밟았다 — `mountUI()`의
+CSS 주석 안에 ``` `prepend()` ```/``` `appendChild` ```를 백틱으로 감쌌더니
+템플릿 리터럴이 거기서 끊겨 `test/sourceParses.test.js`가 파일을 못
+열었다. 백틱을 빼서 해결(`prepend()`/`appendChild`, 일반 텍스트로).
+
+### 확인
+
+`npx vitest run` — **1166건 전부 통과**(신규/재작성 23건 포함,
+`balloonFestivalGame.test.js`를 새 레벨 구조에 맞게 전면 재작성:
+레벨별 정확한 스폰 개수·재충전 없음·safe zone·장식 풍선 구조 분리·
+타이머 없음을 전부 단위 테스트로 못박음). `npm run build` 통과.
+
+**브라우저 실측**: Chrome 제어 도구로 `localhost:5173`에 접속해
+`game.js`를 다시 `fetch`했으나(이 STEP 작업 완료 후) **여전히 이전과
+동일한 미수정 소스**가 응답으로 왔다 — Phase 0에서 찾은 디렉터리
+불일치가 그대로다. 즉 이번 STEP도 **ken이 이 worktree 경로에서
+`npm run dev`를 다시 켜기 전까지는 브라우저에서 확인 불가능**하다.
+타이틀 화면 진입 자체는 됐음을 스크린샷으로 확인했지만, 그건 두
+worktree 어느 쪽 코드로도 동일하게 보이는 화면이라 이번 변경 확인에는
+쓸모가 없다.
+
+**commit/push 안 함**.
+
+## STEP 97 — 풍선 팡팡: LEVEL CLEAR 오디오 제거·시각 효과 강화 + Pop 자산 실제 연결 (2026-09-13)
+
+### 1) LEVEL CLEAR 오디오 제거, 시각 효과만
+
+ken 요청: "박수/환호/success SFX는 이번 게임에 안 쓴다, 오디오 파일도
+안 추가한다, 성공 피드백은 시각 효과만." `showLevelClearBanner()`에서
+`sound.play('round_clear'|'game_clear')` 호출 두 줄을 지웠다 —
+`core/sound.js` 자체(다른 게임이 쓰는 공용 시스템)는 안 건드렸다.
+Rest 카운트다운의 `beep`/`go`는 "성공 피드백"이 아니라 카운트다운
+신호음이라 요청 범위 밖으로 보고 그대로 뒀다.
+
+빠진 오디오 대신 시각 효과를 보강했다:
+- `.bf-sparkle`(★ 글자, 순수 CSS) — 배너 박스 둘레에 8~14개, 각각
+  다른 위치·크기·딜레이로 계속 반짝인다(캔버스·새 그림 없음).
+- 박스 자체에 `bf-clear-box-in`(0~300ms scale-in, cubic-bezier로
+  통통 튀는 느낌) 애니메이션.
+- 컨테이너 배경을 `rgba(8,3,20,0.45)`로 낮춰 뒤 게임 화면이 계속
+  비친다("화면 전체를 가려 gameplay context를 잃게 만들지 않는다").
+- 1600~2200ms에 `.fade-out` 클래스로 전체를 페이드아웃(툭 사라지지
+  않게).
+- Part Complete(1부 레벨3·2부 레벨3=gameDone, `res.partDone`)에서는
+  별 14개·꽃가루 110조각·4번 버스트로 더 풍성하게(그 외는 8개·70조각·
+  2버스트).
+
+### 2) Pop 자산 — 다른 worktree에 있었다(또 같은 종류의 사고)
+
+ken이 "이미 넣었다"고 했는데 `balloon-festival` worktree에는 없었다.
+`find`로 모든 worktree를 훑어 **`body-quiz` worktree**
+(`/Users/ken.choi/orca/workspaces/playzera.dev/body-quiz/public/assets/balloon-festival/sprites/`)
+에서 7장을 찾았다 — dev server 포트 사고(STEP 95~96)와 같은 패턴:
+작업 대상이 아닌 다른 worktree에 파일이 들어갔다. 파일명이 이미
+`balloon-pop-<색>.png`로 STEP 96에서 미리 정해둔 경로와 정확히
+일치해서 rename 없이 그대로 복사만 했다(원본은 안 건드림, `cp -n`으로
+worktree 간 복사, 덮어쓰기 없음). 7장 다 1254×1254 PNG.
+
+`assets.js`의 `BALLOON_POP_SPRITES` 경로 상수는 이미 이 이름으로
+STEP 96에서 선언해 둬서 **코드 변경이 필요 없었다** — 파일만 옮기니
+`playScreen.js`의 기존 로드-확인 로직(`preloadPopFx`/`popFxSrc`)이
+자동으로 전용 그림을 쓰기 시작했다. 대체 로직(파일이 없으면 같은 색
+풍선 그림으로 대신 보여주는 것)은 안 지우고 그대로 뒀다 — 그림이
+다시 지워지거나 다른 worktree로 옮겨져도 화면이 조용히 안 죽는다.
+
+### 확인
+
+`npx vitest run` — **1185건 전부 통과**(신규 11건: LEVEL CLEAR 오디오
+제거·시각 효과 소스 검사, Pop 자산 7장 실제 존재 확인
+`existsSync`, Pop FX가 실제 pop 판정 경로에 연결됐는지 소스 검사).
+`npm run build` 통과. `npm run check` — `public/assets/runner3d`
+예산 초과 1건은 기존 known failure 그대로(이번 세션 무관).
+
+**브라우저 실측**(`localhost:5177`, Chrome 제어 도구) — 실제 게임
+화면에서 `import()`로 진짜 모듈을 불러와 LEVEL CLEAR 배너·꽃가루·
+반짝이는 별을 실제로 띄워 스크린샷으로 확인(별·박스·꽃가루가
+게임 화면 위에 반투명하게 겹쳐 보임, 뒤 카메라 화면 계속 비침).
+7색 Pop 이미지도 실제 파일 경로로 하나씩 그려서 색상별로 맞는
+그림(빨강 버스트·파랑 버스트 등)이 뜨는 것을 스크린샷으로 확인.
+콘솔 에러 없음(MediaPipe WASM 경고 1건, 무관).
+
+**commit/push 안 함**.
+
+## STEP 98 — 풍선 팡팡: 쉬는 타임 암전 제거 + 대사/카운트 통합 (2026-09-13)
+
+### 원인
+
+`showRestCountdown()`(레벨 클리어 뒤 대사)가 공용 스토리 대화창
+(`runStory`→`showStoryScene`→`mount()`)을 재사용했는데, 그 컴포넌트의
+배경(`.r3s-bg`)은 **의도적으로 항상 불투명**하다 —
+`runner3d/screens.js` 자체 주석에 "화면 자체는 늘 opaque해야 한다"고
+박혀 있다(다른 게임의 일러스트 스토리 컷이 로딩 중 반짝이는 걸 막으려는
+설계). 그 컴포넌트를 그대로 쓰면 배경 그림이 없는(`bg` 미지정) 우리
+대사 장면은 짙은 남색 단색 화면이 되어 카메라가 완전히 가려졌다 —
+"암전"의 정체는 버그가 아니라 **다른 목적으로 설계된 컴포넌트를
+카메라를 지켜야 하는 화면에 갖다 쓴 것**이었다. 대사와 Rest
+카운트다운도 순서대로(대사 먼저 끝나야 카운트 시작) 분리돼 있어 요청한
+"동시 진행"과도 어긋났다.
+
+### 쉬는 타임 UI를 어떻게 바꿨는지
+
+`showRestCountdown()` + `showInterLevelDialogue()`(레벨 진행 중인
+경우)를 하나로 합쳐 `showRestWithDialogue(res)`로 새로 짰다 — 공용
+스토리 컴포넌트를 아예 안 쓰고 `playScreen.js`가 직접 `#bf` 위에
+오버레이 하나(`#bf-rest`)만 얹는다.
+
+- 배경 `rgba(5,2,18,0.35)` — 카메라·풍선·바구니가 계속 비친다.
+- 대사 상자(`#bf-rest-dialogue`)와 카운트 숫자(`#bf-rest-count`)를
+  **같은 markup·같은 함수 호출**로 동시에 만든다 — 대사가 뜨는
+  순간 이미 10초 카운트가 돌고 있다.
+- SKIP(`#bf-rest-skip`)은 **대사 상자만** `hidden` 클래스로 접는다 —
+  카운트다운(`setInterval`)은 그대로 돈다("Rest는 SKIP으로 생략하지
+  않는다"는 기존 정책 유지, "SKIP은 항상 있어야 한다"도 같이 지킴).
+- 카운트는 10 → 1까지 평범한 숫자만 쓴다. 0이 되면 곧장
+  `finish('done')` → `run.startNextLevel()`.
+- 카운트 숫자 위치를 처음엔 `padding-top: clamp(16px,4vh,40px)`로
+  뒀다가, 실제 브라우저 스크린샷에서 "LEVEL 1" 뱃지와 겹치는 걸
+  보고 `clamp(110px,18vh,150px)`로 내렸다(요청: "기존 level/quota와
+  충돌하지 않게").
+
+### 일반 대화창 UI를 어떻게 바꿨는지
+
+**손 안 댔다.** 인트로·전환(`showTransition`)·엔딩(`showEnding`)은
+실제 일러스트 배경이 있는 진짜 "스토리 컷"이라 불투명해도 문제가
+없다(카메라를 지킬 이유가 없다 — 그 순간엔 이야기 그림을 보여주는
+게 맞다). 이 셋은 기존 `runStory`/`showStoryScene`를 그대로 쓴다.
+마지막 레벨(2부 레벨3=gameDone)의 대사만 `showFinalClearDialogue()`로
+이름을 바꿔 남겼다 — 이 대사 뒤로 곧장 엔딩(역시 불투명 컷)으로
+이어지므로 굳이 반투명일 필요가 없어서 공용 컴포넌트를 그대로 쓴다.
+
+### 3초 시작 카운트를 어디서 제거했는지
+
+`showRestCountdown()` 안에서 10~4를 숫자로 세운 뒤 `runner/ui/cues.js`의
+`runCountdown()`(3·2·1·START 그림 시퀀스)을 이어 부르던 부분을
+통째로 들어냈다. `showRestWithDialogue()`는 10 → 1까지 숫자만 세고
+0에서 바로 끝난다 — `runCountdown` import 자체를 지웠다(`grep`으로
+파일 전체에 더 이상 없음을 확인).
+
+### 쉬는 타임 캐릭터 — 실제 조사 결과
+
+ken이 말한 "무릎 짚고 숨 고르는" 남/여 포즈는 **이 worktree는 물론
+접근 가능한 다른 모든 worktree**(`body-quiz`·`odyssey-run`·
+`playzera-core`·`claude-test`·`codex-test`·`remote-device-qa`·
+main 체크아웃)를 다 뒤졌지만 **어디에도 없다.** 있는 캐릭터
+그림(`runner/_shared/char/<skin>/`, `assets/characters/<skin>/`)은
+전부 달리기·점프·슬라이드·스트레칭·환호(cheer)뿐이고, "가리키는"
+포즈나 "쉬는" 포즈는 하나도 없었다. 파일명을 추측해서 없는 그림을
+가리키지 않았다(요청 그대로) — 대신 `runner/_shared/char/<skin>/`
+관례를 따라 자리(경로)만 미리 정해 뒀다:
+```
+/assets/runner/_shared/char/boy/char_rest.png
+/assets/runner/_shared/char/girl/char_rest.png
+```
+`preloadRestChars()`가 게임 시작 직후 이 경로를 실제로 로드해 보고,
+성공한 것만(`restCharReady`) 대사 상자 양옆에 그린다 — 지금은 파일이
+없으니 **자리 자체가 생기지 않는다**(Pop FX와 완전히 같은 패턴,
+`popFxSrc` 참고). 나중에 이 경로에 그림이 오면 코드 수정 없이
+나타난다.
+
+"일반 대화창"(인트로·전환·엔딩)의 "가리키는 포즈" 캐릭터는 이번에
+**손 안 댔다** — 그 화면들은 이 파일이 아니라 저장소 전체가 같이
+쓰는 공용 컴포넌트(`runner3d/storyDialogue.js`)라서, 없는 자산을
+전제로 그 공용 파일 구조를 먼저 바꾸는 건 범위가 크고 다른 게임
+(오디세이 런·쥬라기 대탐험)에도 영향을 준다. 자산이 실제로 오고
+공용 컴포넌트 변경이 확정되면 별도 작업으로 진행하는 게 맞다고
+보고, 이번엔 조사 결과만 보고에 남긴다.
+
+### 확인
+
+`npx vitest run` — **1197건 전부 통과**(신규 12건:
+`test/balloonRestDialogue.test.js` — 배경 투명도·공용 스토리
+컴포넌트 미사용·대사+카운트 동시 생성·`runCountdown` 완전 제거·
+SKIP이 카운트다운을 안 멈춘다는 것·캐릭터 자리의 존재 확인 로직
+전부 소스 검사로 못박음). `npm run build` 통과.
+
+**브라우저 실측**(`localhost:5177`) — 실제 게임 화면에 `#bf-rest`와
+같은 마크업을 직접 얹어 스크린샷 확인: 카메라(웹캠)가 대사창 뒤로
+선명히 비침(암전 없음), "LEVEL 1"·"0/5" 뱃지와 카운트 숫자가 안
+겹침(패딩 수정 후), 대사 상자 + SKIP 버튼 정상 표시. 콘솔 에러 없음.
+
+**commit/push 안 함**.
+
+## STEP 99 — 풍선 팡팡: Story/Rest/Ending/Result UX 통합 재작업 (2026-09-13)
+
+STEP 98의 쉬는 타임 커스텀 UI를 ken이 실사용 후 "기존 큰 Dialogue와
+너무 다르고 작다"고 되돌려 요청 — 공용 스토리 대화창을 실제로 재사용하는
+쪽으로 다시 짰다. 공용 파일(`runner3d/screens.js`·`storyDialogue.js`)도
+이번엔 최소한으로 손댔다(전부 opt-in, 기본값은 기존과 동일).
+
+### 1) 최초 Story에 SKIP이 없던 실제 원인
+
+`play.js`의 인트로 호출은 `skippable: true`만 줬다. 그런데 이전 세션의
+`runStory()`는 "마지막 장면에는 스킵을 숨긴다"가 기본값이었고, 인트로가
+**장면이 하나뿐이라 항상 "마지막 장면"** — 그래서 그 문장이 있어도
+스킵이 한 번도 안 떴다. 다른 다수 장면 스토리(전환)는 첫 장면들에선
+보였지만 마지막 장면만 숨었다.
+
+**수정**: `skipEvenOnLast`의 기본값을 `true`로 뒤집었다(opt-out) —
+호출부가 매번 기억해서 켜야 하는 opt-in은 결국 빠뜨리는 곳이 생긴다.
+이제 `skippable: true`만 주면 예외 없이 전 장면에 SKIP이 뜬다. 예전
+정책이 필요하면 `skipEvenOnLast: false`로 명시한다.
+
+라벨도 통일했다 — 공용 컴포넌트의 버튼 글자("스킵")는 다른 게임
+(오디세이 런 등)도 같이 쓰므로 안 건드리고, `arcade2d/storyRunner.js`
+안에 `MutationObserver`를 둬서 풍선 팡팡의 `runStory()`가 도는 동안만
+버튼 텍스트를 "SKIP"으로 바꿔 단다.
+
+**버그 하나 잡음(자기 자신을 관찰하는 옵서버)**: 처음 짠 버전은 라벨을
+바꿀 때마다 그 DOM 변화를 옵서버가 "새 변화"로 보고 다시 부르는
+무한루프였다 — `npx vitest run`이 그대로 멈췄다. 버튼마다
+`data-pz-skip-labeled` 플래그를 남겨 한 번만 손대게 고쳤다.
+
+### 2~3) Rest를 기존 Dialogue 스타일로, 암전 완전 제거
+
+**진짜 원인**: 공용 스토리 배경(`.r3s-bg`)은 "화면 자체는 늘 opaque해야
+한다"는 **의도적** 설계다(다른 게임의 로딩 깜빡임 방지용, 그 파일
+자체 주석에 있다). 그래서 STEP 98은 그 컴포넌트를 아예 안 쓰고 직접
+작은 박스를 새로 그렸는데, ken이 보기엔 그게 "기존 것과 다르고 작다"였다.
+
+**수정**: 공용 컴포넌트에 `opts.transparent`(opt-in, 기본 `false`)를
+추가했다 — `mount()`가 이 옵션일 때만 `.r3s-transparent` 클래스를
+붙이고, CSS에서 그 클래스일 때만 배경을 `rgba(5,2,18,0.35)`로 덮어쓴다.
+다른 게임은 이 옵션 자체를 안 주니 전과 100% 동일하다. 풍선 팡팡의
+쉬는 타임 대사는 이제 `runStory(..., { transparent: true })`로 **진짜
+같은 컴포넌트**를 쓴다 — 크기·테두리·배경 그라데이션·타이포·버튼
+스타일이 인트로와 다를 수가 없다(같은 코드라서).
+
+### 4) 대사 + 10초 카운트 동시 시작, 3·2·1 제거
+
+카운트다운(`setInterval`)을 `runStory()` 호출 **전에** 먼저 시작한다 —
+대사창이 뜨는 순간 이미 숫자가 돌고 있다. 카운트는 대화창(`.r3s`,
+z-index 70)보다 위(72)의 고정 오버레이 하나뿐이고, 10 → 1까지 평범한
+숫자만 쓴다. 예전에 있던 `runner/ui/cues.js`의 `runCountdown()`(그림
+기반 3·2·1·START)은 완전히 뗐다 — import 자체를 지웠다.
+
+### 5) SKIP이 Rest 전체를 즉시 종료(정책 변경)
+
+카운트가 0이 되면 대화창의 SKIP 버튼을 **프로그램적으로 클릭**해서
+같은 종료 경로로 합류시킨다(`document.querySelector('#r3-story-skip')
+?.click()`). 사용자가 직접 SKIP을 눌러도 같은 경로. `runStory()`의
+Promise가 풀린 뒤(`.then`) **딱 한 곳에서만** `clearInterval`을 불러
+정리한다 — 끝나는 자리가 여러 곳이면 다음 레벨이 두 번 열릴 위험이
+있어서, 그 위험 자체를 구조로 없앴다.
+
+### 6~7) 대화창 좌우 캐릭터 — 조사 결과
+
+일반(가리키는 포즈, 3·4번)·쉬는(숨 고르는 포즈, 5·6번) 두 세트 모두
+**이 worktree는 물론 접근 가능한 모든 다른 worktree**(body-quiz·
+odyssey-run·playzera-core·claude-test·codex-test·remote-device-qa·
+main)를 뒤졌지만 어디에도 없다. 파일명을 추측하지 않았다 — 대신
+`runner/_shared/char/<skin>/` 관례를 따라 `char_point.png`(일반)·
+`char_rest.png`(쉬는)로 자리만 미리 정하고, `storyRunner.js`의
+`showDialogueChars(variant)`가 실제 로드 성공한 것만 그린다(Pop FX와
+같은 패턴). `runStory()`에 `characters: 'general'|'rest'` 옵션 하나로
+연결해서, 인트로·전환·엔딩·레벨클리어 대사·쉬는 타임 전부 같은 메커니즘
+하나를 공유한다 — 대화 시스템을 두 개로 안 늘렸다. 지금은 파일이
+없어 화면엔 아무것도 안 뜬다(자리 자체가 안 생김) — 나중에 그림이
+오면 코드 수정 없이 나타난다.
+
+### 9) 최종 Stage 완료 뒤 암전의 실제 원인과 제거
+
+`mount()`가 부르는 `showLoadingScreen()`(`core/loadingScreen.js`)이
+범인이었다 — 배경 그림이 250ms 안에 안 뜨면 어두운 로딩 화면으로
+덮는 **공용 안전장치**다. 엔딩 그림(`story_scene_ending.png`)이 그
+순간 처음 요청되면 네트워크에 따라 250ms를 넘기기 쉽다. 버그가
+아니라 "이미지가 그 순간까지 안 받아져 있었던 것" — 그래서 화면
+전환 로직을 안 바꾸고 `preloadEndingImages()`를 추가해 1부 플레이
+중(수십 초 여유)에 미리 받아 두게 했다. 실제로 필요한 순간엔 브라우저
+캐시에서 즉시 나와 로딩 화면이 뜰 일이 없어진다.
+
+### 10~11) Result 화면 — Odyssey Run 스타일 재사용(파일은 안 건드림)
+
+`runner3d/play3d.js`(오디세이 런)를 read-only로 조사 — 완주 때
+`showGameOver()`에 `bg`(썸네일)·`scoreBlock`(SCORE/BEST STREAK)·
+`sparkle`을 얹어 쓰고 있었다. **이 옵션들은 오디세이 전용이 아니라
+`core/gameShell.js`가 모든 게임에 이미 열어 둔 것**이라, 오디세이
+파일은 하나도 안 고치고 같은 옵션을 풍선 팡팡의 `finish()`에도 그대로
+얹었다. 배경은 이미 있는 타이틀 그림(`manifest.thumbnail`) 재사용,
+`scoreBlock`은 `run.score`/`run.bestCombo`(풍선 팡팡 자체 실제 값) —
+오디세이의 레벨·보상·스테이지 데이터는 하나도 안 가져왔다. CTA
+("다시 하기"/"Home으로")는 이 공용 컴포넌트가 이미 그렇게 고정돼
+있어 별도 작업 없이 정렬됐다. 계정 레벨(`LV.n`) 표시는 `progress/
+rewardView.js`(공용 성장 시스템, 실제 EXP 기반)이지 풍선 팡팡이
+따로 박아 둔 가짜 값이 아님을 확인 — 제거하지 않았다.
+
+### 확인
+
+`npx vitest run` — **1212건 전부 통과**(신규/재작성 28건:
+`test/balloonRestDialogue.test.js`를 STEP 99 구조에 맞게 전면 재작성,
+`test/storyRunnerSkip.test.js`를 opt-out 기본값에 맞게 수정). `npm run
+build` 통과. `MutationObserver` 무한루프를 테스트 중 실제로 겪고 고침
+(위 1번 참고) — 재발 방지로 idempotent 플래그를 테스트에도 반영.
+
+**브라우저 실측**(`localhost:5177`, 실제 dev server가 도중에 죽어
+재시작함 — 이후 재확인):
+- ✅ 최초 Story 화면에 "SKIP"(대문자, 아이콘 포함) 버튼이 실제로
+  뜬다(스크린샷 확인, 이전엔 없었다)
+- ✅ 실제 모듈을 `import()`해 `transparent:true`로 대사창을 띄워
+  확인 — 카메라(웹캠)가 선명하게 비치고, 대사창 크기·테두리·배경·
+  버튼 스타일이 인트로 화면과 완전히 동일(같은 컴포넌트라서 당연함)
+- ✅ 카운트 오버레이(z-index 72)가 대화창 위, LEVEL/목표 뱃지 아래에
+  안 겹치고 표시됨
+- ✅ 실제 `showGameOver()`를 `bg`+`scoreBlock`+`sparkle`로 호출해
+  확인 — 배경 그림·SCORE/BEST STREAK 박스·꽃가루·"다시 하기"/
+  "Home으로" 버튼까지 오디세이와 같은 시각 언어로 렌더링됨
+- ✅ 콘솔 에러 없음(재시작 전 발생한 연결 끊김 에러는 재시작 후 재확인해
+  사라짐을 확인)
+
+**commit/push 안 함**.
+
+## STEP 100 — 풍선 팡팡: Rest 10초 버그 · 별 위치 · Part 2 최종 암전 제거 (2026-09-13)
+
+### 1) Rest 10초 카운트다운이 ~5초에 끊기던 버그
+
+**실제 원인**: 공용 스토리 컴포넌트(`showStoryScene`) 자체의 **읽는
+속도 기반 자동 넘김**(`autoMs()`, 글자 수 비례로 3.5~8초, 상한 8초)이
+범인이었다. 대사 한 줄짜리 장면은 그 시간이 지나면 "다음 줄이 없다"고
+판단해 컴포넌트가 **스스로** `finish('done')`을 불러 대화창을 닫는다 —
+우리 10초 카운트다운과는 완전히 무관하게, "대사를 다 읽었다"는 판단
+하나로 `runStory()`가 먼저 resolve돼 버렸다. 실제 대사("잘했어! 풍선
+5개를…", 약 38자)로 `autoMs`를 계산하면 `2200 + 38*70 = 4860ms` —
+사용자가 본 "약 5초"와 정확히 일치했다. 브라우저에서 직접 재현해
+확인함(아래 "확인" 참고, 수정 전 5초·수정 후 10초 온전히 진행).
+
+**충돌하던 콜백**: Level Clear 종료 예약 콜백이나 이전 레벨 타이머가
+아니라, **대화 컴포넌트 자체의 내장 타이머**(`setTimeout(() => go(1),
+autoMs(line))`, `storyDialogue.js` 270행)였다 — 요청에서 의심한
+"legacy 3/2/1 카운트다운"이나 "story runner 콜백"과는 다른, 훨씬
+안쪽(대화 컴포넌트 내부)의 타이머였다.
+
+**정리한 방법**: `showRestWithDialogue()`를 독립된 Promise로 다시
+짰다 — `runStory()`의 `'done'`(대사가 스스로 "다 읽었다"고 끝낸 것)은
+**무시**하고, Rest를 끝내는 자리는 오직 `finishRest()` 하나:
+- (A) 카운트다운이 0에 닿을 때 자동 호출
+- (B) `runStory()`가 `'skip'`(사용자가 실제로 SKIP을 누른 것)으로
+  끝났을 때만 호출
+- `'home'`/`'title'`(나가기)도 게임을 나가는 길이라 `finishRest`로
+  이어진다.
+
+`finishRest()`엔 `resolved` 플래그가 있어 두 번째 호출은 완전히
+무시된다 — "next Level이 정확히 한 번만 시작"을 구조로 보장한다.
+카운트가 0에 닿으면 대화창이 아직 떠 있을 때만(드묾, 타이밍에 따라)
+SKIP 버튼을 프로그램적으로 눌러 안쪽 타이머·DOM까지 같이 정리한다.
+
+대사 줄에 `ms: LEVEL_REST_SECONDS * 1000`도 얹었다 — 두 타이머(우리
+`setInterval`과 컴포넌트 내부 `setTimeout`)를 최대한 맞춰서 대사가
+너무 일찍 사라지는 시각적 어색함도 줄였다(그래도 종료 판단 자체는
+위 규칙이 한다 — 두 타이머가 몇 십 ms 어긋나도 안전).
+
+### 2) LEVEL CLEAR 별(★)이 텍스트를 가리던 문제
+
+**원인**: 별 `<span>`들이 `.bf-clear-box`(카드) **안쪽 자식**으로
+들어가 있었고, 좌표도 카드 중심 기준 각도·거리로 뽑아서 카드 한복판
+근처에도 별이 떨어질 수 있었다 — 실제로 "LEVEL CLEAR!" 글자 위를
+가렸다.
+
+**수정**: 별을 `.bf-clear-fx`(카드의 **형제** 층, `#bf-clear` 전체를
+덮음, `z-index:1`)로 옮기고, 카드(`.bf-clear-box`, `z-index:2`)는
+텍스트만 남겼다. 좌표도 화면 중앙이 아니라 **네 가장자리 띠**(위
+2~10%, 아래 90~98%, 왼쪽 2~10%, 오른쪽 90~98%)에서만 뽑아서 카드
+영역엔 원리적으로 별이 못 온다. 반짝이는 애니메이션·꽃가루는 그대로
+유지.
+
+### 3) Part 2 최종 완료 후 "축제 준비 완료" 암전 제거
+
+**원인**: `gameDone`(2부 레벨3 완료) 분기가 `showFinalClearDialogue()`
+("축제 준비 완료! 정말 잘했어!")를 한 번 더 보여준 뒤에야 엔딩으로
+넘어갔다. 이 대사 화면은 **배경 그림이 없는** 일반 `runStory()` 호출
+(공용 컴포넌트의 기본 불투명 배경, `#150a2e` 짙은 남색 단색)이라 —
+**그 화면 자체가 "암전"으로 보인 것**이었다(showTransition·loading
+overlay·fade layer 같은 별도 전환 버그가 아니라, 배경 그림 없는
+대사 화면 그 자체). 게다가 곧이어 나오는 진짜 엔딩 스토리
+(`showEnding()`, `story_scene_ending.png` 등 실제 그림)가 이미 "오늘
+축제 준비 정말 즐거웠어!"로 같은 내용을 그림과 함께 말해서 완전한
+중복이었다.
+
+**수정**: `gameDone` 분기에서 `showFinalClearDialogue()` 호출을
+통째로 없앴다 — `run.startNextLevel()` → `showEnding()` → `finish(true)`로
+곧장 간다. 이제 흐름은: LEVEL CLEAR 배너 → (짧은 정상 전환인)
+엔딩 스토리 → Result. 함수 자체(`showFinalClearDialogue`)도 이제
+아무 데서도 안 써서 지웠다 — 공용 대화 컴포넌트(`storyDialogue.js`)는
+안 건드렸다, 풍선 팡팡의 이 특정 흐름에서만 그 단계를 안 타게 했다.
+`PART2_LEVEL_CLEAR_LINES`의 레벨3 문구는 배열 자리(레벨 수와 맞춤)를
+유지하되 이제 실제로는 안 뜬다는 주석을 남겼다.
+
+### 확인
+
+`npx vitest run` — **1219건 전부 통과**(신규/보완 7건:
+`test/balloonRestDialogue.test.js`에 Rest 종료가 정확히 `finishRest`
+한 곳에서만 일어나는지, `'done'`을 무시하는지, 카운트다운만이 자동
+종료 기준인지, gameDone 분기에 대사 호출이 없는지, 별이 카드와 분리된
+층에 있는지, z-index 순서가 맞는지 검사). `npm run build` 통과.
+
+**브라우저 실측**(`localhost:5177`) — 이번엔 특히 **실제 시간 경과를
+재서** 확인했다: `runStory()`를 실제로 호출하고 `performance.now()`로
+매 틱을 기록한 결과, 카운트다운이 9→0까지 **1초 간격으로 정확히
+10초** 진행됐고(`tick n=9 at 1.60s ... tick n=0 at 10.60s`), 그 전에
+끊기는 일이 없었다 — 수정 전 버그였다면 약 5초 지점에서
+`runStory`가 먼저 `'done'`을 냈을 자리다. `finishRest`도 정확히
+**한 번**만(`"FINISHED at 10.60s with result=done"`) 불렸다. LEVEL
+CLEAR 배너도 실제 컴포넌트로 띄워 별이 화면 가장자리에만 흩어지고
+카드 텍스트가 깨끗함을 스크린샷으로 확인. 콘솔 에러 없음.
+
+**commit/push 안 함**.
+
+## STEP 101 — 풍선 팡팡: 대화창 좌우 캐릭터(Dialogue Companion) 실제 적용 (2026-09-13)
+
+### 1) 문제 정의
+
+기존 대화 화면(인트로·Rest 대화)은 배경 그림 위 대사창 하나뿐이라
+Figma 참조("Frame 1.png")가 요구한 **대화창 양옆의 캐릭터**가 없었다.
+ken이 Downloads에 미리 만들어 둔 실제 캐릭터 그림 6장(포즈 3세트 ×
+남/여) + 레이아웃 참조 1장을 찾아 등록하고, 어느 대사에 어느 세트를
+붙일지 정한 뒤 반응형까지 정리하는 작업.
+
+### 2) 에셋 찾기 (macOS Downloads 권한 우회)
+
+Claude의 Bash 프로세스는 `~/Downloads`에 TCC 샌드박스로 막혀
+`ls`/`find`/`cp`/`Read` 전부 `EPERM`이 났다. `mdfind`(Spotlight)로
+후보를 찾고, `osascript`로 Finder 앱을 직접 조작해(`duplicate ... to
+...`) 파일을 저장소 접근 가능한 경로로 복사했다 — Finder 앱 자체는
+이미 Downloads 접근 권한을 갖고 있어서 가능했다. 파일명이 세트를
+안 알려줘서 `mdls`의 픽셀 크기·수정 시각 군집·실제 이미지 육안 확인으로
+포즈를 맞췄다.
+
+레이아웃 참조 "Frame 1.png"는 ken의 실제 웹캠 사진이 목업 안에 찍혀
+있어 — **repo에 넣지 않고** 스크래치패드에만 남겼다(개인정보라
+서비스에 실리면 안 된다).
+
+### 3) 최종 등록 (`public/assets/balloon-festival/dialogue/`)
+
+| 세트 | 파일명 | 포즈 |
+|---|---|---|
+| A(clap) | `char_boy_clap.png` / `char_girl_clap.png` | 박수 |
+| B(rest) | `char_boy_rest.png` / `char_girl_rest.png` | 무릎 짚고 쉬는 포즈 |
+| C(point) | `char_boy_point.png` / `char_girl_point.png` | 가리키는 포즈 |
+
+Downloads의 런타임 참조는 전혀 없다 — 전부 repo `public/assets` 아래로
+복사해 등록.
+
+### 4) 배치 원칙과 매핑
+
+**항상 왼쪽 boy · 오른쪽 girl**(발화자가 누구든 안 바뀐다, ken 4번
+요청). `src/games/balloon-festival/ui/playScreen.js`의
+`companionPresetFor(res)`가 `{ 1: 'point', 2: 'rest', 3: 'clap' }`로
+`clearedLevel`을 세트에 매핑 — Part1/Part2 양쪽 다 레벨 1(할당량
+5)의 Rest 대사엔 point, 레벨 2(할당량 10)엔 rest, Part1 최종(레벨
+3)엔 clap이 자동으로 붙는다(Part2 최종은 STEP 100에서 이미 대사
+자체가 스킵되므로 clap 적용 대상이 아니다). 인트로 스토리는 2순위
+요구사항대로 point 세트를 적용했다(`play.js`).
+
+### 5) 구현 방식 — `companionPreset` 하나로 통일
+
+게임팩 코드 여기저기 하드코딩 대신, 공용 실행기
+`src/games/arcade2d/storyRunner.js`에 `COMPANION_PRESETS` 사전
+하나(`point`/`rest`/`clap`, 각각 `{boy, girl}` 경로)와
+`showCompanions(preset)` 함수 하나만 두고, `runStory()`가
+`opts.companionPreset`를 받아 대화가 떠 있는 동안만 body에
+`position:fixed` 오버레이(`z-index:71`, 대화창 자체는 70)로 얹고
+`finally`에서 같이 지운다. 호출부(`playScreen.js`, `play.js`)는
+문자열 하나만 넘긴다 — `showStoryScene`(공용 대화 컴포넌트)은 전혀
+안 고쳤다.
+
+### 6) 레이아웃 · 반응형
+
+CSS 변수 4개(`--dialogue-safe-x`, `--dialogue-safe-bottom`,
+`--dialogue-character-size`, `--dialogue-panel-max-width`)를
+`:root`에 두고 `.bf-dlg-char`가 이걸로 크기·여백을 정한다.
+`--dialogue-character-size: clamp(90px, 20vh, 220px)`라 데스크톱은
+최대 220px, 화면이 낮아지면(태블릿·모바일 가로) `20vh`가 자연히
+줄어든다. `@media (max-height: 420px)`에서 한 번 더
+`clamp(70px, 26vh, 130px)`로 줄여 카운트다운·HUD와 안 겹치게 했다.
+캐릭터는 좌우 끝에 고정(`left`/`right: var(--dialogue-safe-x)`,
+`max-width: 32vw`)이라 중앙의 대화 패널·버튼과 원리적으로 안
+겹친다. 세로(portrait) 모드는 기존 회전 안내 정책 그대로 안 건드림.
+
+### 7) 버그: 첫 대화 호출이 캐릭터를 놓치는 레이스 컨디션 (실측으로 발견·수정)
+
+최초 구현은 `new Image().onload`로 채운 `Set`을 확인한 뒤에만
+`<img>`를 그렸다 — "자산이 없으면 빈 자리라도 안 만든다"는 방어
+로직이었다. 그런데 **페이지를 새로고침한 직후 첫 대화 호출**(인트로)이
+그 preload보다 먼저 뜨면 `Set`이 아직 비어 있어 **캐릭터가 통째로
+안 그려졌다** — 실제로 브라우저에서 재현: 새로고침 직후 첫 호출은
+`hasChars:false`, 조금 뒤 두 번째 호출은 `hasChars:true`(같은
+코드·같은 세트인데 타이밍만 다름). 자산 존재 자체는 이미 확인됐으니
+이 사전 검사가 오히려 방해였다 — `<img>`를 **즉시** 그리고 개별
+`onerror="this.remove()"`로 실패한 낱장만 조용히 지우는 방식으로
+바꿨다(브라우저가 표준 `<img src>` 비동기 로딩을 알아서 처리한다).
+
+### 확인
+
+`npx vitest run` — **1224건 전부 통과**(`test/balloonRestDialogue.test.js`
+40건, 실제 자산 존재·좌우 배치·`companionPresetFor` 매핑·z-index·
+CSS 변수 검사 포함; race condition 수정에 맞춰 "실패해야만 안 그린다"
+검사를 "즉시 그리고 `onerror`로만 실패를 처리한다" 검사로 교체).
+`npm run build` 통과(경고는 기존 `course3d` 청크 크기 건, 이번
+작업과 무관).
+
+**브라우저 실측**(`localhost:5177`) — 페이지를 새로고침한 직후
+`storyRunner.js`를 다시 import해 `companionPreset:'point'`로
+`runStory()`를 호출하자 **50ms 안에** `.bf-dlg-char` 2개가 정확한
+src(`char_boy_point.png`/`char_girl_point.png`)로 DOM에 존재함을
+확인(수정 전이었다면 이 시점엔 0개였을 자리). 실제 게임 플로우로도
+START → 인트로 첫 장면에서 캐릭터가 처음부터 보임을 스크린샷으로
+확인 — 왼쪽 하단 boy(가리키는 포즈), 오른쪽 하단 girl(가리키는
+포즈), 대화 패널·이전/다음/SKIP 버튼 전부 안 가려짐. 창 크기를 줄여
+낮은 뷰포트를 재현하려 했으나 `resize_window` 툴이 이 세션의 실제
+렌더 뷰포트를 바꾸지 못해(계속 1920×992로 보고됨) 브레이크포인트는
+소스·테스트로만 검증했고, 실기기 가로모드 확인은 사람이 해야 한다
+(아래 체크리스트).
+
+**commit/push 안 함**.
+
+## STEP 102 — 풍선 팡팡: 대화창 캐릭터 — 스토리 화면 제거·크기/구도 보정 (2026-09-13)
+
+### 1) 문제 정의
+
+STEP 101에서 붙인 companion이 (1) 스토리 화면(인트로)에도 나타났고 —
+그 배경 그림 자체가 이미 두 캐릭터를 그려 넣은 컷이라 중복이었다 —
+(2) 쉬는 타임/최종 클리어 대화에서 캐릭터가 너무 작고 화면 구석에
+붙어 장식처럼 보였다(ken 실사용 피드백, 4번 예시 이미지 기준으로
+상반신 위주의 큰 구도를 요구). 이번 작업은 "스토리 화면 제거 +
+확대 + 상반신 구도 + 반응형 재보정"이다.
+
+### 2) 스토리 화면에서 제거
+
+`companionPreset`이 유일한 스위치라는 기존 설계를 그대로 살려,
+스토리 화면 쪽 호출부에서 이 옵션을 아예 안 주는 것으로 끝났다 —
+`runStory` 자체는 화면 종류를 구분하지 않는다. 실제로 옵션을 주고
+있던 곳은 `play.js`의 인트로 호출 하나뿐이었다(`companionPreset:
+'point'`를 삭제). 전환(`transition`)·엔딩(`ending`) 호출은
+STEP 101 때부터 이미 옵션을 안 주고 있어 그대로 뒀다.
+
+### 3) 쉬는 타임/최종 클리어 대화 — 조건 유지
+
+세트 매핑(`companionPresetFor`)과 화면 대상(Part1/Part2 Lv1→point,
+Lv2→rest, Part1 최종→clap)은 전혀 안 건드렸다 — `showRestWithDialogue`
+가 여전히 `companionPreset: companionPresetFor(res)`를 그대로 넘긴다.
+
+### 4) 크기를 어떻게 키웠는지 · 상반신 구도
+
+`--dialogue-character-size`(캐릭터 틀의 "높이")를 `clamp(90px,
+20vh, 220px)` → `clamp(150px, 32vh, 300px)`로 올렸다 — 최대치 기준
+약 1.36배.
+
+**상반신 크롭의 원리**: 원본은 전신 그림(1024×1536, 가로/세로
+≈0.667)이고, `object-fit: cover; object-position: top center`는
+"이미지를 틀의 가로에 맞춰 확대한 뒤 세로로 넘치는 부분을 자르는"
+동작이다 — 보이는 비율(세로 기준) = (이미지 가로/세로) ÷ (틀
+가로/세로). 첫 시도(틀을 세로로 긴 인물사진 모양, 320×456,
+가로/세로≈0.79)는 계산해 보니 이미지 자체가 이미 그보다 더 세로로
+길어서(0.667 < 0.79) **거의 안 잘리고 전신이 그대로 보였다** —
+실제로 브라우저에서 렌더링해 스크린샷으로 확인하고서야 잡은 문제다.
+상반신만(허리 위, 가시 비율 목표 0.5) 보이려면 틀이 반대로
+**가로가 세로보다 커야** 한다 — 역산하면 가로:세로 ≈ 1.33:1(4:3).
+`width: clamp(120px, min(calc(var(--dialogue-character-size) *
+1.333), calc(var(--dlg-side-gap) + 26px)), 400px)`로 다시 잡아
+1.33 비율을 만들고, 다시 스크린샷으로 확인하니 머리·모자·어깨·상체가
+크게 보이고 다리는 잘려 나가는 의도한 구도가 나왔다.
+
+### 5) 반응형 — 대화창 실제 위치를 실측해서 따라간다
+
+기존엔 캐릭터가 뷰포트 가장자리(`--dialogue-safe-x`)에 고정이라
+대화창과 상관없이 항상 화면 맨 끝에 붙어 있었다. 이번엔
+`positionCompanions(app, el)`가 매번 실제 대화창(`.r3-story-box`)을
+`getBoundingClientRect()`로 재서, 캐릭터의 `style.left`/`style.right`를
+그 대화창의 **실제 좌·우 바깥 가장자리**에 14px만 겹치게 직접
+박는다 — 대화창 폭이 `min(94vw, 980px)`라 뷰포트마다 실제 위치가
+달라서 CSS 변수 계산만으로는 못 맞춘다. 장면이 바뀌어 대화창 DOM이
+다시 그려지거나(`MutationObserver`) 창 크기가 바뀌면(`resize`)
+다시 잰다. 대화창을 못 찾은 경우(만약을 위한 방어)는 예전처럼
+안전영역 변수 기반 가장자리 위치로 그대로 남는다.
+
+너비 자체도 실제 대화창 폭에서 남는 여백(`--dlg-side-gap: max(3vw,
+calc((100vw - 980px) / 2))`)을 넘지 않게 한 번 더 물려 놨다 — 좁은
+화면(대화창이 94vw를 다 차지)일수록 캐릭터가 자동으로 좁아지고,
+그만큼 4:3 구도를 못 지켜 상반신보다 좀 더 아래까지 보이는 쪽으로
+저절로 타협한다(버튼을 덮는 것보단 낫다). 모바일 가로(`max-height:
+420px`) 구간은 높이·너비를 한 번 더 줄인 별도 규칙을 뒀다.
+
+### 확인
+
+`npx vitest run` — **1230건 전부 통과**(`test/balloonRestDialogue.test.js`
+50건으로 증가: 인트로에 companion이 없는지, 전환·엔딩도 없는지,
+상반신 크롭 CSS(`object-fit: cover`, `object-position: top center`)가
+있는지, 캐릭터 프레임이 예전보다 커졌는지, 너비가 실제 대화창 폭
+공식(`980px`, `--dlg-side-gap`)에 물려 있는지, `positionCompanions`가
+`getBoundingClientRect`로 실측하는지, 장면 전환·리사이즈에 다시
+재는지 검사). `npm run build` 통과.
+
+**브라우저 실측**(`localhost:5177`) — 실제 라우팅을 안 건드리는
+분리된 테스트 컨테이너(`document.body`에 별도 `div`)에 `runStory`를
+직접 호출해 확인(카메라 화면 위에 뜨는 실제 캡처를 최소화하려고
+`transparent` 없이 불투명 배경으로 격리):
+- 인트로(스토리) 화면 — 실제 플레이(START → 인트로)에서 스크린샷
+  확인, 좌우 캐릭터 오버레이 없음(이전엔 있었다).
+- point·rest·clap 세 세트 전부 상반신 구도로 크게 렌더링됨을
+  스크린샷으로 확인 — 머리·모자·손동작(가리키기/무릎짚기/박수)이
+  뚜렷이 보이고 다리는 잘려 나감.
+- 대화창 위치 실측 결과(1920×992 기준): 대화창 `left=470,
+  right=1450, width=980`(=`min(94vw,980px)` 그대로), 왼쪽 캐릭터
+  `right 스타일=1436px`(=`innerWidth - box.left - 14`), 오른쪽
+  캐릭터 `left 스타일=1436px`(=`box.right - 14`) — 계산식과 실제
+  DOM 값이 정확히 일치, 대화창 가장자리에 14px만 겹쳐 자연스럽게
+  붙어 있음을 좌표로 확인. 이전/다음/SKIP 버튼은 대화창 안쪽
+  패딩(18~34px) 너머에 있어 이 겹침으로는 안 닿는다.
+- 모바일 가로(짧은 뷰포트) 반응형 — `resize_window` 툴이 이 세션의
+  실제 렌더 뷰포트를 못 바꿔서(항상 1920×992로 보고됨, STEP 101과
+  같은 한계) 실기기 재현은 못 했고, `@media (max-height: 420px)`
+  규칙 자체가 존재하고 높이·너비를 한 번 더 줄이는 것은 소스로
+  확인했다 — **실기기 가로모드 확인은 사람이 해야 한다.**
+
+**commit/push 안 함**.
+
+## STEP 103 — 풍선 팡팡: 마감 UI/UX 3건 (START 위치·디버그 텍스트·다음 버튼) (2026-09-14)
+
+### 1) 인트로 START 버튼 위치 — 하단 CTA로
+
+`titleScreen.js`의 `#bf-title .start`가 `top: 56%; transform: translate(-50%,
+-50%)`(화면 세로 중앙)였던 걸 `bottom: clamp(20px, 6vh, 56px); transform:
+translateX(-50%)`로 바꿨다 — 뷰포트 하단에서 일정 여백만큼 뜬다(퍼센트가
+아니라 뷰포트 여백 기준이라 커버 그림이 `object-fit: cover`로 잘려도
+버튼은 항상 화면 맨 아래 근처에 고정). 가로 정렬(`left: 50%`)은
+그대로 뒀다. 펄스 애니메이션 키프레임도 `translateX(-50%)` 기준으로
+맞춰서 애니메이션이 도는 순간 버튼이 튀지 않게 했다.
+
+### 2) 좌하단 디버그/성능 텍스트 — production에서 숨김
+
+`#bf-diag`("추론 N/s · 사람 N/s · 손 N/s · GPU")는 `status: 'wip'`라
+허브 목록엔 안 뜨지만 `/play?id=` 직접 접근으로는 production 빌드에서도
+그대로 보였다. `import.meta.env.DEV`로 두 군데를 막았다:
+- 마크업 자체(`<div id="bf-diag">`)를 dev일 때만 넣는다.
+- `detectDiag()` 함수 맨 앞에 `if (!import.meta.env.DEV) return`을
+  둬서 dev가 아니면 계산 자체를 안 돈다.
+
+Vite가 `import.meta.env.DEV`를 빌드 시점에 `false`로 정적 치환하고
+미니파이어가 죽은 코드를 지워서, `npm run build` 결과물(`dist/assets/
+play-*.js`)에서 실제로 `<div id="bf-diag">` 마크업과 `detectDiag`의
+계산 로직이 사라졌음을 확인했다(아래 "확인" 참고) — `<style>` 안의
+CSS 셀렉터(`#bf-diag { ... }`) 문자열 자체는 남지만, 매칭되는
+엘리먼트가 없어 아무것도 안 그린다(화면에 영향 없음).
+
+### 3) 휴식 타임 대화 "다음" 버튼 — 더 갈 다음이 없으면 비활성화
+
+**진짜 원인**: 휴식 타임 대사는 항상 줄 하나뿐이고, 대화를 끝내는
+시점은 카운트다운(0)/SKIP만 정하도록 이미 STEP 100에서 정리했었다
+(`showRestWithDialogue`의 `.then()`이 `'done'`을 무시한다). 그런데
+공용 컴포넌트(`showStoryScene`)의 "다음" 버튼은 여전히 켜져 있어서,
+사용자가 카운트다운이 다 되기 한참 전에 눌러 버리면 `finish('done')`이
+대화창 DOM을 **그 자리에서 지워 버렸다** — 호출부가 `'done'`을
+무시하게 짜 놨어도 소용없다, DOM 삭제는 `finish()` 안에서 결과와
+무관하게 일어난다(`el.remove()`). 대사 자체의 자동 넘김 타이머
+(`autoMs`)도 같은 경로를 타므로, 사용자가 안 눌러도 스스로 사라질 수
+있었다 — 다만 `ms: LEVEL_REST_SECONDS * 1000`으로 카운트다운과
+거의 맞춰 놔서 자동 쪽은 잘 안 띄었을 뿐이다.
+
+**고친 방법**: 다른 게임(오디세이 런·쥬라기 대탐험)도 같이 쓰는 공용
+컴포넌트라 동작을 통째로 바꾸지 않고, `showStoryScene`에 opt-in
+옵션 `disableNextOnLast`(기본 false, 예전 그대로)를 추가했다 — 켜져
+있으면 마지막 줄에서 (a) `nextBtn.disabled = true`로 두고 (b) 자동
+넘김 타이머도 아예 안 건다(`if (!(disableNextOnLast && isLastLine))`
+안에서만 `setTimeout`을 건다) (c) `go()`에도 방어선을 뒀다(혹시
+프로그램적으로 `.click()`이 와도 `next >= lines.length`면서
+`disableNextOnLast`면 그냥 `return`, `finish()`를 안 부른다). 결과:
+대화창은 오직 캐릭터를 끝내는 다른 수단(휴식 타임은 카운트다운
+종료 시 `finishRest()`가 SKIP 버튼을 프로그램적으로 누르는 것)으로만
+사라진다.
+
+`runStory()`(`arcade2d/storyRunner.js`)도 이 옵션을 받아 **맨 마지막
+장면에만**(`!!opts.disableNextOnLast && isLast`) 넘기도록 했다 — 여러
+장면을 잇는 인트로·엔딩 같은 흐름에서 중간 장면까지 "다음"이 꺼지면
+안 되기 때문이다(장면 사이 이동은 여전히 "다음"으로 끝나야 다음
+장면으로 넘어간다). `showRestWithDialogue`(playScreen.js)만 실제로
+`disableNextOnLast: true`를 준다 — 인트로·전환·엔딩은 옵션 자체를
+안 줘서(기본값 false) 예전과 완전히 동일하게 동작한다.
+
+이제 필요 없어진 `ms: LEVEL_REST_SECONDS * 1000`(카운트다운과 자동
+넘김 시간을 맞추던 트릭)도 함께 지웠다 — 마지막(=유일한) 줄에서
+자동 넘김 타이머 자체가 안 걸리므로 더는 의미가 없다.
+
+CSS도 한 줄 보탰다 — `.r3-story-prev:disabled`만 흐리게 하던 규칙을
+`.r3-story-prev:disabled, .r3-story-next:disabled`로 넓혀서 꺼진
+"다음"도 "이전"과 같은 방식(불투명도 .35, 클릭 무시)으로 흐리게
+보이게 했다.
+
+### 확인
+
+`npx vitest run` — **1242건 전부 통과**(`test/balloonRestDialogue.test.js`
+가 46→58건: START 버튼 하단 고정·가로 중앙 유지·키프레임 정합성,
+`#bf-diag` DEV 게이팅, `disableNextOnLast` 옵션 존재·마지막 줄 처리·
+`go()` 방어선·CSS·`runStory`의 `isLast` 조건부 전달·`showRestWithDialogue`
+실제 사용·예전 `ms` 트릭 제거까지 검사). 작업 중 CSS 주석에 백틱을
+또 넣는 바람에(`titleScreen.js`) `test/sourceParses.test.js`가 즉시
+잡아냈다 — 주석에서 백틱 제거로 수정. `npm run build` 통과, 빌드
+결과물에서 `#bf-diag` 마크업·계산 로직이 제거됐음을 `grep`으로
+직접 확인(남는 건 매칭 대상 없는 CSS 셀렉터 문자열뿐).
+
+**브라우저 실측**(`localhost:5177`):
+- START 버튼 — 스크린샷으로 화면 하단 근처(예전 중앙 대비 명확히
+  아래)에 있음을 확인, 타이틀 글자·캐릭터와 안 겹침.
+- 다음 버튼 비활성화 — 격리된 테스트 컨테이너로 실제
+  `disableNextOnLast: true` 호출을 재현: `nextBtn.disabled === true`
+  확인, 강제 `.click()`/`dispatchEvent(MouseEvent)`를 쏴도 대화창
+  DOM이 그대로 남아 있음(`boxStillExists: true`) 확인, 이후 SKIP은
+  정상적으로 `'skip'`을 반환하며 대화창을 닫음을 확인. 스크린샷으로
+  "다음" 버튼이 "이전"·"SKIP"과 달리 흐리게 보임을 시각 확인.
+- 회귀 확인 — 실제 인트로(스토리) 플레이에서는 "다음"이 그대로
+  활성화 상태임을 스크린샷으로 확인(공용 컴포넌트를 쓰는 다른
+  화면·다른 게임에 영향 없음).
+- `#bf-diag` — dev 서버(`npm run dev`, 지금 이 localhost)에서는
+  엘리먼트가 여전히 존재함을 확인(요청대로 dev에서는 유지). 실제
+  텍스트 내용은 손 추적이 실시간으로 값을 채워야 나오는데, 이번
+  브라우저 자동화 세션에서는 몇 초를 기다려도 빈 문자열이었다 —
+  이 티켓이 손댄 범위(DEV 게이팅)와 무관한, 이 자동화 환경의
+  손 추적 자체 문제로 보인다(실기기/일반 사용 환경에서 사람이
+  직접 확인 필요).
+
+**commit/push 안 함**.
+
+## STEP 104 — 풍선 팡팡: Multiplayer/Family Co-op 1차 기반 (Mode UI·Config·Audit) (2026-09-14)
+
+### 1) 목표와 범위
+
+이번 단계는 **Multiplayer를 완성하는 게 아니라** SOLO를 보호하면서
+향후 확장을 위한 기반(Mode UI + quota config + 손 추적 기술 감사)만
+놓는 작업이다(요청 원문). 다인 입력 판정(player identity·hand
+ownership 등)은 추측해서 만들지 않았다.
+
+### 2) 신규 파일 — `src/games/balloon-festival/modes.js`
+
+`PLAY_MODES` 하나가 정본이다:
+
+```js
+solo:  { players: 1,   part1Quotas: [5, 10, 15],  part2Quotas: [5, 10, 15]  }
+duo:   { players: 2,   part1Quotas: [10, 20, 30], part2Quotas: [10, 20, 30] }
+group: { players: '3+', part1Quotas: [15, 30, 45], part2Quotas: [15, 30, 45] }
+```
+
+GROUP은 **3배**(요청 2번, 5배 적용 금지)다. SOLO 값은 `game.js`의
+기존 `PART1_LEVEL_QUOTAS`/`PART2_LEVEL_QUOTAS`([5,10,15])와 동일함을
+테스트로 못박았다(`test/balloonPlayModes.test.js`) — 여기서 갈리면
+"설정에서만 SOLO가 달라지는" 조용한 회귀가 된다.
+
+### 3) Intro Mode Selector UI
+
+`ui/titleScreen.js`에 START 버튼 위로 모드 버튼(예: "👤 혼자 하기")을
+추가했다. 누르면 팝업이 뜬다 — **오디세이 런 속도 설정 팝업**
+(`runner3d/screens.js`의 `#r3-speed-popup`)을 read-only로 조사해
+같은 패턴을 그대로 따랐다(오디세이 파일 자체는 안 건드림):
+- 팝업 상자·버튼은 새로 안 그리고 종료 확인창과 같은 공용 클래스
+  (`.pz-confirm-box`, `.pz-confirm-actions`, `.pz-btn`,
+  `runner/ui/systemBar.js`)를 그대로 쓴다.
+- 옵션 버튼은 `data-id` + `.on` 클래스로 선택 상태를 표시한다(오디세이
+  속도 옵션과 완전히 같은 방식).
+- 닫기 버튼(`.pz-btn.ghost`)도 같은 톤.
+
+기본값은 혼자 하기(SOLO). 옵션 선택 즉시 버튼 라벨이 바뀌고 팝업이
+닫힌다. `titleScreen.js`는 `runner/ui/systemBar.js`의
+`ensureSysBarStyle()`을 새로 불러와야 저 공용 클래스가 실제로
+그려진다(이전엔 이 화면이 그 스타일을 안 썼다).
+
+### 4) Mode 선택값 lifecycle
+
+`showTitleScreen(app, initialModeId)`가 이제 `{ result, mode }`를
+돌려준다(예전엔 문자열 하나). `play.js`가 `for(;;)` 루프 **밖에서**
+`let mode = DEFAULT_PLAY_MODE`로 한 번만 초기화하고, 루프 안에서
+타이틀 결과로 갱신해 `runBalloonPlay(app, manifest, mode)`에 넘긴다
+— "다시 하기"(같은 루프가 다시 도는 것)는 방금 고른 모드를 그대로
+유지하고(요청 4번), Home으로 나가면 이 함수 자체가 끝나(`return
+navigate('/')`) 다음에 다시 들어올 때는 함수가 처음부터 다시 불려
+`mode`가 SOLO로 리셋된다(요청 4번 "기본 SOLO로 돌아가도 된다"). 실제
+브라우저에서 확인: DUO 선택 후 플레이 화면 HUD가 "0/10"으로 뜨고,
+Home→재진입하면 모드 버튼이 다시 "혼자 하기"로 돌아간다.
+
+### 5) SOLO 보호 — 회귀 없음
+
+`ui/playScreen.js`의 `runBalloonPlay(app, manifest, modeId =
+DEFAULT_PLAY_MODE)`가 `getPlayMode(modeId)`로 찾은 quota만
+`BalloonFestivalRun` 생성자 옵션(`part1Quotas`/`part2Quotas`, 이미
+있던 옵션)에 넘긴다 — **그 외 아무것도 안 건드렸다.** catch·pop·
+timer·Rest·Dialogue·result·basket·companion·Pop FX 코드는 이번
+STEP에서 한 줄도 안 고쳤다. `modeId`를 안 주면(기존 호출과 동일)
+SOLO 그대로다. 브라우저 실측: SOLO로 플레이하면 여전히 "0/5"로
+시작함을 확인.
+
+**알려진 한계(이번 단계에서 의도적으로 안 고침)**: `game.js`의
+`PART1_LEVEL_CLEAR_LINES`/`PART2_LEVEL_CLEAR_LINES` 대사에는 "풍선
+10개를 담아보자!" 식으로 **quota 숫자가 문장에 그대로 박혀 있다** —
+DUO/GROUP quota(20·30·45 등)로는 이 대사가 실제 목표와 안 맞게
+된다. 요청 5번("Dialogue가 달라지면 안 된다")을 문자 그대로 지키려고
+이번 STEP에서는 이 배열 자체를 안 건드렸다 — DUO/GROUP을 실제로
+내보내려면 이 대사를 quota를 인자로 받는 함수로 바꾸는 별도 작업이
+필요하다(다음 STEP 후보로 남겨 둔다).
+
+### 6) MULTI-HAND / MULTI-PERSON 기술 감사 ★ (핵심)
+
+**A. 사용 중인 감지기**: `core/pose/poseEngine.js` — MediaPipe
+`tasks-vision`의 **PoseLandmarker**(전신 33포인트), `runningMode:
+'VIDEO'`, GPU delegate 우선(실패 시 CPU). 별도로 `core/pose/
+fistEngine.js`가 **GestureRecognizer**를 쓰지만 이건 손 커서
+확정(주먹 쥐기)용이고 풍선 잡기/터뜨리기 판정과는 무관하다(그
+엔진은 `numHands: 1`로 이미 고정돼 있다).
+
+**E. 현재 maximum tracked hands — 두 단계로 나뉜다**:
+1. `poseEngine.js`의 `_createLandmarker()`가 `numPoses: 2`로
+   MediaPipe에 **최대 2명**까지 후보를 요청한다(주석: "아이 혼자가
+   아니라 돕는 보호자까지 잡히는 경우를 감안한 최소값").
+2. 하지만 `_loop()`이 그 후보들을 `personLock.select()`에 넘겨
+   **정확히 한 명만 골라 구독자에게 흘려준다**(`cb(lms)` — 배열이
+   아니라 한 사람 몫). `personLock.js`는 애초에 "여럿 중 그 아이
+   한 명"만 고르는 걸 목적으로 설계됐다(보호자가 대신 뽑히는 사고를
+   막으려고, 9/4 제보) — 여러 사람을 **동시에** 추적·구분하는
+   기능이 아니다.
+3. 그 한 사람의 랜드마크를 받은 `arcade2d/handTracker.js`가 다시
+   **한쪽 손 하나만** 고른다(`pickTracker()`) — 의도적 설계다.
+   MediaPipe Pose는 안 보이는 관절도 좌표를 지어내므로 "두 손목 중
+   진짜만 고르기"가 원리적으로 100% 안 되고, 그래서 트래커 개수
+   자체를 하나로 줄여 오탐을 화면에서 안 보이게 했다(주석: "규칙을
+   단순하게 만들어 문제를 없애는 쪽이 확실하다").
+
+**결론 — 실질적인 maximum tracked hands = 1**(설계상 의도된 값).
+MediaPipe 자체는 2명(=이론상 손 4개)까지 인식 가능하지만, 그 정보가
+게임에 닿기 전에 두 단계(personLock → handTracker)를 거치며 하나로
+줄어든다.
+
+**B/C. 질문 답변**:
+- **A. 한 사람의 양손이 각각 판정에 참여하는가?** → 아니다.
+  `pickTracker()`가 더 높이 든 손 하나만 고르고 반대쪽은 항상
+  `null`이다 — `game.js`의 `tick()`은 `{left, right}` 모양을
+  받지만 실제로는 둘 중 하나만 값이 있다.
+- **B. 각 손이 서로 다른 풍선을 동시에 catch할 수 있는가?** →
+  현재 손 자체가 하나뿐이라 원리적으로 불가능하다. 게다가
+  `game.js`의 CATCH 판정에는 별도로 **"이미 붙잡힌 풍선이 하나라도
+  있으면 다른 손은 못 잡는다"**(`anyHeld` 검사, 3차 피드백 "여러개
+  한번에 잡히게 하지마")는 게임 전체 단위의 추가 제약도 있다 — 손이
+  둘이 되더라도 이 규칙이 그대로면 동시 캐치가 안 된다. Co-op을
+  구현하려면 이 검사를 "게임 전체에 하나"가 아니라 "손(사람)별로
+  하나"로 바꿔야 한다(요청 7번에 따라 이번엔 안 고침, 감사만).
+- **C. 같은 풍선을 양손이 동시에 잡으면 중복 count가 발생하는가?**
+  → 발생하지 않는다(이미 잘 막혀 있다, 9번 항목 참고).
+- **D. 두 사람이 화면에 들어오면 각 사람의 손을 모두 감지하는가?**
+  → 아니다. `personLock`이 그 중 한 명만 고르고 나머지 사람은
+  완전히 무시된다(추론 자체는 두 사람 다 대상이지만, 선택 단계에서
+  한 명으로 좁혀진다).
+- **F. 3명 이상 지원에 필요한 변경**: (1) `poseEngine.js`의
+  `numPoses`를 3 이상으로(FPS 영향 실기기 미검증 — 코멘트에 이미
+  "더 올리면 FPS가 떨어진다"고 적혀 있다), (2) `personLock.js`를
+  "한 명 고정"에서 "여러 명을 프레임마다 재식별해 계속 추적"하는
+  구조로 다시 설계(사실상 다중 객체 추적/재식별 문제 — 지금
+  모듈에는 이런 개념 자체가 없다), (3) `handTracker.js`를 "사람별로
+  손 1~2개씩" 흘려주도록 확장, (4) `game.js`의 `hands` 모양(`{left,
+  right}` 고정 두 키)을 사람 수만큼 늘어나는 구조로 확장(단, 이건
+  `Object.entries(hands)`로 이미 범용 순회라 상대적으로 작은
+  변경), (5) 위 `anyHeld` 게임 전체 단일 보유 제약 완화.
+
+### 7) DUO Shared Co-op 구현 난이도
+
+요청 8번의 "개별 score 없이 하나의 공용 목표를 함께 채운다" 자체는
+`game.js`가 이미 그렇게 짜여 있다 — `collected`/`popped`는 애초에
+"이번 레벨에서 처리한 총 개수"이지 손·사람별로 안 나뉜다. 즉
+**판정 로직(quota 채우기) 자체는 이미 Co-op에 맞는 모양**이다. 진짜
+난이도는 전부 "여러 사람의 손 좌표를 동시에 신뢰성 있게 뽑아내는
+것"(6번 항목의 F)에 있다 — 화면·판정 코드보다 손 추적 아키텍처
+쪽이 압도적으로 크다.
+
+### 8) DUPLICATE CATCH 보호 상태 ★
+
+`spriteField.js`를 조사한 결과, 이미 튼튼하게 막혀 있다:
+- **Pop**: `popAtHands()`가 손 키를 하나씩 순서대로 처리하며,
+  `popAt()`은 맞힌 즉시 `s.popped = true`로 표시하고
+  `this.active`에서 **동기적으로** 바로 제거한다 — 같은 틱 안에서
+  다음 손을 검사할 때는 그 풍선이 이미 배열에 없어 두 번 못 맞힌다.
+- **Catch**: `attach()`가 `s.popped || s.attachedTo`인 스프라이트를
+  대상에서 제외하고, 붙잡는 즉시 `attachedTo = handKey`를 동기적으로
+  써서 다른 손이 같은 프레임에 같은 걸 다시 못 잡는다.
+
+별도의 `claimed`/`disposed` 같은 필드를 새로 만들 필요가 없다 —
+**`attachedTo`(누가 잡고 있나)와 `popped`(터졌나)가 이미 그 lock
+역할**을 한다, 자바스크립트가 싱글스레드라 처리가 항상 순차적인 한
+(지금 구조가 그렇다) 안전하다. 다인 입력이 실제로 들어와도 이
+메커니즘 자체는 안 바뀐다 — 늘어나는 건 손 키 개수뿐이다.
+
+### 9) GROUP 45개 화면 밀도 — 분석만(구현 안 함)
+
+`game.js`의 `_startLevel()`은 **레벨 시작 시 quota개를 한 번에 전부
+스폰**한다(재구성 STEP 95 원칙 — "동시 노출 수 = 남은 목표 수"). 즉
+GROUP 3레벨(quota 45)을 고르면 **45개 풍선이 동시에 화면에 뜬다.**
+위험 요소:
+- **렌더링/DOM**: 풍선 하나당 `<img>` 엘리먹트 하나(`els` Map)라
+  45개면 DOM 노드가 그만큼 늘어난다 — 최신 기기는 감당하겠지만
+  저사양 태블릿/모바일에서는 미검증.
+  화면 겹침이 지금 안전장치(레벨별 `BALLOON_R` 축소, safe zone)로
+  어느 정도 완화되지만, 그 안전장치는 "5·10·15개" 기준으로 튜닝된
+  값이라 45개에서는 서로 겹쳐 보이거나 뒤에 깔려 손이 안 닿는
+  풍선이 생길 가능성이 있다 — 실기기 검증 전이다.
+- **모바일 가로**: 화면이 좁아 밀도 문제가 데스크톱보다 심해진다.
+- **collision 밀도**: 판정 자체(거리 계산)는 개수에 선형으로
+  비싸지만 45개 수준에서 성능 병목이 될 정도는 아닐 것으로 보인다
+  (추정 — 실측 안 함).
+
+**제안(구현 안 함, 요청 10번 그대로 분석만)**: `TOTAL QUOTA`(목표
+총량)와 `ACTIVE BALLOON CAP`(동시 노출 상한, 예: 12개)을 분리하고,
+하나를 처리하면 남은 pool에서 자동 보충하는 구조. 단, 이건 STEP 95가
+일부러 걷어낸 옛 "count<quota면 다시 채운다" 방식과 겉모습이
+비슷해 보이므로, 실제 도입 시에는 **"남은 풍선 수"를 화면에 명확히
+표시**해서 SOLO에서 겪었던 "왜 계속 새로 생기지?" 혼란과 다르다는
+걸 아이에게 알려야 한다(요청 10번의 우려 그대로).
+
+### 확인
+
+`npx vitest run` — **1264건 전부 통과** — 신규
+`test/balloonPlayModes.test.js`(21건: SOLO=game.js 기존값 동일성,
+DUO/GROUP 수치, 3배 검증(5배 아님을 명시적으로 부정), 팝업이 공용
+클래스를 쓰는지, `showTitleScreen`의 새 반환 모양, `play.js`의
+lifecycle, `runBalloonPlay`의 quota 전달) + 기존
+`test/balloonRestDialogue.test.js`의 STEP103 타이틀 버튼 테스트
+3건을 새 레이아웃(`.actions` 컨테이너)에 맞게 갱신. `npm run build`
+통과.
+
+**브라우저 실측**(`localhost:5177`):
+- 타이틀 화면에 "👤 혼자 하기" 버튼이 START 위에 뜸(기본값) —
+  스크린샷 확인.
+- 클릭 → 팝업이 오디세이 속도 팝업과 같은 상자 모양으로 뜸(혼자
+  하기/둘이 하기/함께 하기 3개 + 닫기), 현재 선택(혼자 하기)이
+  금색으로 표시됨을 스크린샷 확인.
+- "둘이 하기" 선택 → 팝업이 자동으로 닫히고 버튼이 "👥 둘이 하기"로
+  바뀜을 확인.
+- START → 인트로 SKIP → 실제 플레이 화면 HUD가 **"0 / 10"**으로
+  뜸을 확인(DUO quota가 실제로 적용됨 — 실제 연결 확인, 추측 아님).
+- 허브로 나갔다가 다시 들어오면 모드 버튼이 다시 "혼자 하기"로
+  돌아옴을 확인(정책대로).
+- SOLO(기본값)로 플레이 → HUD가 여전히 **"0 / 5"**로 시작함을
+  확인 — 회귀 없음.
+- 개발자 진단 텍스트(`#bf-diag`, STEP 103)가 dev 서버에서 여전히
+  좌하단에 존재함도 이번 확인 중 같이 재확인됨(무관한 회귀 없음).
+
+**commit/push 안 함**.
+
+## STEP 105 — 풍선 팡팡: Family Co-op V1 (DUO 실제 2인 Shared Co-op) (2026-09-14)
+
+### 1) 목표
+
+SOLO를 절대 안 깨고, DUO(둘이 하기)를 부모+아이/아이+아이가 **각자 손 하나씩**
+써서 **공용 목표 하나**를 채우는 실제 협동 플레이로 만든다. GROUP(3명 이상)은
+구현 안 하고 "준비 중"으로 막는다.
+
+### 2) 기존 구조(바꾸기 전)
+
+`poseEngine`(PoseLandmarker `numPoses: 2`) → `personLock.select()`가 **한 명만** →
+`onLandmarks` 구독자 → `handTracker.trackHands()`의 `pickTracker()`가 **손 하나만** →
+`handSmoother`(left/right 고정) → `game.js` `tick({left,right})`. CATCH에는 게임 전체
+"동시에 하나만 잡기"(`anyHeld`)가 있었다. 실질 입력 = 1명 1손.
+
+### 3) 바꾼 구조 — SOLO와 DUO는 손 추적 길이 갈린다
+
+- **SOLO**: 예전 길 그대로(`trackHands` = personLock 한 사람 → 손 하나). 두 번째
+  사람은 애초에 이 길로 안 흘러온다.
+- **DUO**: `poseEngineCore.onCandidates()`(신규 opt-in — personLock을 거치기 전
+  전원 후보를 거울 좌표로) → `createPlayerSlots`(자리 2개) → 자리마다
+  `createHandPicker`(손 하나) → `hands = {p1, p2}`. 이 알맹이는
+  `createDuoHands()`로 카메라 없이 떼어 두고 `trackPlayers()`가 카메라에 물린다.
+- 공용 엔진은 **추가만** 했다: `onCandidates`(구독자가 없으면 기존 루프 동작
+  동일), `resetLock()`, `mirrorPose()`. 한 사람 길(`select`→`_mirrorAndSmooth`→
+  `onLandmarks`)은 한 줄도 안 바뀌었다.
+- `handSmoother`는 `keys` 옵션(기본 left/right 그대로), `game.js`는 `maxHeld`
+  옵션(기본 1 = 예전 `anyHeld`와 동일, DUO 2)과 `releaseHand()`를 추가했다.
+
+### 4) 플레이어 자리(`core/pose/playerSlots.js`)와 index swap 방지
+
+자리마다 `{id, state(empty|active|lost), center, lms, lastSeen, joinedAt}`. MediaPipe
+배열 순서를 안 믿고, **마지막 몸 중심(personLock의 `anchorOf`: 골반 → 없으면 어깨)과
+이번 후보 사이 거리**로 가까운 짝부터 탐욕 매칭(최대 0.30). 짝 없는 사람은
+lost/empty 자리에만 앉는다 — **유예 중인 active 자리는 안 뺏는다**. 몸 중심 0.05
+안으로 겹친 후보는 한 사람이 두 번 잡힌 것으로 보고 하나만 쓴다(처음 0.08로 뒀다가
+나란히 붙어 선 두 사람을 합칠 만큼 넓어서 테스트로 잡혀 줄였다). 얼굴 인식 등
+개인정보 식별은 없다.
+
+### 5) 플레이어당 손 하나(`createHandPicker`)
+
+기존 `pickTracker`(더 높이 든 손 + 갈아타기 여유 0.08)를 그대로 쓰고 둘을 얹었다:
+쓰던 손이 **350ms 안** 가려지면 반대 손으로 안 넘어가고 포인터만 비움, 반대 손이
+더 높아도 **250ms 이어져야** 갈아탐. 그래서 한 사람이 양손을 들어도 포인터는
+자리당 1개, DUO 전체 최대 2개(`hands`에 키가 p1·p2뿐이다).
+
+### 6) 중복 catch/pop 방지
+
+새 필드 없이 기존 구조가 atomic함을 **multi-pointer 합성 테스트로 확인**했다:
+`attach()`가 `attachedTo`를 같은 틱에 즉시 써서 두 번째 손은 못 잡고,
+`collectInBasket()`은 자기 키가 든 풍선만 넣으며, `popAt()`은 `popped=true` 후
+배열에서 즉시 뺀다(이벤트 1개 → Pop FX 1회). JS 싱글스레드라 한 틱 안 순차 처리가
+보장된다. 같은 풍선 동시 잡기 grab 1회·collect 1회(점수 +10), 동시 pop 1회, 서로
+다른 풍선 동시 처리 2회 — 전부 테스트로 고정.
+
+### 7) 잠깐 사라짐 · 재합류 · 둘 다 사라짐
+
+- 자리 유예 1.5초 안: 자리·quota·레벨 그대로(포인터는 스무더 LOST 0.5초 뒤 사라짐).
+- 유예 초과: 그 자리만 lost → 그 손이 들고 있던 풍선을 `releaseHand()`로 **한 번만**
+  놓는다(안 놓으면 떠난 사람 몫으로 묶여 레벨을 영영 못 끝낼 수 있다). 남은 사람은
+  계속, 화면에 작게 "친구를 찾는 중...".
+- 빈 자리에 사람이 들어오면 자동 재합류(quota·레벨·점수 유지).
+- 둘 다 lost: 새 pause 시스템 없이 `frame()` 앞단 게이트(`duoPresenceGate`)가
+  `paused`/`menuPaused`와 같은 방식으로 틱을 건너뛴다(시간·활동 초 안 흐름).
+  "다시 화면에 서 주세요" → 한 명이라도 1.2초 안정적으로 보이면 이어간다.
+  DUO에서만 돈다 — SOLO는 예전과 같다.
+
+### 8) 메뉴 조작자 ≠ 게임 플레이어
+
+카메라·personLock은 앱 수명 동안 하나라, 타이틀·스토리를 손으로 조작한
+보호자(또는 다른 게임 준비 화면에서 잠긴 사람)가 플레이어로 남을 수 있었다.
+`runBalloonPlay` 시작부가 곧장 `paused=false` 하던 것을 `beginGameplay()`로 바꿨다:
+① `poseEngineCore.resetLock()` ② DUO 자리 `reset()` ③ **플레이어 확보** — SOLO
+"화면에 서 주세요"(1명), DUO "두 명이 화면에 함께 서 주세요"(2명), 1.2초 연속으로
+보여야 통과(메뉴가 열려 있으면 안 셈) ④ SOLO만 `confirmLock()`으로 그 사람에
+잠금 → 이후 다른 사람이 들어와도 입력 안 됨 ⑤ 판 시작. 스토리·카메라 시작·Rest·
+quota 흐름은 안 건드렸다(확보는 인트로가 끝난 뒤, 첫 판 직전 1회).
+
+### 9) GROUP 비활성
+
+`modes.js`에 `available`(solo·duo true, group false)·`badge: '준비 중'`,
+`getPlayableMode()`(준비 중이면 SOLO). 팝업은 `disabled aria-disabled` + "준비 중"
+배지로 흐리게 그리고, 클릭 핸들러도 한 번 더 막는다. `runBalloonPlay`·타이틀 초기값
+모두 `getPlayableMode`를 써서 'group'이 우회로 넘어와도 3명 이상 gameplay가 없다.
+
+### 10) 밀도(요청 18번 — 분석만)
+
+DUO 3레벨 30개는 여전히 레벨 시작 때 한 번에 전부 뜬다(STEP 95 원칙, 이번엔
+리팩터링 안 함). 3레벨 반지름 0.084(짧은 변 기준 지름 약 17%)짜리 30개면 화면이
+빽빽해 겹침·가림이 생길 수 있다 — 실측(자동화 탭이 백그라운드라 rAF가 멈춰 프레임
+성능을 못 잼)은 못 했다. 실사용에서 겹침/난이도 문제가 보이면 **TOTAL QUOTA와
+ACTIVE BALLOON CAP(예: 동시 12개) 분리 + 남은 수 표시**를 다음 단계로 제안한다.
+
+### 확인
+
+`npx vitest run` — **1310건 전부 통과**. 신규 `test/balloonCoop.test.js`(자리 최대 2·
+배열 순서 뒤집힘에도 자리 유지·접근 중 유지·중복 후보 합치기·유예 중 자리 안 뺏김·
+유예 후 lost·재합류·둘 다 사라짐·reset / 손 선택 유지·가림 유예·전환 dwell / DUO
+포인터 최대 2 / 동시 catch·pop·중복 1회·공용 바구니·releaseHand 후 quota 유지 /
+resetLock이 잠금을 푸는지 / beginGameplay 순서 / onCandidates가 select보다 먼저 /
+SOLO 길·quota / GROUP 비활성). 작성 중 실패 2건: 부동소수(손바닥 평균) 비교를
+`toBeCloseTo`로, 중복 합치기 문턱 0.08 → 0.05(위 4번). STEP 104 테스트 1건을
+`getPlayableMode`로 갱신. `npm run build` 통과.
+
+**브라우저 실측**(`localhost:5177`, 자동화 탭이 `visibilityState: hidden`이라 캡처할
+때만 rAF가 돌았다 — 그래서 상태는 DOM으로 읽었다):
+- 모드 팝업: "함께 하기 3명 이상 · 준비 중"이 흐리게 disabled, `aria-disabled=true`,
+  disabled를 강제로 풀고 클릭해도 라벨이 "혼자 하기" 그대로.
+- SOLO: 인트로 SKIP 뒤 "화면에 서 주세요" 확보 화면 → 책상 앞 실제 사람이 감지돼
+  확보 완료 → 풍선 5개 스폰, 목표 `0/5`.
+- DUO(실제 사람 1명만 있음): "두 명이 화면에 함께 서 주세요 · 지금 1명 보여요",
+  진행바 0%, 목표 `0/10`, 풍선 0개, 포인터 0개 — **1명으로는 시작하지 않음**.
+  1명 카운트가 나왔다는 것 자체가 신규 `onCandidates` 길이 실제 카메라에서 동작함을
+  보여준다.
+- 실제 2인 동시 입력·재합류·둘 다 사라짐은 카메라 앞에 두 사람이 필요해 자동화로
+  못 했다 — 사람이 직접 확인해야 한다.
+
+**commit/push 안 함**.
+
+## STEP 106 — 풍선 팡팡: TEST/BETA 배포 전 Mode UI 디자인 정리 + 배포 안전 점검 (2026-09-14)
+
+### 1) 목표
+
+Multiplayer tracking 구조(STEP 105)는 안 건드리고, Play Mode selector·팝업을
+Play Zera 톤에 맞게 마감하고, 실사용자 TEST/BETA 배포 전 안전 상태를 점검한다.
+
+### 2) Intro Mode Selector 변경
+
+`#bf-title .mode-btn` — START보다 확실히 작게(min-height 40px, 폰트 축소),
+반투명 짙은 보라 배경(`rgba(28,16,66,.62)`) + 밝은 테두리(`rgba(255,255,255,.55)`)
++ 끝에 `▾`(caret)로 "누르면 더 있다"를 알린다. hover/focus-visible에서 테두리가
+골드로, active에서 더 어둡게 — 상태 3종 모두 추가. START 위치·순서(모드 버튼이
+START 바로 위)는 그대로 유지.
+
+### 3) 팝업 디자인 통일
+
+옵션 카드를 공용 클래스 하나(`.bf-mode-opt`)로 통일했다 — 기본은 전부 같은 톤
+(짙은 보라, `rgba(255,255,255,.05)` 배경 + 옅은 테두리), 선택된 카드만 골드
+테두리 + 은은한 글로우(`box-shadow: 0 0 0 1px gold inset, 0 0 18px rgba(gold,.3)`)
++ 체크 아이콘으로 표시한다 — **카드를 통째로 노랗게 채우지 않는다**(예전엔
+`.on`이 `background: var(--pz-gold)`로 카드 전체를 채웠다). 카드 구조를
+아이콘/제목+인원수(text hierarchy)/배지로 명확히 나눴다(`icon`·`text`(`label`+
+`people`)·`check`|`badge`).
+
+### 4) DUO 스타일
+
+SOLO와 완전히 같은 베이스 카드를 쓴다(예전엔 `.pz-btn.secondary`가 기본으로
+연보라 배경을 줘서 "별도 버튼처럼" 보였다 — 이제 미선택 상태는 SOLO·DUO·GROUP
+다 같다). 대신 라벨 옆에 작은 파란 계열 "BETA" 배지(`betaBadge`, `modes.js`)를
+얹었다 — 강조는 약하게(옅은 배경 + 얇은 테두리), 선택 여부와 무관하게 항상 보임.
+
+### 5) GROUP 준비 중
+
+기존 `available: false`/`badge` 구조(STEP 105)를 그대로 살리되, disabled 카드에
+`opacity: .48` + `cursor: not-allowed`만 적용(카드 자체 색은 안 바꾼다 — 흐림
+효과만으로 "고를 수 없음"이 충분히 전달된다). "준비 중" 배지는 체크 아이콘
+자리에 대신 들어간다(선택 가능 옵션과 시각적으로 자리가 안 겹치면서 구분됨).
+
+### 6) 닫기 버튼
+
+"닫기" 카드(다른 옵션과 거의 같은 비중)를 상자 오른쪽 위 작은 원형 X
+(`close-x`, 32px)로 바꿨다. `aria-label="닫기"`로 접근성은 유지. 상자에
+`position: relative`를 추가해야 X가 상자 기준으로 앉는다 — 처음엔 음수
+offset(상자 밖으로 살짝 걸침)으로 뒀다가 `overflow-y: auto`와 상호작용해 잘릴
+수 있어 상자 안쪽(10px)으로 옮겼다.
+
+### 7) 팝업 전체 톤
+
+`.pz-confirm-box` 오버라이드로 테두리를 4px → 2px로 얇게, 그림자를 부드럽게,
+배경을 그라데이션 반투명(`rgba(30,18,68,.94)~rgba(20,12,52,.96)`)으로 낮춰
+인트로 그림이 완전히 안 죽게 했다. 오버레이 dim도 .72 → .68로 살짝 낮췄다.
+
+### 8) 반응형
+
+`#bf-mode-popup`에 padding을 둬 화면 가장자리에 절대 안 붙게 했고,
+`.pz-confirm-box`에 `max-height: 100%` + `overflow-y: auto`를 추가해 좁은/짧은
+화면에서 3장 카드 + 헤더가 넘치면 팝업 내부 스크롤로 받는다(화면 자체가
+잘리지 않는다). `@media (max-height: 480px)`에서 카드 높이·아이콘·글자를
+줄인다. START·모드 셀렉터의 하단 고정(STEP 103)은 안 건드렸다.
+
+### 9) TEST/BETA 배포 안전 점검 결과
+
+- **A. production DEV 진단 텍스트**: STEP 103에서 이미 `import.meta.env.DEV`로
+  막아 뒀음을 재확인 — `npm run build` 결과물을 `grep`으로 직접 확인, 실제
+  `<div id="bf-diag">` 마크업·계산 로직은 없고 매칭 대상 없는 CSS 셀렉터
+  문자열만 남는다(화면에 영향 없음).
+- **B. console/debug overlay 노출**: 위와 같음 — 없음.
+- **C. GROUP 실제 비활성**: `available: false` + `disabled` 속성 + 클릭 핸들러
+  이중 방어(STEP 105 그대로) — 이번엔 디자인만 다시 확인.
+- **D. SOLO 기본값**: `DEFAULT_PLAY_MODE = 'solo'`, 브라우저 실측으로 재확인.
+- **E. DUO quota**: `PLAY_MODES.duo.part1Quotas/part2Quotas = [10,20,30]` 그대로.
+- **F. 카메라 권한 거부 시 사용자가 완전히 막히는지 ★ (실제 버그 발견·수정)**:
+  `#bf-loading`(z-index 10, "카메라를 못 열었어요" 안내)이 `#bf-hud`(나가기
+  버튼이 든 시스템바, 예전 z-index 8)보다 **위**에 있었다 — 카메라 권한이
+  거부되면 이 안내가 화면 전체를 덮으면서 오른쪽 위 나가기 버튼까지 시각적
+  으로 가리고, 겹친 자리의 클릭도 로딩 오버레이가 먼저 가로채 **나가기
+  버튼이 안 눌렸다**(실제 화면 갇힘). `#bf-hud`의 z-index를 8 → 11로 올려
+  로딩 오버레이보다 항상 위에 오게 고쳤다 — 레벨 클리어 배너(20)·확보
+  안내(15)보다는 낮게 둬서 다른 연출 순서는 그대로다.
+- **G. 카메라 프레임/이미지 서버 저장·업로드 조사**: `src/core/pose/`,
+  `src/games/arcade2d/`, `src/games/balloon-festival/`를 `toDataURL`/`toBlob`/
+  `fetch`/`FormData`/`XMLHttpRequest`/`POST` 기준으로 조사 — 유일하게 걸린
+  파일(`pipOverlay.js`)은 디버그용 스켈레톤 오버레이 캔버스로, 그리기만 하고
+  전송 코드는 없다. 실제 서버 전송은 `core/gameResult.js` → Supabase
+  `game_results` 테이블 하나뿐이고, 보내는 필드는 `session_id`·`game_id`·
+  `player_name`·`score`·`rounds_cleared`·`extra_data`(손 히트 횟수 등 숫자)·
+  `center_code`뿐이다 — **이미지·비디오·카메라 프레임을 저장하거나 업로드
+  하는 코드는 어디에도 없다.** 이번 작업에서도 그런 기능을 추가하지 않았다.
+
+### 10) 보호한 것(안 건드림)
+
+SOLO tracking·DUO player slot·DUO pointer·중복 catch/pop 방지·quota·Story·
+Rest·Result·Pop FX·카메라 획득(acquire) 로직 — 전부 STEP 105 그대로.
+`playScreen.js`에서 손댄 곳은 `#bf-hud`의 z-index 숫자 한 줄뿐이다.
+
+### 확인
+
+`npx vitest run` — **1320건 전부 통과**(`test/balloonPlayModes.test.js`가
+25→31건: 모드 셀렉터 caret·옵션 카드 공통 클래스·선택 표시가 반투명
+배경+테두리인지(카드 전체 채움이 아닌지)·GROUP 준비중/DUO BETA 배지·닫기가
+작은 원형 X인지·팝업 스크롤/반응형 breakpoint·**HUD z-index가 로딩
+오버레이보다 위인지**·production 진단 텍스트 미노출·카메라 업로드 코드
+부재·gameResult.js가 숫자만 보내는지). 작업 중 `titleScreen.js`·
+`playScreen.js` 코멘트에 백틱을 또 넣어(`` `.pz-confirm-box` ``,
+`` `#bf-loading` `` 등) `test/sourceParses.test.js`가 즉시 잡아냄 — 백틱
+제거로 수정. STEP 104 팝업 클래스 검사 1건을 새 마크업(`bf-mode-opt` 단독
+클래스)에 맞게 갱신. `npm run build` 통과.
+
+**브라우저 실측**(`localhost:5177`):
+- 모드 셀렉터가 START보다 작은 반투명 보라 pill + caret으로 보임(스크린샷).
+- 팝업: 3개 카드가 같은 톤(짙은 보라), SOLO(선택됨)만 골드 테두리+글로우+
+  체크, DUO엔 작은 BETA 배지, GROUP은 흐리고 "준비 중" 배지 — 스크린샷으로
+  확인.
+- DUO 카드 클릭 → 체크가 DUO로 이동, 버튼 라벨이 "둘이 하기"로 바뀌고
+  팝업이 자동으로 닫힘. GROUP 카드 클릭 → 아무 변화 없음(선택 불가 확인).
+- 원형 X 클릭 → 팝업이 선택 유지한 채 닫힘.
+- SOLO로 되돌려 START → 인트로 SKIP → 플레이어 확보 화면("화면에 서
+  주세요")에서 HUD(점수·레벨·목표·메뉴·나가기)가 전부 그 위에 정상적으로
+  보이고, **나가기 버튼을 눌러 종료 확인창이 정상적으로 뜸을 확인**(수정
+  전이었다면 카메라가 아직 안 켜진 이 시점에 안 눌렸을 자리 — 이번엔 이미
+  카메라가 켜진 상태라 직접 재현은 못 했지만, z-index 역전 자체는 소스로
+  확정 확인했고 고쳤다).
+- 반응형: `resize_window` 툴이 이 세션의 실제 렌더 뷰포트를 못 바꿔(이전
+  STEP들과 같은 한계, 항상 1920×992로 보고됨) 좁은/짧은 화면 실측은 못
+  했다 — `overflow-y: auto`·`max-height: 100%`·`@media (max-height: 480px)`
+  존재만 소스로 확인했다. **실기기 반응형 확인은 사람이 해야 한다.**
+
+**commit/push 안 함**.
+
+## STEP 107 — 풍선 팡팡: Level Clear/Rest 대사의 목표 개수를 모드 quota와 일치시킴 (2026-09-14)
+
+### 1) 문제 — 기존 하드코딩 위치
+
+`game.js`의 `PART1_LEVEL_CLEAR_LINES`/`PART2_LEVEL_CLEAR_LINES`(레벨 클리어 직후
+캐릭터 대사, `ui/playScreen.js`의 `showRestWithDialogue`가 씀)가 목표 개수를
+문자열에 그대로 박아 뒀다:
+
+- `PART1_LEVEL_CLEAR_LINES[0]`: "잘했어! 풍선 **5개**를 모두 모았어! 이번에는
+  풍선 **10개**를 바구니에 담아보자!"
+- `PART1_LEVEL_CLEAR_LINES[1]`: "대단해! 이번에는 마지막으로 풍선 **15개**를
+  모아보자!"
+- `PART2_LEVEL_CLEAR_LINES[0]`: "멋져! 이번에는 풍선 **10개**를 터뜨려보자!"
+- `PART2_LEVEL_CLEAR_LINES[1]`: "거의 다 왔어! 마지막으로 풍선 **15개**를
+  터뜨려보자!"
+
+전부 SOLO(5/10/15) 기준 숫자였다 — STEP 104/105에서 DUO(10/20/30)를 붙이며
+이미 알려진 한계로 기록해 뒀던 것을 이번 STEP에서 고쳤다. (나머지 줄들,
+`PART1_LEVEL_CLEAR_LINES[2]`·`PART2_LEVEL_CLEAR_LINES[2]`는 목표 개수를 언급
+안 해서 원래도 문제없었다.)
+
+### 2) 고친 방법 — 동적 quota로 변경한 위치
+
+`game.js`의 네 항목을 문자열에서 `(quotas) => string` **함수**로 바꿨다 —
+`quotas`는 그 판이 실제로 쓰는 `run.part1Quotas`/`run.part2Quotas` 배열이다.
+`ui/playScreen.js`의 `pickClearLine(res)`를
+`lines[res.clearedLevel - 1]?.(run.quotas) ?? ''`로 바꿔 그 함수를
+**`run.quotas`**(=`get quotas() { return part===CATCH ? part1Quotas :
+part2Quotas }`, HUD의 목표 뱃지·게임 판정이 이미 보던 바로 그 값)로 부른다.
+새 복제 숫자를 어디에도 안 만들었다 — 선택된 모드(`modes.js`) → `game.js`
+생성자 옵션(`part1Quotas`/`part2Quotas`) → `run.quotas` → HUD 목표 뱃지와
+클리어 대사가 전부 이 한 값을 본다.
+
+### 3) SOLO dialogue 확인 결과
+
+브라우저에서 실제 모듈을 불러 `PART1_LEVEL_CLEAR_LINES[0]([5,10,15])` 등을
+직접 호출해 확인 — SOLO(5/10/15)로 부르면 예전과 **글자 하나 안 틀리고
+동일한 문장**이 나온다(회귀 없음). 테스트로도 못박음
+(`test/balloonFestivalGame.test.js`).
+
+### 4) DUO dialogue 확인 결과
+
+같은 방식으로 DUO(10/20/30) quota를 넘겨 확인:
+
+- Part1 레벨1 클리어 → "풍선 **10개**를 모두 모았어! 이번에는 풍선 **20개**를…"
+- Part1 레벨2 클리어 → "마지막으로 풍선 **30개**를 모아보자!"
+- Part2 레벨1 클리어 → "이번에는 풍선 **20개**를 터뜨려보자!"
+- Part2 레벨2 클리어 → "마지막으로 풍선 **30개**를 터뜨려보자!"
+
+전부 요청한 수치와 정확히 일치. `run.quota`/`run.quotas`(HUD가 쓰는 값)도
+같은 세션에서 `[10,20,30]`으로 직접 확인 — HUD·게임 판정·대사가 서로 다른
+숫자를 낼 여지가 없다(같은 배열 인스턴스를 본다).
+
+### 5) GROUP
+
+이번 STEP에서 새 대사를 만들지 않았다 — GROUP은 여전히 `available: false`로
+선택 자체가 막혀 있다(STEP 105/106 그대로).
+
+### 확인
+
+`npx vitest run` — **1323건 전부 통과**(`test/balloonFestivalGame.test.js`에
+"이제 문자열이 아니라 함수다" + "SOLO로 부르면 예전과 완전히 같은 문구" +
+"DUO로 부르면 10/20/30이 그대로 들어간다" 3건 추가/보강,
+`test/balloonPlayModes.test.js`에 `pickClearLine`이 `run.quotas`를 읽는지
+1건 추가). `npm run build` 통과. Family Co-op tracking·player slots·pointer·
+catch/pop·Rest timer·character companion·Intro popup 스타일·Result·Story·
+카메라는 이번 STEP에서 한 줄도 안 건드렸다 — 수정 파일은 `game.js`(대사
+함수화)·`ui/playScreen.js`(`pickClearLine` 호출부 한 줄)·테스트 2개뿐이다.
+
+**브라우저 실측**(`localhost:5177`) — 실제 `game.js`/`modes.js` 모듈을 그대로
+불러 SOLO·DUO 양쪽 quota로 네 대사를 전부 호출해 위 3)·4) 문구를 직접
+확인했다(추측이 아니라 실행 결과). `BalloonFestivalRun`을 DUO quota로 만들어
+`run.quota`/`run.quotas`가 실제로 `[10,20,30]`임도 같은 세션에서 확인.
+
+### 최종 판단 — TEST/BETA 배포 가능 여부
+
+**가능하다고 본다.** STEP 103~106에서 확인된 배포 안전 항목(DEV 진단 텍스트
+숨김, 카메라 데이터 미전송, GROUP 비활성, 카메라 실패 시 나가기 버튼 접근성,
+Mode UI 디자인)에 더해, 이번 STEP으로 마지막까지 남아 있던 "DUO 대사 숫자
+불일치"까지 정리됐다 — SOLO는 완전히 기존과 동일(회귀 없음), DUO는 gameplay·
+HUD·대사가 전부 같은 quota 값을 공유해 화면 어디에서도 숫자가 어긋나지
+않는다. 남은 위험은 전부 **사람이 실기기로 확인해야 하는 항목**(다인 카메라
+동시 입력, 좁은/짧은 화면 반응형, DUO 30개 동시 스폰 밀도)이지 코드 결함이
+아니다 — 이 저장소 자동화 환경은 카메라 다인 입력·실제 뷰포트 크기 변경을
+재현할 수 없다는 이미 알려진 한계 때문이다.
+
+**commit/push 안 함**.

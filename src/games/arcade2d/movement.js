@@ -71,6 +71,41 @@ function floatAway(s) {
 }
 
 /**
+ * 자유(아직 손에 안 붙잡힌) 스프라이트가 지정 구역(zone, 정규화 사각형)
+ * 안으로 들어오면 가장 가까운 바깥쪽 경계로 밀어내고 그 방향 속도를
+ * 반사한다 — `bounceEdges`(화면 가장자리)와 같은 방식이다.
+ *
+ * 풍선 팡팡 1부에서 자유 풍선이 바구니 근처까지 떠다니다가, 손이 잡은
+ * 풍선을 바구니에 넣으려고 그 자리에 머무는 순간 **다른 자유 풍선을
+ * 의도치 않게 다시 붙잡아 버리는** 문제가 있었다(바구니 위치에 손이
+ * 있는데 마침 자유 풍선도 거기 있으면 `attach()`가 그 풍선을 골라
+ * 버린다). 자유 풍선이 그 구역에 아예 못 들어오게 막는다.
+ *
+ * 순간이동이 아니다 — 매 프레임 아주 작은 침투만 밀어내므로(dt당
+ * 이동량이 작다) 경계에서 튕기는 것처럼 보인다. `pad`는 호출부가
+ * 스프라이트 반지름 등 정규화 값으로 주므로 화면 비율·풍선 크기에
+ * 맞춰 늘어난다(고정 px 없음).
+ */
+export function avoidZone(s, zone, pad = s.r) {
+  if (!zone || s.attachedTo) return
+  const x0 = zone.x0 - pad, x1 = zone.x1 + pad
+  const y0 = zone.y0 - pad, y1 = zone.y1 + pad
+  // 여백까지 합쳐 구역이 화면 전체(0~1)를 덮으면 밀어낼 바깥이 없다 —
+  // 진짜 바구니는 이럴 만큼 크지 않다(`basket_wide.png`는 화면 폭의
+  // 34vw가 최대). 테스트가 "바구니 판정 자체"만 보려고 화면 전체를
+  // 바구니로 두는 경우 정도만 여기 걸린다.
+  if (x0 <= 0 && x1 >= 1 && y0 <= 0 && y1 >= 1) return
+  if (s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) return
+
+  const dLeft = s.x - x0, dRight = x1 - s.x, dTop = s.y - y0, dBottom = y1 - s.y
+  const min = Math.min(dLeft, dRight, dTop, dBottom)
+  if (min === dLeft) { s.x = x0; if (s.vx > 0) s.vx = -Math.abs(s.vx) }
+  else if (min === dRight) { s.x = x1; if (s.vx < 0) s.vx = Math.abs(s.vx) }
+  else if (min === dTop) { s.y = y0; if (s.vy > 0) s.vy = -Math.abs(s.vy) }
+  else { s.y = y1; if (s.vy < 0) s.vy = Math.abs(s.vy) }
+}
+
+/**
  * 손이 가까이 있으면 그 반대 방향으로 살짝 미는 벡터를 얹는다.
  * `fleeRadius`(정규화 거리) 밖이면 아무 효과가 없다.
  */

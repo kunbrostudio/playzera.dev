@@ -149,13 +149,33 @@ function bgFor(bg) {
  *   다시 연다 — 줄이 하나 이어지는 것처럼 보이게 하려면 그 장면의 처음이
  *   아니라 끝에서 이어받아야 한다. 인트로·발견·엔딩 전부 같은 규칙이다
  *   (ken 지적, 9/3) — "컷이 바뀌어도 이전 버튼은 계속 눌려야 한다."
+ * @param {boolean} [o.disableNextOnLast] 마지막 줄에서 "다음"을 **끝내는
+ *   버튼이 아니라 그냥 꺼진 버튼**으로 둔다(STEP 103, 풍선 팡팡 휴식
+ *   타임 전용). 기본(false)은 예전 그대로 — 마지막 줄에서 "다음"(또는
+ *   `startAction`이면 "시작")을 누르면 `finish('done')`으로 이 장면을
+ *   끝내고, 인트로·엔딩처럼 여러 장면을 잇는 흐름에서는 그게 맞다(다음
+ *   장면으로 넘어가거나 판이 시작된다). 그런데 **줄이 애초에 하나뿐이고
+ *   더 갈 장면도 없는** 호출(휴식 타임 대사 — 카운트다운이 따로 돌고
+ *   있어 대화 자체가 "끝"이라는 개념이 없다)에서는 이 기본 동작이
+ *   문제였다 — "다음"이 여전히 눌려서, 카운트다운이 다 되기 한참 전에
+ *   사용자가 누르면 `finish('done')`이 대화창 DOM을 그 자리에서
+ *   지워버렸다(호출부가 `'done'`을 무시하게 짜 놨어도 소용없다 — DOM
+ *   삭제는 `finish()` 안에서 결과와 상관없이 일어난다). `true`를 주면
+ *   마지막 줄에서 `nextBtn.disabled = true`로 두고 자동 넘김 타이머도
+ *   안 걸어서, 대화창이 **저절로도 안 사라지고** 눌러도 안 사라진다 —
+ *   부르는 쪽이 직접 `finish()`를 트리거할 다른 수단(휴식 타임은
+ *   카운트다운 종료 시 SKIP 버튼을 프로그램적으로 누른다)을 가지고
+ *   있을 때만 쓴다.
  * @returns {Promise<'done'|'home'|'back'|'prevScene'|'skip'|'title'>} `'title'`은
  *   오른쪽 위 나가기(X) → 확인창의 "게임 처음으로"다 — 스토리 화면에도
  *   생겼다(ken 요청, 9/2). 어디로 보낼지는 부르는 쪽이 정한다.
  */
 export function showStoryScene(
   app, scene, cast = {},
-  { backButton = false, skippable = false, startAction = false, startLine, canGoBack = false } = {},
+  {
+    backButton = false, skippable = false, startAction = false, startLine,
+    canGoBack = false, transparent = false, disableNextOnLast = false,
+  } = {},
 ) {
   return new Promise(resolve => {
     const lines = scene.lines.map(l => (typeof l === 'string' ? { text: l } : l))
@@ -186,7 +206,7 @@ export function showStoryScene(
             </button>` : ''}
           </div>
         </div>
-      </div>`, bgFor(scene.bg))
+      </div>`, bgFor(scene.bg), { transparent })
 
     const lineEl = el.querySelector('#r3-story-line')
     const nameEl = el.querySelector('#r3-story-name')
@@ -260,14 +280,24 @@ export function showStoryScene(
       // 지금 장면의 첫 줄이라도, 앞에 다른 장면이 있으면(`canGoBack`) 여전히
       // "더 갈 데"가 있다 — 컷이 바뀌었다고 꺼지면 안 된다(ken 지적, 9/3).
       prevBtn.disabled = i === 0 && !canGoBack
+      const isLastLine = i === lines.length - 1
       // 마지막 장면의 마지막 줄만 "시작"이다 — 자동 넘김은 안 바뀐다,
       // 글자로 "이 버튼이 판을 시작시킨다"는 걸 미리 알려줄 뿐이다.
-      nextBtn.innerHTML = startAction && i === lines.length - 1
+      nextBtn.innerHTML = startAction && isLastLine
         ? `시작 ${icon('play')}`
         : `다음 ${icon('play')}`
+      // ★ (STEP 103) `disableNextOnLast`가 켜져 있으면 "더 갈 다음이
+      // 없다"는 뜻 그대로 버튼을 꺼 둔다 — 대화 자체를 끝낼 수단이
+      // 아예 없어야 한다(위 JSDoc 참고).
+      nextBtn.disabled = disableNextOnLast && isLastLine
       clearTimer()
       // 자동 넘김 — 버튼을 누르면 `go()`가 다시 이 타이머를 건다(아래).
-      timer = setTimeout(() => go(1), autoMs(line))
+      // `disableNextOnLast`가 켜진 마지막 줄에서는 이 타이머도 안 건다 —
+      // 안 그러면 버튼은 꺼져 있어도 자동 넘김이 똑같이 대화창을
+      // 지워 버린다(사용자가 안 눌러도 "그냥 사라지는" 동일 증상).
+      if (!(disableNextOnLast && isLastLine)) {
+        timer = setTimeout(() => go(1), autoMs(line))
+      }
     }
 
     const abort = new AbortController()
@@ -299,7 +329,12 @@ export function showStoryScene(
         if (canGoBack) finish('prevScene')
         return
       }
-      if (next >= lines.length) { finish('done'); return }
+      if (next >= lines.length) {
+        // ★ (STEP 103) 버튼이 꺼져 있어 정상적으로는 여기 안 온다 — 방어선.
+        if (disableNextOnLast) return
+        finish('done')
+        return
+      }
       i = next
       show()
     }

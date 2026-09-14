@@ -48,6 +48,9 @@ const CSS = `
    화면 자체는 늘 opaque해야 한다. */
 .r3s-bg { position: absolute; inset: 0; z-index: 0; background-size: cover; background-position: center;
           background-color: var(--pz-bg-veil-2, #150a2e); }
+/* opt-in만 켜진다(mount()의 opts.transparent) — 뒤에 살아있는 카메라
+   화면을 계속 보여줘야 하는 대화창 전용. 일반 스토리 컷은 안 건드린다. */
+.r3s-transparent .r3s-bg { background-color: rgba(5, 2, 18, 0.35); background-image: none !important; }
 /* 가운데 세로로 쌓이는 것들만 위로 올린다.
    **.r3s-corner는 빼야 한다** — position: relative가 절대 위치를 덮어서
    왼쪽 위에 둔 "게임 목록"이 화면 한가운데로 끌려왔다(8/26).
@@ -244,7 +247,7 @@ const CSS = `
   min-height: clamp(52px, 8vh, 76px); font-size: clamp(1rem, 2.4vw, 1.35rem);
   padding: 0 clamp(20px, 3.6vw, 38px);
 }
-.r3-story-prev:disabled { opacity: .35; pointer-events: none; }
+.r3-story-prev:disabled, .r3-story-next:disabled { opacity: .35; pointer-events: none; }
 /* 스킵 — 이전·다음과 같은 모양(r3s-btn)이지만 이제 같은 묶음은 아니다.
    actions의 두 번째 flex 자식이라 위 space-between이 오른쪽 끝으로
    밀어 준다 — 이 클래스 전용 CSS는 여전히 필요 없다. */
@@ -325,10 +328,18 @@ export function ensureStyle() {
  * 받아지면 로딩 화면을 내리고 el을 보여준다 — 화질은 그대로 두고
  * 노출 시점만 늦췄다.
  */
-export function mount(app, id, html, bg) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.transparent] 배경을 옅은 반투명으로 바꾼다(기본은
+ *   늘 불투명 — 위 주석 "화면 자체는 늘 opaque해야 한다"). 풍선 팡팡의
+ *   쉬는 타임처럼 **뒤에 살아있는 카메라 화면을 계속 보여줘야 하는**
+ *   대화창에서만 쓴다(`arcade2d/storyRunner.js`가 켠다) — 다른 게임은
+ *   이 옵션을 안 주므로 전부 기존 그대로다.
+ */
+export function mount(app, id, html, bg, opts = {}) {
   ensureStyle()
   const el = document.createElement('div')
-  el.className = 'r3s'
+  el.className = opts.transparent ? 'r3s r3s-transparent' : 'r3s'
   el.id = id
   el.style.setProperty('--bg', `url("${bg}")`)
   el.innerHTML = `<div class="r3s-bg"></div>${html}`

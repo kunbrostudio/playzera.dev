@@ -58,9 +58,14 @@ const VEL_DECAY_TAU = 0.15   // 새 좌표가 없을 때 속도를 줄이는 빠
  * @param {number} [opts.velTau] 속도 보정 시간상수(초)
  * @param {number} [opts.velDecayTau] 미검출 시 속도 감쇠 시간상수(초)
  * @param {number} [opts.lostSec] 이만큼 실측이 없으면 그 손을 버린다(초)
+ * @param {string[]} [opts.keys] 따라갈 손 키 — 기본은 `left`/`right`(SOLO·다른
+ *   게임 그대로). 풍선 팡팡 DUO는 플레이어별 포인터 `p1`/`p2`를 넘긴다(STEP 105).
  */
-export function makeHandSmoother({ posTau = POS_TAU, velTau = VEL_TAU, velDecayTau = VEL_DECAY_TAU, lostSec = LOST_SEC } = {}) {
-  const state = { left: null, right: null }
+export function makeHandSmoother({
+  posTau = POS_TAU, velTau = VEL_TAU, velDecayTau = VEL_DECAY_TAU, lostSec = LOST_SEC,
+  keys = ['left', 'right'],
+} = {}) {
+  const state = Object.fromEntries(keys.map(k => [k, null]))
 
   /**
    * 한 프레임 진행.
@@ -73,7 +78,7 @@ export function makeHandSmoother({ posTau = POS_TAU, velTau = VEL_TAU, velDecayT
    * @returns {{left:{x,y}|null, right:{x,y}|null}} 화면·판정에 쓸 좌표
    */
   function step(target = {}, dt = 0, fresh = true) {
-    for (const side of ['left', 'right']) {
+    for (const side of keys) {
       const t = target[side]
       let s = state[side]
 

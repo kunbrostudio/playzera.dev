@@ -10,6 +10,7 @@
 
 import { poseEngineCore } from '../../core/pose/poseEngine.js'
 import { LM } from '../../core/pose/gesture.js'
+import { createPlayerSlots } from '../../core/pose/playerSlots.js'
 
 // ── 용어 ★ ──────────────────────────────────────────────────
 //
@@ -123,7 +124,10 @@ export function pickTracker(lms, current = null) {
  * @returns {{ video: HTMLVideoElement, hands: object, ready: Promise<boolean>, release: Function }}
  */
 export function trackHands({ onFrame } = {}) {
-  const hands = { left: null, right: null, side: null, seq: 0 }
+  // `personAt` — 마지막으로 "사람 한 명"이 흘러온 시각(ms). 손이 안 보여도
+  // 사람만 보이면 오른다 — 풍선 팡팡이 게임 시작 전 "화면에 선 사람이
+  // 있나"를 재는 데 쓴다(STEP 105). 기존 필드·동작은 그대로다.
+  const hands = { left: null, right: null, side: null, seq: 0, personAt: null }
   const video = document.createElement('video')
   video.muted = true
   video.playsInline = true
@@ -145,6 +149,7 @@ export function trackHands({ onFrame } = {}) {
         hands.left = side === 'left' ? point : null
         hands.right = side === 'right' ? point : null
         hands.seq++
+        hands.personAt = performance.now()
         onFrame?.(hands, lms)
       })
       return true
@@ -157,11 +162,161 @@ export function trackHands({ onFrame } = {}) {
   return {
     video,
     hands,
+    // 손 키 목록과 "그 키가 실제로 어느 손인가" — DUO 트래커(`trackPlayers`)와
+    // 같은 모양을 맞춰서 화면 코드가 둘을 구별 없이 쓴다. SOLO는 키가 곧 손이다.
+    keys: ['left', 'right'],
+    sideOf: key => key,
     ready,
     release() {
       unsub?.()
       detach?.()
       if (acquired) { acquired = false; poseEngineCore.release() }
+    },
+  }
+}
+
+// ── DUO(둘이 하기) — 플레이어마다 손 하나 ★ (STEP 105) ─────────────
+//
+// 한 사람이 양손을 다 쓰지 않는다(요청 7번 — 난이도·중복 충돌·유아 UX).
+// 그래서 플레이어 한 명당 트래커도 하나다. 어느 손을 쓸지는 SOLO와 같은
+// `pickTracker`(더 높이 든 손 + 갈아타기 여유)를 그대로 쓰되, 플레이어마다
+// 상태를 따로 들고 두 가지를 더 얹는다:
+//
+//   - 손이 **잠깐** 안 보이면(가림) 곧장 반대 손으로 안 넘어간다 — 유예
+//     동안은 포인터만 비워 두고 같은 손을 기다린다.
+//   - 반대 손이 더 높다고 판단돼도 **잠깐 이어져야** 갈아탄다 — 두 손
+//     높이가 비슷할 때 프레임마다 좌우로 튀지 않는다.
+export const HAND_LOSS_GRACE_MS = 350     // 실기기 미검증
+export const HAND_SWITCH_DWELL_MS = 250   // 실기기 미검증
+
+/**
+ * 플레이어 한 명의 "지금 쓰는 손" 고르기. 순수(시간을 밖에서 받는다).
+ * @returns {{ update(lms, now): {side:'left'|'right'|null, point:{x,y}|null}, reset(): void, readonly side }}
+ */
+export function createHandPicker({ lossGraceMs = HAND_LOSS_GRACE_MS, switchDwellMs = HAND_SWITCH_DWELL_MS } = {}) {
+  let side = null, lostSince = null, switchSince = null
+  return {
+    get side() { return side },
+    update(lms, now) {
+      const cands = palmCandidates(lms)
+      if (side && cands[side]) {
+        lostSince = null
+        const want = pickTracker(lms, side).side
+        if (want && want !== side) {
+          if (switchSince == null) switchSince = now
+          if (now - switchSince >= switchDwellMs) { side = want; switchSince = null }
+        } else {
+          switchSince = null
+        }
+        const p = cands[side]
+        return { side, point: { x: p.x, y: p.y } }
+      }
+      switchSince = null
+      if (side) {
+        if (lostSince == null) lostSince = now
+        if (now - lostSince < lossGraceMs) return { side, point: null }
+      }
+      const picked = pickTracker(lms, null)
+      side = picked.side
+      lostSince = null
+      return picked
+    },
+    reset() { side = null; lostSince = null; switchSince = null },
+  }
+}
+
+/**
+ * DUO용 손 추적 — `trackHands`와 같은 모양(`video`·`hands`·`keys`·`ready`·
+ * `release`)에 플레이어 상태(`status`)와 세션 초기화(`reset`)를 더했다.
+ * 손 키는 `p1`/`p2`이고 각 키에 그 플레이어의 손 하나만 들어간다 —
+ * 그래서 포인터는 **최대 maxPlayers개**다(한 사람이 양손을 들어도 늘지 않는다).
+ */
+export function trackPlayers({ maxPlayers = 2, onFrame } = {}) {
+  const duo = createDuoHands({ maxPlayers })
+
+  const video = document.createElement('video')
+  video.muted = true
+  video.playsInline = true
+  video.autoplay = true
+
+  let acquired = false, unsub = null, detach = null
+
+  const ready = (async () => {
+    try {
+      await poseEngineCore.acquire()
+      acquired = true
+      detach = poseEngineCore.attach(video)
+      unsub = poseEngineCore.onCandidates((people, now) => {
+        duo.update(people, now)
+        onFrame?.(duo.hands, duo.slots)
+      })
+      return true
+    } catch (e) {
+      console.info('[arcade2d] 카메라를 못 열었다:', e?.name ?? e)
+      return false
+    }
+  })()
+
+  return {
+    video,
+    hands: duo.hands,
+    keys: duo.keys,
+    sideOf: duo.sideOf,
+    ready,
+    status: duo.status,
+    reset: duo.reset,
+    release() {
+      unsub?.()
+      detach?.()
+      if (acquired) { acquired = false; poseEngineCore.release() }
+    },
+  }
+}
+
+/**
+ * DUO 손 추적의 **카메라 없는 알맹이** — 사람 후보 목록을 받아 자리(플레이어)를
+ * 유지하고, 자리마다 손 하나만 `hands[p1|p2]`에 채운다. `trackPlayers`가 이걸
+ * 카메라에 물릴 뿐이라, 포인터 개수·자리 연속성을 합성 프레임으로 검증할 수 있다.
+ */
+export function createDuoHands({ maxPlayers = 2 } = {}) {
+  const keys = Array.from({ length: maxPlayers }, (_, i) => `p${i + 1}`)
+  const hands = { seq: 0 }
+  const sides = {}
+  for (const k of keys) { hands[k] = null; sides[k] = null }
+  const slots = createPlayerSlots({ maxSlots: maxPlayers })
+  const pickers = keys.map(() => createHandPicker())
+
+  return {
+    keys,
+    hands,
+    slots: slots.slots,
+    sideOf: key => sides[key] ?? null,
+
+    /** @param {Array<Array<object>>} people 거울 좌표 후보들 @param {number} now ms */
+    update(people, now) {
+      slots.update(people, now).forEach((slot, i) => {
+        const k = keys[i]
+        if (slot.state !== 'active') {
+          pickers[i].reset(); hands[k] = null; sides[k] = null
+          return
+        }
+        if (!slot.lms) { hands[k] = null; return }   // 잠깐 가려짐 — 쓰던 손은 기억한다
+        const r = pickers[i].update(slot.lms, now)
+        hands[k] = r.point
+        sides[k] = r.side
+      })
+      hands.seq++
+      return hands
+    },
+
+    /** @param {number} now ms — `{ slots:[{id,state,present}], activeCount, presentCount }` */
+    status: now => slots.statusAt(now),
+
+    /** 게임 진입 직전 — 메뉴를 조작한 사람과 무관하게 자리를 처음부터 다시 채운다. */
+    reset() {
+      slots.reset()
+      pickers.forEach(p => p.reset())
+      for (const k of keys) { hands[k] = null; sides[k] = null }
     },
   }
 }
