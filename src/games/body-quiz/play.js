@@ -31,19 +31,14 @@ import {
   getBodyQuizPlayAssets,
   openBodyQuizReadinessGate,
 } from './assetReadiness.js'
+import {
+  BODY_QUIZ_MOTION_HUD_CSS,
+  bodyQuizMotionHudMarkup,
+  createBodyQuizMotionHud,
+} from './motionHud.js'
 
-const MOTION_ICON_PATHS = {
-  squat: '<circle cx="12" cy="4" r="2"/><path d="m9.5 8.5 2.5-1.5 2.5 1.5 1.8 4.2"/><path d="m9.5 9-2.8 4.2 3.8 2.1-2.2 4.2"/><path d="m14.3 12.5 2.7 2.8 3.4.2"/><path d="m10.5 15.3 4 .2 2.2 4"/>',
-  jump: '<circle cx="12" cy="4" r="2"/><path d="m8 8 4 2 4-2"/><path d="m12 10-1 5-4 4"/><path d="m11 15 4 4"/><path d="M4 6 2 4M20 6l2-2"/>',
-  run: '<circle cx="13" cy="4" r="2"/><path d="m8 10 3-3 4 3 3 1"/><path d="m12 9-1 5-4 5"/><path d="m11 14 4 2 2 4"/>',
-  pose: '<circle cx="12" cy="4" r="2"/><path d="M12 7v7"/><path d="m12 9-5 3"/><path d="m12 9 5 3"/><path d="m12 14-4 6"/><path d="m12 14 4 6"/>',
-}
-
-/** BODY QUIZ 안에서 먼저 쓰는 교체형 운동 pictogram. */
-export function bodyQuizMotionIcon(key) {
-  const paths = MOTION_ICON_PATHS[key] ?? MOTION_ICON_PATHS.pose
-  return `<svg class="bq-motion-pictogram" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`
-}
+// 기존 import 계약은 유지하되 구현 정본은 motionHud.js 한 곳에 둔다.
+export { bodyQuizMotionIcon } from './motionHud.js'
 
 /** poseEngineCore의 참조 하나를 안전하게 빌리는 수명주기 래퍼. */
 export function createBodyQuizCameraSession({ videoEl, onLandmarks, onStatus, engine = poseEngineCore }) {
@@ -101,6 +96,7 @@ export function createBodyQuizCameraSession({ videoEl, onLandmarks, onStatus, en
 export default function bodyQuizPlay(app, query, {
   assetReadiness = bodyQuizAssetReadiness,
   tutorialPolicy = shouldShowTutorial,
+  loadingScreen,
 } = {}) {
   const gameId = query.id ?? 'body-quiz'
   const manifest = getManifest(gameId)
@@ -131,6 +127,7 @@ export default function bodyQuizPlay(app, query, {
   app.innerHTML = `
     <style>
       #bq, #bq * { box-sizing: border-box; }
+      ${BODY_QUIZ_MOTION_HUD_CSS}
       #bq {
         --bq-header-height: clamp(44px, 6dvh, 58px);
         --bq-header-border: 3px;
@@ -264,26 +261,6 @@ export default function bodyQuizPlay(app, query, {
       #bq-feedback.correct { color: #ffe066; }
       #bq-feedback.wrong { color: #ff9cad; }
 
-      /* 실제 상태에 연결된 SQUAT / MOVE ENERGY. 높이는 낮게, 대비는 강하게. */
-      #bq-motion-hud {
-        justify-self: center; width: min(72vw, 560px); display: grid; grid-template-columns: auto 1fr auto; align-items: center;
-        gap: clamp(8px, 1.2vw, 16px); padding: clamp(8px, 1.2dvh, 13px) clamp(14px, 2vw, 24px);
-        border: 4px solid #6fd6ff; border-radius: clamp(18px, 2vw, 28px);
-        background: linear-gradient(180deg, rgba(255,255,255,.96), rgba(222,244,255,.94));
-        box-shadow: inset 0 2px 0 #fff, 0 6px 0 rgba(28,96,146,.74), 0 12px 30px rgba(0,0,0,.34), 0 0 24px rgba(92,213,255,.48);
-        color: #24346f; transition: border-color .2s, box-shadow .2s, transform .2s;
-      }
-      #bq-motion-hud.unlocked { border-color: #ffe066; box-shadow: inset 0 2px 0 #fff, 0 6px 0 #b9770b, 0 0 30px rgba(255,210,62,.78); }
-      #bq-motion-count { display: inline-flex; align-items: center; gap: clamp(7px, .8vw, 10px); min-width: 0; }
-      #bq-motion-icon { width: clamp(34px, 3.4vw, 46px); height: clamp(34px, 3.4vw, 46px); flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #fff; border-radius: 9999px; color: #fff; background: linear-gradient(180deg, #63ddff, #237bd8); box-shadow: inset 0 2px 0 rgba(255,255,255,.38), 0 3px 0 #1555a3; }
-      .bq-motion-pictogram { width: 68%; height: 68%; display: block; }
-      #bq-squat { font-size: clamp(1rem, 2vw, 1.4rem); font-weight: 900; white-space: nowrap; }
-      #bq-energy { min-width: 0; display: grid; grid-template-columns: auto minmax(70px, 1fr) auto; align-items: center; gap: 8px; }
-      #bq-energy-label, #bq-energy-pct { font-size: clamp(.72rem, 1.25vw, .94rem); font-weight: 900; white-space: nowrap; }
-      #bq-energy-bar { height: clamp(12px, 1.8dvh, 17px); overflow: hidden; border: 2px solid #fff; border-radius: 9999px; background: rgba(35,23,77,.22); box-shadow: inset 0 2px 5px rgba(24,13,62,.35); }
-      #bq-energy-bar i { display: block; width: 0%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffd23e, #ff9d2e, #ff4fa4); transition: width .2s ease; }
-      #bq-move-state { min-width: 100px; padding: 5px 10px; border-radius: 9999px; text-align: center; color: #fff; background: linear-gradient(180deg, #967fe2, #624db7); box-shadow: 0 3px 0 #43328b; font-size: clamp(.72rem, 1.25vw, .94rem); font-weight: 900; white-space: nowrap; }
-      #bq-motion-hud.unlocked #bq-move-state { color: #563700; background: linear-gradient(180deg, #fff39a, #ffd23e); box-shadow: 0 3px 0 #bd7f11; }
       #bq-dev-hint { position: absolute; left: 8px; bottom: 4px; font-size: .68rem; color: rgba(255,255,255,.58); }
 
       /* 가이드 파일이 실제로 로드된 경우에만 보인다. 깨진 이미지 대체물은 쓰지 않는다. */
@@ -352,15 +329,6 @@ export default function bodyQuizPlay(app, query, {
         .bq-label { padding: 2px 9px; border-width: 2px; box-shadow: 0 2px 0 rgba(71,47,126,.42); font-size: clamp(.66rem, 2.4dvh, .82rem); }
         #bq-center-guide { height: 24px; }
         #bq-feedback { bottom: 2%; font-size: clamp(.9rem, 4dvh, 1.2rem); }
-        #bq-motion-hud { width: min(88vw, 500px); gap: 7px; padding: 5px 10px; border-width: 2px; border-radius: 16px; box-shadow: inset 0 1px 0 #fff, 0 3px 0 rgba(28,96,146,.74), 0 6px 15px rgba(0,0,0,.3); }
-        #bq-motion-hud.unlocked { box-shadow: inset 0 1px 0 #fff, 0 3px 0 #b9770b, 0 0 18px rgba(255,210,62,.7); }
-        #bq-squat { font-size: clamp(.74rem, 3dvh, .9rem); }
-        #bq-motion-count { gap: 5px; }
-        #bq-motion-icon { width: 27px; height: 27px; border-width: 1px; box-shadow: 0 2px 0 #1555a3; }
-        #bq-energy { gap: 5px; }
-        #bq-energy-label, #bq-energy-pct, #bq-move-state { font-size: clamp(.58rem, 2.2dvh, .7rem); }
-        #bq-energy-bar { height: 10px; border-width: 1px; }
-        #bq-move-state { min-width: 78px; padding: 3px 7px; box-shadow: 0 2px 0 #43328b; }
         #bq-dev-hint { display: none; }
         .bq-guide { width: clamp(58px, 8vw, 82px); bottom: max(4px, env(safe-area-inset-bottom)); }
         .bq-guide-bubble { bottom: 68%; max-width: 170px; padding: 6px 9px; border-width: 2px; border-radius: 14px; font-size: clamp(.58rem, 2.4dvh, .7rem); box-shadow: 0 2px 0 #489fce, 0 5px 12px rgba(31,35,99,.24); }
@@ -383,10 +351,6 @@ export default function bodyQuizPlay(app, query, {
         #bq-question-prompt { font-size: .84rem; }
         #bq-stage { grid-template-columns: minmax(0, 1fr) minmax(29vw, 36vw) minmax(0, 1fr); gap: 4px; }
         .bq-answer { width: min(100%, 118px); }
-        #bq-motion-hud { width: 96%; padding-inline: 7px; gap: 5px; }
-        #bq-energy-label { display: none; }
-        #bq-energy { grid-template-columns: minmax(70px, 1fr) auto; }
-        #bq-move-state { min-width: 70px; }
         .bq-guide { display: none; width: 48px; }
         .bq-guide.is-speaking:not(.asset-missing) { display: flex; }
         .bq-guide-bubble { bottom: 64%; max-width: 132px; padding: 5px 7px; font-size: .56rem; }
@@ -427,11 +391,14 @@ export default function bodyQuizPlay(app, query, {
           ${import.meta.env.DEV ? '<div id="bq-dev-hint">S: 스쿼트 · ←/→: 답 선택 · R: 다시하기</div>' : ''}
         </main>
 
-        <section id="bq-motion-hud" class="locked" aria-label="움직임 에너지">
-          <div id="bq-motion-count"><span id="bq-motion-icon" data-motion="${question.exercise.key}">${bodyQuizMotionIcon(question.exercise.key)}</span><div id="bq-squat">SQUAT 0/${game.targetSquats}</div></div>
-          <div id="bq-energy"><span id="bq-energy-label">MOVE ENERGY</span><div id="bq-energy-bar"><i></i></div><span id="bq-energy-pct">0%</span></div>
-          <div id="bq-move-state">MOVE LOCK</div>
-        </section>
+        ${bodyQuizMotionHudMarkup({
+          idPrefix: 'bq',
+          exercise: question.exercise.key,
+          currentCount: 0,
+          targetCount: game.targetSquats,
+          energyPercent: 0,
+          moveLocked: true,
+        })}
       </div>
 
       <div id="bq-guides" aria-live="polite">
@@ -451,9 +418,10 @@ export default function bodyQuizPlay(app, query, {
     left: $('#bq-left'), right: $('#bq-right'), hud: $('#bq-motion-hud'), feedback: $('#bq-feedback'),
     cameraStatus: $('#bq-camera-status'), cameraTitle: $('#bq-camera-title'), cameraDetail: $('#bq-camera-detail'),
     retry: $('#bq-camera-retry'), systemSlot: $('#bq-system-slot'), progress: $('#bq-progress strong'),
-    prompt: $('#bq-question-prompt'), motionIcon: $('#bq-motion-icon'),
+    prompt: $('#bq-question-prompt'),
     guides: [...root.querySelectorAll('.bq-guide')],
   }
+  const motionHud = createBodyQuizMotionHud(els.hud)
 
   for (const guide of els.guides) {
     const image = guide.querySelector('img')
@@ -502,8 +470,13 @@ export default function bodyQuizPlay(app, query, {
       image.alt = answer.label
       card.querySelector('.bq-label').textContent = answer.label
     }
-    els.motionIcon.dataset.motion = question.exercise.key
-    els.motionIcon.innerHTML = bodyQuizMotionIcon(question.exercise.key)
+    motionHud.update({
+      exercise: question.exercise.key,
+      currentCount: game.squatCount,
+      targetCount: game.targetSquats,
+      energyPercent: game.moveEnergy,
+      moveLocked: game.locked,
+    })
   }
 
   function startQuestionClock(now = performance.now()) {
@@ -537,12 +510,13 @@ export default function bodyQuizPlay(app, query, {
   function paint() {
     const locked = game.locked
     root.dataset.phase = game.phase
-    els.hud.classList.toggle('locked', locked)
-    els.hud.classList.toggle('unlocked', !locked)
-    $('#bq-move-state').textContent = locked ? 'MOVE LOCK' : 'MOVE UNLOCK'
-    $('#bq-squat').textContent = `SQUAT ${game.squatCount}/${game.targetSquats}`
-    $('#bq-energy-bar i').style.width = `${game.moveEnergy}%`
-    $('#bq-energy-pct').textContent = `${game.moveEnergy}%`
+    motionHud.update({
+      exercise: question.exercise.key,
+      currentCount: game.squatCount,
+      targetCount: game.targetSquats,
+      energyPercent: game.moveEnergy,
+      moveLocked: locked,
+    })
 
     const selected = game.phase === PHASE.ANSWER_HOLD ? game.selectedSide : null
     for (const [side, el] of [['left', els.left], ['right', els.right]]) {
@@ -652,6 +626,7 @@ export default function bodyQuizPlay(app, query, {
       mountEl: root, question: QUESTIONS[0], onIntro: () => navigate(backTo), onHome: () => navigate('/'),
       assetReadiness,
       playAssets,
+      loadingScreen,
       onFinish() {
         tutorialActive = false
         tutorialHandle = null
@@ -660,7 +635,7 @@ export default function bodyQuizPlay(app, query, {
       },
     })
   } else {
-    playReadinessGate = createBodyQuizLoadingGate(root, { label: '게임을 준비하고 있어요' })
+    playReadinessGate = createBodyQuizLoadingGate(root, { loadingScreen })
     if (assetReadiness.areReady(playAssets)) {
       playReadinessGate.reveal()
       activatePlay()

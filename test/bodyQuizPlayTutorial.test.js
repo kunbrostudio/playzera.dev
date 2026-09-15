@@ -27,6 +27,7 @@ const immediateReadiness = {
   waitFor: () => Promise.resolve({ ready: true, timedOut: false, results: [], failed: [] }),
   invalidate() {},
 }
+const noopLoadingScreen = () => ({ release() {} })
 
 // squat 반영은 rAF 루프(loop())가 다음 프레임에 그린다 — keydown 직후
 // DOM을 바로 읽으면 아직 이전 프레임이다. 프레임 한 번을 기다려 준다.
@@ -47,7 +48,7 @@ async function press(code) {
 function mountPlay(query = { id: 'body-quiz' }) {
   document.body.innerHTML = '<div id="app"></div>'
   const app = document.querySelector('#app')
-  bodyQuizPlay(app, query, { assetReadiness: immediateReadiness })
+  bodyQuizPlay(app, query, { assetReadiness: immediateReadiness, loadingScreen: noopLoadingScreen })
   return app
 }
 
@@ -152,6 +153,27 @@ describe('실제 플레이 scene — 카메라·데이터·상태 UI', () => {
     }
   })
 
+  it('실제 play와 tutorial은 같은 Motion HUD 구조와 visual class를 공유한다', () => {
+    const app = mountPlay()
+    const playHud = app.querySelector('#bq-motion-hud')
+    const tutorialHud = app.querySelector('#bqt-motion-hud')
+    for (const hud of [playHud, tutorialHud]) {
+      expect(hud.classList.contains('bq-motion-hud')).toBe(true)
+      expect(hud.querySelector('.bq-motion-icon')).not.toBeNull()
+      expect(hud.querySelector('.bq-motion-name')).not.toBeNull()
+      expect(hud.querySelector('.bq-motion-energy-bar')).not.toBeNull()
+      expect(hud.querySelector('.bq-motion-state')).not.toBeNull()
+      expect(hud.querySelector('.bq-motion-icon').parentElement).toBe(hud)
+      expect(hud.querySelector('.bq-motion-count').parentElement).toBe(hud)
+      const energy = hud.querySelector('.bq-motion-energy')
+      expect(energy.parentElement).toBe(hud)
+      expect(hud.querySelector('.bq-motion-energy-label').parentElement).toBe(energy)
+      expect(hud.querySelector('.bq-motion-energy-bar').parentElement).toBe(energy)
+      expect(hud.querySelector('.bq-motion-energy-pct').parentElement).toBe(hud)
+      expect(hud.querySelector('.bq-motion-state').parentElement).toBe(hud)
+    }
+  })
+
   it('가이드 캐릭터는 지정 asset만 참조하고 로드 전에는 깨진 대체물을 노출하지 않는다', () => {
     const app = enterPlay()
     const guides = [...app.querySelectorAll('.bq-guide')]
@@ -251,7 +273,7 @@ describe('실제 플레이 scene — 세션 문제 선택과 분석 시간', () 
     const css = app.querySelector('style').textContent
     expect(css).toContain('@media (max-width: 700px) and (orientation: landscape)')
     expect(css).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(css).toContain('#bq-motion-icon')
+    expect(css).toContain('.bq-motion-icon')
   })
 })
 
@@ -336,11 +358,17 @@ describe('플레이 화면 — 개발 모드에서는 완료 기록과 무관하
 // hash 이동은 router의 비동기 hashchange 렌더를 일으키므로 DOM 검증이 모두 끝난
 // 마지막에 둔다. 플레이 왼쪽 바로가기는 없어졌지만 종료 확인의 인트로 경로는 유지한다.
 describe('실제 플레이 scene — 종료 확인의 인트로 이동', () => {
-  it('게임 처음으로는 BODY QUIZ 인트로 경로로 돌아간다', () => {
+  it('게임 처음으로는 BODY QUIZ 인트로 경로로 돌아간다', async () => {
     const app = enterPlay()
     window.history.replaceState(null, '', '#/play?id=body-quiz')
     app.querySelector('#pz-exit').click()
     app.querySelector('#pz-quit').click()
     expect(window.location.hash).toBe('#/intro?id=body-quiz')
+
+    // hash router가 비동기 import 뒤 intro readiness를 시작하므로 mount까지
+    // 기다렸다가 안전한 비게임 화면으로 이동해 pending gate를 정리한다.
+    await vi.waitFor(() => expect(document.querySelector('#bqi-root')).not.toBeNull())
+    window.location.hash = '#/me'
+    await vi.waitFor(() => expect(document.querySelector('#bqi-root')).toBeNull())
   })
 })

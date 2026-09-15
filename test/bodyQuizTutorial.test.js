@@ -24,6 +24,7 @@ const immediateReadiness = {
   waitFor: () => Promise.resolve({ ready: true, timedOut: false, results: [], failed: [] }),
   invalidate() {},
 }
+const noopLoadingScreen = () => ({ release() {} })
 
 afterEach(() => {
   for (const handle of mountedHandles) handle.destroy()
@@ -39,6 +40,7 @@ function mount(options = {}) {
     question,
     onFinish: () => { finished = true },
     assetReadiness: immediateReadiness,
+    loadingScreen: noopLoadingScreen,
     ...options,
   })
   mountedHandles.add(handle)
@@ -231,20 +233,29 @@ describe('표시 정책 — shouldShowTutorial', () => {
 })
 
 describe('STEP 전환 — 1 → 2 → 3 → 4', () => {
-  it('처음엔 1/4, 운동 패널이 없고 STEP1 중앙 그림(think)이 뜬다', () => {
+  it('처음엔 1/4, 공통 HUD 0/5·0%·LOCK과 STEP1 중앙 그림(think)이 뜬다', () => {
     const { app } = mount()
     expect(app.querySelector('#bqt-page').textContent).toBe('1 / 4')
-    expect(app.querySelector('#bqt-exercise').hidden).toBe(true)
+    expect(app.querySelector('#bqt-motion-hud')).not.toBeNull()
+    expect(app.querySelector('#bqt-squat').textContent).toBe('SQUAT 0/5')
+    expect(app.querySelector('#bqt-energy-pct').textContent).toBe('0%')
+    expect(app.querySelector('#bqt-move-state').textContent).toBe('MOVE LOCK')
+    expect(app.querySelector('#bqt-unlock-text').textContent).toBe('MOVE LOCK!')
     expect(app.querySelector('#bqt-center-media').hidden).toBe(false)
     expect(app.querySelector('#bqt-center-img').getAttribute('src')).toContain('tutorial_think.png')
     expect(app.querySelector('#bqt-squat-cycle').hidden).toBe(true)
   })
 
-  // tutorial board 안에는 더 이상 "MOVE LOCK" 문구가 없다 — 그건 실제
-  // 게임 화면(play.js)의 상태 표시이지 튜토리얼 UI가 아니다(ken 지시).
-  it('보드 안에 MOVE LOCK 문구가 없다', () => {
+  it('STEP 1~4가 같은 panel node와 반응형 height frame을 유지한다', () => {
     const { app } = mount()
-    expect(app.textContent).not.toContain('MOVE LOCK')
+    const board = app.querySelector('#bqt-board')
+    const css = app.querySelector('#bqt-root style').textContent
+    expect(css).toContain('height: clamp(430px, 68dvh, 700px)')
+    expect(css).toContain('grid-template-rows: auto auto minmax(0, 1fr) auto auto')
+    for (let step = 1; step < 4; step++) {
+      app.querySelector('#bqt-next').click()
+      expect(app.querySelector('#bqt-board')).toBe(board)
+    }
   })
 
   it('1/4에서 이전 버튼은 비활성이다', () => {
@@ -252,11 +263,11 @@ describe('STEP 전환 — 1 → 2 → 3 → 4', () => {
     expect(app.querySelector('#bqt-prev').disabled).toBe(true)
   })
 
-  it('다음을 누르면 2/4로 가고 운동 패널·스쿼트 down/up 그림을 보여준다', () => {
+  it('다음을 누르면 2/4로 가고 공통 HUD·스쿼트 down/up 그림을 보여준다', () => {
     const { app } = mount()
     app.querySelector('#bqt-next').click()
     expect(app.querySelector('#bqt-page').textContent).toBe('2 / 4')
-    expect(app.querySelector('#bqt-exercise').hidden).toBe(false)
+    expect(app.querySelector('#bqt-motion-hud')).not.toBeNull()
     expect(app.querySelector('#bqt-squat-cycle').hidden).toBe(false)
     expect(app.querySelector('#bqt-squat-down').getAttribute('src')).toContain('tutorial_squat_down.png')
     expect(app.querySelector('#bqt-squat-up').getAttribute('src')).toContain('tutorial_squat_up.png')
@@ -267,15 +278,19 @@ describe('STEP 전환 — 1 → 2 → 3 → 4', () => {
   // SQUAT·MOVE ENERGY는 곧장 최종값을 찍지 않는다 — 0에서 목표까지 세는
   // 연출이 붙어 있다(ken 지시: "실제로 카운팅되는 듯한 애니메이션").
   // 가짜 타이머로 그 연출이 끝나는 지점을 확인한다.
-  it('운동 패널은 0에서 시작해 목표(SQUAT 3/5·60%)까지 세어 올라간다', () => {
+  it('STEP2 HUD는 0에서 시작해 목표(SQUAT 5/5·100%)까지 세되 STEP2 상태는 LOCK을 유지한다', () => {
     vi.useFakeTimers()
     try {
       const { app } = mount()
       app.querySelector('#bqt-next').click()
       expect(app.querySelector('#bqt-squat').textContent).toBe('SQUAT 0/5')
-      vi.advanceTimersByTime(220 * 3 + 1)
-      expect(app.querySelector('#bqt-squat').textContent).toBe('SQUAT 3/5')
-      expect(app.querySelector('#bqt-energy-label').textContent).toBe('MOVE ENERGY 60%')
+      vi.advanceTimersByTime(220 * 5 + 1)
+      expect(app.querySelector('#bqt-squat').textContent).toBe('SQUAT 5/5')
+      expect(app.querySelector('#bqt-energy-label').textContent).toBe('MOVE ENERGY')
+      expect(app.querySelector('#bqt-energy-pct').textContent).toBe('100%')
+      expect(app.querySelector('#bqt-move-state').textContent).toBe('MOVE LOCK')
+      expect(app.querySelector('#bqt-motion-hud').classList.contains('locked')).toBe(true)
+      expect(app.querySelector('#bqt-unlock-text').textContent).toBe('MOVE LOCK!')
     } finally {
       vi.useRealTimers()
     }
@@ -289,13 +304,17 @@ describe('STEP 전환 — 1 → 2 → 3 → 4', () => {
     expect(app.querySelector('#bqt-prev').disabled).toBe(true)
   })
 
-  it('3/4에서 MOVE UNLOCK 배너가 뜨고 unlock 그림을 보여준다', () => {
+  it('3/4에서 고대비 MOVE UNLOCK 상태 배지와 unlock 그림을 보여준다', () => {
     const { app } = mount()
     app.querySelector('#bqt-next').click()
     app.querySelector('#bqt-next').click()
     expect(app.querySelector('#bqt-page').textContent).toBe('3 / 4')
-    expect(app.querySelector('#bqt-unlock-banner').classList.contains('on')).toBe(true)
+    expect(app.querySelector('#bqt-unlock-banner').classList.contains('unlocked')).toBe(true)
+    expect(app.querySelector('#bqt-unlock-text').textContent).toBe('MOVE UNLOCK!')
     expect(app.querySelector('#bqt-center-img').getAttribute('src')).toContain('tutorial_unlock.png')
+    expect(app.querySelector('#bqt-squat').textContent).toBe('SQUAT 5/5')
+    expect(app.querySelector('#bqt-energy-pct').textContent).toBe('100%')
+    expect(app.querySelector('#bqt-move-state').textContent).toBe('MOVE UNLOCK')
   })
 
   it('4/4에서 정답 카드(question.correctSide)가 강조되고 move 그림·"게임 시작!" 버튼이 뜬다', () => {
@@ -309,7 +328,20 @@ describe('STEP 전환 — 1 → 2 → 3 → 4', () => {
       : app.querySelector('#bqt-right')
     expect(correctEl.classList.contains('bqt-correct')).toBe(true)
     expect(app.querySelector('#bqt-center-img').getAttribute('src')).toContain('tutorial_move.png')
+    expect(app.querySelector('#bqt-squat').textContent).toBe('SQUAT 5/5')
+    expect(app.querySelector('#bqt-energy-pct').textContent).toBe('100%')
+    expect(app.querySelector('#bqt-move-state').textContent).toBe('MOVE UNLOCK')
+    expect(app.querySelector('#bqt-unlock-text').textContent).toBe('MOVE UNLOCK!')
     expect(app.querySelector('#bqt-next').textContent.trim()).toContain('게임 시작!')
+  })
+
+  it('STEP마다 HUD 내부 상태는 한 번만 렌더되고 외부 상태 안내는 별도 한 영역을 유지한다', () => {
+    const { app } = mount()
+    for (let step = 0; step < 4; step++) {
+      expect(app.querySelectorAll('#bqt-motion-hud .bq-motion-state')).toHaveLength(1)
+      expect(app.querySelectorAll('#bqt-unlock-banner')).toHaveLength(1)
+      if (step < 3) app.querySelector('#bqt-next').click()
+    }
   })
 
   it('마지막 전에는 onFinish가 안 불린다', () => {
@@ -437,6 +469,14 @@ describe('질문 배너 — 아이콘 없이 라벨과 질문에 집중한다', 
     expect(getComputedStyle(body).alignItems).toBe('center')
     expect(getComputedStyle(prompt).whiteSpace).toBe('nowrap')
   })
+
+  it('상단 보조 라벨과 QUESTION 배너는 grid stretch 대신 text 기반 fit-content 폭을 쓴다', () => {
+    const { app } = mount()
+    expect(getComputedStyle(app.querySelector('#bqt-step-title-panel')).width).toBe('fit-content')
+    expect(getComputedStyle(app.querySelector('#bqt-step-title-panel')).justifySelf).toBe('center')
+    expect(getComputedStyle(app.querySelector('#bqt-question-panel')).width).toBe('fit-content')
+    expect(getComputedStyle(app.querySelector('#bqt-question-panel')).justifySelf).toBe('center')
+  })
 })
 
 describe('연출값이 실제 규칙과 어긋나지 않는다', () => {
@@ -445,7 +485,6 @@ describe('연출값이 실제 규칙과 어긋나지 않는다', () => {
   it('STEP 데이터의 squatProgress로 계산한 에너지가 실제 판의 공식과 같다', () => {
     const target = question.exercise.targetReps
     for (const step of TUTORIAL_STEPS) {
-      if (step.showExercise === false) continue
       const pct = Math.round((step.squatProgress / target) * 100)
       expect(pct).toBeGreaterThanOrEqual(0)
       expect(pct).toBeLessThanOrEqual(100)

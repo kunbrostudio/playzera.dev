@@ -5,6 +5,7 @@
 // 규칙을 BODY QUIZ에서 먼저 검증하기 위해서다.
 
 import { TUTORIAL_STEPS } from './tutorialSteps.js'
+import { showLoadingScreen } from '../../core/loadingScreen.js'
 
 const INTRO_HERO = '/assets/body-quiz/intro/thum_bodyquiz.png'
 const TUTORIAL_BG = '/assets/body-quiz/tutorial/bg_room.png'
@@ -202,19 +203,16 @@ function ensureGateStyle(doc) {
       color: #fff; text-align: center; font-family: var(--font-main, 'Jua', sans-serif);
     }
     .bq-asset-gate[hidden] { display: none; }
-    .bq-asset-gate__spinner { width: clamp(40px, 7vmin, 64px); aspect-ratio: 1; border: 5px solid rgba(255,255,255,.24); border-top-color: #ffe766; border-radius: 50%; animation: bqAssetSpin .85s linear infinite; }
     .bq-asset-gate strong { font-size: clamp(1rem, 2.5vmin, 1.45rem); }
     .bq-asset-gate span { max-width: 34rem; color: #eee8ff; font-size: clamp(.75rem, 1.8vmin, 1rem); line-height: 1.4; }
     .bq-asset-gate button { min-height: 44px; padding: 0 26px; border: 3px solid #fff; border-radius: 9999px; background: linear-gradient(180deg,#fff59c,#ffcf35); color: #542f00; font: inherit; font-weight: 900; box-shadow: 0 5px 0 #a96a12; cursor: pointer; }
     .bq-asset-gate button:active { transform: translateY(3px); box-shadow: 0 2px 0 #a96a12; }
-    @keyframes bqAssetSpin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) { .bq-asset-gate__spinner { animation-duration: 1.8s; } }
   `
   doc.head.appendChild(style)
 }
 
 /** 화면 콘텐츠를 실제로 막는 BODY QUIZ 로컬 interaction gate. */
-export function createBodyQuizLoadingGate(host, { label = 'BODY QUIZ를 준비하고 있어요' } = {}) {
+export function createBodyQuizLoadingGate(host, { loadingScreen = showLoadingScreen } = {}) {
   const doc = host.ownerDocument
   ensureGateStyle(doc)
   host.classList.add('bq-readiness-host')
@@ -222,12 +220,19 @@ export function createBodyQuizLoadingGate(host, { label = 'BODY QUIZ를 준비�
   overlay.className = 'bq-asset-gate'
   overlay.setAttribute('role', 'status')
   overlay.setAttribute('aria-live', 'polite')
-  overlay.innerHTML = `<div class="bq-asset-gate__spinner" aria-hidden="true"></div><strong></strong><span></span><button type="button" hidden>다시 시도</button>`
+  overlay.innerHTML = `<strong></strong><span></span><button type="button" hidden>다시 시도</button>`
+  overlay.hidden = true
   host.appendChild(overlay)
   const title = overlay.querySelector('strong')
   const detail = overlay.querySelector('span')
   const retry = overlay.querySelector('button')
   let retryHandler = null
+  let loadingHandle = null
+
+  function releaseLoadingScreen() {
+    loadingHandle?.release()
+    loadingHandle = null
+  }
 
   function setButtonsDisabled(disabled) {
     for (const button of host.querySelectorAll('button')) {
@@ -242,15 +247,16 @@ export function createBodyQuizLoadingGate(host, { label = 'BODY QUIZ를 준비�
     }
   }
 
-  function showLoading({ transition = false, message = label } = {}) {
+  function showLoading({ transition = false } = {}) {
     host.dataset.bqReadiness = transition ? 'transition' : 'loading'
-    overlay.hidden = false
+    overlay.hidden = true
     overlay.classList.remove('is-error')
-    title.textContent = message
-    detail.textContent = '잠시만 기다려주세요'
     retry.hidden = true
     retryHandler = null
     setButtonsDisabled(true)
+    // BODY QUIZ의 partial content는 local gate가 숨기고, 사용자가 보는 것은
+    // 프로젝트 공식 Play Zera Loading Screen 한 벌뿐이다.
+    if (!loadingHandle) loadingHandle = loadingScreen(doc.body, { immediate: true })
   }
 
   function showError({ onRetry, timedOut = false } = {}) {
@@ -262,17 +268,18 @@ export function createBodyQuizLoadingGate(host, { label = 'BODY QUIZ를 준비�
     retry.hidden = false
     retryHandler = onRetry
     setButtonsDisabled(true)
+    releaseLoadingScreen()
   }
 
   function reveal() {
     host.dataset.bqReadiness = 'ready'
     overlay.hidden = true
     setButtonsDisabled(false)
+    releaseLoadingScreen()
   }
 
   function onRetryClick() { retryHandler?.() }
   retry.addEventListener('click', onRetryClick)
-  showLoading()
 
   return {
     overlay,
@@ -281,6 +288,7 @@ export function createBodyQuizLoadingGate(host, { label = 'BODY QUIZ를 준비�
     reveal,
     destroy() {
       retry.removeEventListener('click', onRetryClick)
+      releaseLoadingScreen()
       setButtonsDisabled(false)
       overlay.remove()
       host.classList.remove('bq-readiness-host')

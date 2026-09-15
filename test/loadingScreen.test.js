@@ -45,6 +45,8 @@ describe('showLoadingScreen — 최소 노출', () => {
     vi.advanceTimersByTime(599)
     expect(isLoadingScreenVisible()).toBe(true)
     vi.advanceTimersByTime(1)
+    expect(document.getElementById('pz-loading').classList.contains('pz-loading-leave')).toBe(true)
+    vi.advanceTimersByTime(250)
     expect(isLoadingScreenVisible()).toBe(false)
   })
 
@@ -53,6 +55,18 @@ describe('showLoadingScreen — 최소 노출', () => {
     vi.advanceTimersByTime(250)   // 뜬다
     vi.advanceTimersByTime(1000) // 이미 최소 노출을 훌쩍 넘김
     h.release()
+    vi.advanceTimersByTime(251) // 250ms fade-out 뒤 제거
+    expect(isLoadingScreenVisible()).toBe(false)
+  })
+
+  it('release 뒤 250ms fade-out 동안은 DOM에 남고 그 뒤 제거된다', () => {
+    const h = showLoadingScreen(document.body, { immediate: true })
+    vi.advanceTimersByTime(600)
+    h.release()
+    vi.advanceTimersByTime(1)
+    expect(document.getElementById('pz-loading').classList.contains('pz-loading-leave')).toBe(true)
+    vi.advanceTimersByTime(248)
+    expect(isLoadingScreenVisible()).toBe(true)
     vi.advanceTimersByTime(1)
     expect(isLoadingScreenVisible()).toBe(false)
   })
@@ -104,6 +118,29 @@ describe('showLoadingScreen — 참조 카운팅', () => {
     const el = document.getElementById('pz-loading')
     expect(el.querySelector('.pz-loading-logo')).not.toBeNull()
     expect(el.querySelector('.pz-loading-mark')).not.toBeNull()
+    expect(el.querySelector('.pz-loading-logo').getAttribute('src')).toBe('/assets/ui/logo_full.png')
+    expect(el.querySelector('.pz-loading-mark').getAttribute('src')).toBe('/assets/ui/logo_mark.png')
+    expect(el.querySelector('.pz-loading-msg').textContent).toBe('신나는 게임을 준비하고 있어요')
+    expect(el.querySelectorAll('.pz-loading-dots span')).toHaveLength(3)
+    h.release()
+    vi.advanceTimersByTime(1000)
+  })
+
+  it('화면 자체가 interaction gate인 곳은 지연 없이 공식 UI를 띄울 수 있다', () => {
+    const h = showLoadingScreen(document.body, { immediate: true })
+    expect(isLoadingScreenVisible()).toBe(true)
+    expect(document.getElementById('pz-loading')).not.toBeNull()
+    h.release()
+    vi.advanceTimersByTime(1000)
+  })
+
+  it('landscape 크기와 무관하게 viewport 안에 고정하고 overflow를 막는다', () => {
+    const h = showLoadingScreen(document.body, { immediate: true })
+    const css = document.getElementById('pz-loading-style').textContent
+    expect(css).toContain('position: fixed; inset: 0')
+    expect(css).toContain('overflow: hidden')
+    expect(css).toContain('env(safe-area-inset-top)')
+    expect(css).toContain('@media (max-width: 700px)')
     h.release()
     vi.advanceTimersByTime(1000)
   })

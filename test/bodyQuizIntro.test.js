@@ -15,11 +15,12 @@ const immediateReadiness = {
   waitFor: () => Promise.resolve({ ready: true, timedOut: false, results: [], failed: [] }),
   invalidate() {},
 }
+const noopLoadingScreen = () => ({ release() {} })
 
 function mount(query = { id: 'body-quiz' }) {
   document.body.innerHTML = '<div id="app"></div>'
   const app = document.querySelector('#app')
-  bodyQuizIntro(app, query, { assetReadiness: immediateReadiness })
+  bodyQuizIntro(app, query, { assetReadiness: immediateReadiness, loadingScreen: noopLoadingScreen })
   return app
 }
 

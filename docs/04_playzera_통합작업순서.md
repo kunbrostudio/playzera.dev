@@ -10094,3 +10094,112 @@ intro 공개 뒤 tutorial 첫 화면, tutorial 공개 뒤 다음 STEP과 play �
 확인: BODY QUIZ 관련 테스트 103건, 전체 1155건 통과. 프로덕션 빌드 통과.
 기존 runner placeholder·remote BGM export·dynamic import/chunk 경고는 BODY QUIZ
 readiness 변경과 무관해 그대로 남겼다.
+
+## STEP 80 — BODY QUIZ에 공식 Play Zera Loading Screen 연결 (2026-09-15)
+
+STEP 79의 asset load/decode/cache/timeout 판단은 그대로 두고, readiness를
+기다리는 동안 보이던 BODY QUIZ 임시 원형 spinner만 교체했다. 프로젝트를 다시
+조사해 보니 `core/loadingScreen.js`에 이미 공식 전면 로더가 있었다. 진한
+navy/purple 배경, `uiAssets.js`가 관리하는 full/mark PLAY ZERA 로고,
+"신나는 게임을 준비하고 있어요"로 시작하는 문구, green/pink/gold 3-dot
+animation을 갖춘 공통 구현이다. 같은 UI를 BODY QUIZ 폴더에 복제하지 않았다.
+
+BODY QUIZ local interaction gate는 계속 실제 콘텐츠를 visibility/disabled로
+막지만, 로딩 표시 자체는 `showLoadingScreen(document.body, { immediate: true })`
+handle을 acquire하고 readiness 완료·오류·destroy에서 release한다. `/play`의
+공통 code-chunk loader가 이미 같은 화면을 잡고 있어도 기존 ref count 덕분에
+DOM은 한 벌만 남고, 양쪽이 모두 release할 때까지 유지된다. warm cache에서 이미
+ready라면 gate가 공통 로더를 acquire하지 않으므로 불필요한 flash도 없다.
+
+공식 로더에는 BODY QUIZ gate가 partial content를 보이기 전에 즉시 mount할 수
+있는 선택 옵션과 250ms opacity fade-out만 추가했다. 기존 호출의 250ms delayed
+show, 600ms minimum visible, ref count 정책은 유지된다. loading screen은
+`fixed inset:0`, `overflow:hidden`, safe-area padding을 쓰고 700px 이하에서
+`logo_mark.png`로 바뀌므로 1920×1080부터 667×375 landscape까지 같은 구조다.
+reduced-motion에서는 logo/dot animation을 끄고 fade를 1ms로 줄인다.
+
+실패/timeout 때의 bounded retry 화면은 로딩 화면이 아니라 오류 상태이므로
+그대로 남겼다. readiness의 critical manifest, decode fallback, 500/400ms 최소
+대기, 9초 timeout, intro→tutorial→play background preload는 바꾸지 않았다.
+자동 브라우저 인스턴스가 없는 세션이라 실제 5개 viewport screenshot/bounds는
+측정하지 못했고, DOM/CSS 회귀 테스트로 fullscreen·safe-area·overflow·두 logo·
+3 dots·fade/ref count를 확인했다. 실기기 branch deploy에서 최종 육안 확인이
+필요하다.
+
+확인: 공식 Loading Screen + BODY QUIZ 관련 테스트 97건, 전체 1160건 통과.
+프로덕션 빌드 통과. 기존 remote BGM export·dynamic import/chunk 경고는 이 UI
+교체와 무관해 그대로 남겼다.
+
+## STEP 81 — BODY QUIZ Tutorial/Play Motion HUD 통일 (2026-09-15)
+
+튜토리얼 STEP마다 운동 패널을 숨기거나 축소하던 구조 때문에 같은 viewport에서도
+흰색 중앙 보드 높이와 내부 카드 위치가 달라졌다. `body-quiz/motionHud.js`를 새로
+두고 실제 play의 승인된 Motion HUD 마크업·CSS·상태 갱신을 한곳으로 옮겼다.
+play는 `BodyQuizRun`의 실제 상태를, tutorial은 STEP별 demo state를 같은
+`createBodyQuizMotionHud().update()` API에 전달한다. 임시 squat SVG를 포함한
+운동 아이콘 사전도 이 파일로 옮겨 정식 asset이 오면 renderer 한곳만 교체할 수
+있다. 기존 `play.js`의 `bodyQuizMotionIcon` export는 호환을 위해 re-export한다.
+
+튜토리얼 HUD는 네 STEP 모두 같은 자리와 크기를 유지한다. STEP1은 0/5·0%·LOCK,
+STEP2는 기존 down/up 교차 동작과 함께 0→5·0→100%를 220ms 간격으로 시연하고,
+STEP3·4는 5/5·100%·UNLOCK을 표시한다. STEP3의 기존 MOVE UNLOCK 배너는 없애지
+않고, 다른 STEP에서도 보이지 않는 동일 높이의 행을 예약해 전환 때 stage 높이가
+움직이지 않게 했다.
+
+중앙 보드는 `height: clamp(430px, 68dvh, 700px)`와 stagewrap의 `max-height:100%`
+를 함께 써 같은 viewport에서 STEP 1~4가 동일 frame을 갖는다. 내부는
+`auto / auto / minmax(0,1fr) / auto / auto` grid로 제목·질문·가변 무대·HUD·
+unlock 행의 높이 예산을 나눈다. 520px 이하의 기존 카드/문구/padding 축소와 공통
+HUD의 920px/520px, 700px landscape 축소가 함께 적용돼 932×430·844×390·
+667×375에서도 스크롤 없이 들어가도록 했다. asset readiness와 공식 Loading
+Screen의 gate/timeout/decode 흐름은 변경하지 않았다.
+
+확인: BODY QUIZ 관련 테스트 109건, 전체 1165건 통과. 프로덕션 빌드와
+`git diff --check`도 통과했다. 5176 개발 서버는 한 벌만 실행했지만 이 세션에
+연결 가능한 브라우저 인스턴스가 없어 5개 viewport의 새 screenshot/bounds 실측은
+하지 못했다. CSS 높이 예산과 DOM 상태 회귀 검증은 통과했으며, 실제 브라우저에서
+1920×1080·1366×768·932×430·844×390·667×375를 최종 육안 확인해야 한다.
+
+### STEP 81 후속 — grid 폭 회귀와 MOVE 상태 표시 정리 (2026-09-15)
+
+보드를 5행 grid로 바꿀 때 부모의 `justify-items:stretch`가 STEP 보조 라벨과
+QUESTION 배너까지 가로로 늘리는 회귀가 생겼다. 두 요소에
+`justify-self:center`, `width:fit-content`, viewport 안쪽 `max-width`를 명시해
+각 문구의 intrinsic 폭으로 복구했다. 커진 보드 안에서 작아 보이던 중앙 설명/
+스쿼트 이미지는 desktop 기준 약 16%, 짧은 landscape 기준 약 10%만 키우고
+vw와 dvh 상한을 동시에 유지했다.
+
+HUD 아래 상태 행은 STEP1·2 `MOVE LOCK!`, STEP3·4 `MOVE UNLOCK!`을 항상
+보이는 단일 고대비 pill로 바꿨다. 투명 gradient 글자·양쪽 화살표·absolute spark를
+제거해 작은 화면에서도 바로 읽히게 했고, 같은 행 높이는 네 STEP 모두 유지한다.
+상태는 `tutorialSteps.js`의 `moveLocked` 데이터가 결정한다. HUD 내부 상태는 공통
+Motion HUD의 `.bq-motion-state` 한 노드만 갱신하며, `width:max-content`와 넉넉한
+최소 폭/inline padding으로 `MOVE UNLOCK`이 잘리거나 외부 상태 안내와 겹치지 않게
+했다. play도 같은 공통 CSS를 쓰므로 내부 상태 칸 수정은 두 화면에 동일하게 적용된다.
+
+확인: BODY QUIZ 관련 테스트 111건, 전체 1167건 통과. 프로덕션 빌드와
+`git diff --check`도 통과했다. 연결 가능한 브라우저 인스턴스가 없는 환경이라
+localhost:5176의 실제 5개 viewport 캡처는 앞선 STEP 81과 같이 남은 육안 확인이다.
+
+### STEP 81 후속 2 — Motion HUD percent/status 슬롯 완전 분리 (2026-09-15)
+
+마지막 겹침은 percent가 energy 내부 grid의 마지막 칸이고 status pill은 바깥
+HUD grid의 다음 칸이어서, 짧은 landscape에서 서로 다른 두 grid의 최소 너비
+계산이 맞닿는 구조에서 생겼다. 공통 `motionHud.js` 마크업을
+`count / energy(label+bar) / percent / status` 네 직접 자식 슬롯으로 바꿨다.
+percent는 `minmax(4ch,max-content)`와 tabular 숫자를, status는 `max-content`와
+viewport별 최소 폭을 가져 0%·60%·100%와 MOVE LOCK·MOVE UNLOCK 어느 조합도
+서로의 칸을 덮지 않는다. 700px landscape에서도 두 칸 사이 7px gap을 남긴다.
+튜토리얼과 실제 play가 같은 마크업/CSS/controller를 쓰므로 양쪽에 동시에 적용된다.
+
+### STEP 81 후속 3 — Motion HUD 유연 row 재설계 (2026-09-15)
+
+모든 항목을 5개 고정 grid track에 놓는 방식은 count와 energy label도 서로
+최소 콘텐츠 폭을 경쟁하게 해, 한 충돌을 고치면 다른 충돌이 생겼다. 공통 HUD를
+`icon 고정 / count 고정 / energy 유연 / percent 고정 / status 고정`의 nowrap
+flex row로 재설계했다. icon과 count는 각각 독립된 직접 자식으로 줄지 않으며,
+energy는 label과 bar만 포함한 유일한 grow/shrink 블록이다. bar는 `min-width:40px`에서
+남는 폭을 사용한다. percent는 tabular 숫자와 고정 `4.5ch`, status는 기존
+최소 폭과 `flex:0 0 auto`를 유지하므로 서로의 영역을 침범하지 않는다.
+700px 이하 landscape에서도 label을 없애지 않고 bar 최소 폭과 gap만 소폭 줄인다.
+tutorial/play의 마크업과 갱신 API는 계속 한 구현을 공유한다.

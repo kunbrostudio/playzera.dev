@@ -58,6 +58,7 @@ const STYLE_ID = 'pz-loading-style'
 const ID = 'pz-loading'
 const SHOW_DELAY_MS = 250    // 이 안에 끝나면 화면을 아예 안 띄운다
 const MIN_VISIBLE_MS = 600   // 일단 뜨면 최소 이만큼은 붙어 있는다
+const FADE_OUT_MS = 250      // 완성된 화면 위에서 부드럽게 사라진다
 
 // 심심하지 않게 몇 마디를 돌려 보여준다 — 하나만 있으면 오래 뜨는
 // 화면에서 "멈췄나?" 싶어진다. 게임 이름을 몰라도 되는 문구만 쓴다
@@ -78,9 +79,14 @@ function ensureStyle() {
       position: fixed; inset: 0; z-index: 5000;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: clamp(14px, 3vh, 28px);
+      box-sizing: border-box; overflow: hidden;
+      padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
+        max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
       background: radial-gradient(circle at 50% 42%, var(--pz-bg-veil-3, #1c1240), var(--pz-bg-veil-1, #0a0418) 78%);
       font-family: var(--font-main, 'Jua', sans-serif);
+      opacity: 1; transition: opacity ${FADE_OUT_MS}ms ease;
     }
+    #${ID}.pz-loading-leave { opacity: 0; }
     #${ID} .pz-loading-logo {
       width: min(60vw, 380px); height: auto;
       filter: drop-shadow(0 10px 26px rgba(0,0,0,.5));
@@ -114,6 +120,7 @@ function ensureStyle() {
     @media (prefers-reduced-motion: reduce) {
       #${ID} .pz-loading-logo { animation: none; }
       #${ID} .pz-loading-dots span { animation: none; opacity: .9; }
+      #${ID} { transition-duration: 1ms; }
     }
   `
   document.head.appendChild(s)
@@ -152,22 +159,33 @@ let shownAt = 0
  *
  * @param {HTMLElement} [root] 기본은 `document.body` — 게임의 `#app`이
  *   비워지는 도중에도 화면 전체를 계속 덮어야 해서 늘 body에 붙인다.
+ * @param {{immediate?: boolean}} [options] 화면 자체가 interaction gate라면
+ *   지연 없이 공식 UI를 mount한다. 기본 지연 정책은 그대로다.
  * @returns {{ release: () => void }}
  */
-export function showLoadingScreen(root = document.body) {
+export function showLoadingScreen(root = document.body, { immediate = false } = {}) {
   refCount++
   // 이미 "지우기 예약"이 걸려 있었다면(방금 0이 됐다가 다시 늘었다)
   // 취소한다 — 화면이 떴다 바로 사라졌다 다시 뜨는 깜빡임을 막는다.
   if (hideTimer) { clearTimeout(hideTimer); hideTimer = null }
+  el?.classList.remove('pz-loading-leave')
 
   if (!el && !showTimer) {
-    showTimer = setTimeout(() => {
+    const mount = () => {
       showTimer = null
       if (refCount <= 0) return   // 그새 다 released됐다 — 안 띄운다
       el = build()
       root.appendChild(el)
       shownAt = Date.now()
-    }, SHOW_DELAY_MS)
+    }
+    if (immediate) mount()
+    else showTimer = setTimeout(mount, SHOW_DELAY_MS)
+  } else if (!el && showTimer && immediate) {
+    clearTimeout(showTimer)
+    showTimer = null
+    el = build()
+    root.appendChild(el)
+    shownAt = Date.now()
   }
 
   let released = false
@@ -190,9 +208,14 @@ export function showLoadingScreen(root = document.body) {
       hideTimer = setTimeout(() => {
         hideTimer = null
         if (refCount > 0 || !el) return   // 그새 다시 켜졌다
-        clearInterval(el._msgTimer)
-        el.remove()
-        el = null
+        el.classList.add('pz-loading-leave')
+        hideTimer = setTimeout(() => {
+          hideTimer = null
+          if (refCount > 0 || !el) return
+          clearInterval(el._msgTimer)
+          el.remove()
+          el = null
+        }, globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 1 : FADE_OUT_MS)
       }, wait)
     },
   }

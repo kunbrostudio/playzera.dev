@@ -21,6 +21,7 @@ function deferred() {
 function readinessResult(ready = true, timedOut = false) {
   return { ready, timedOut, results: [], failed: ready ? [] : [{ src: '/missing.png', ok: false }] }
 }
+const noopLoadingScreen = () => ({ release() {} })
 
 afterEach(() => {
   vi.useRealTimers()
@@ -80,6 +81,35 @@ describe('BODY QUIZ image load + decode readiness', () => {
 })
 
 describe('BODY QUIZ screen readiness interaction gate', () => {
+  it('실제 공통 Loading Screen만 표시하고 local error panel은 로딩 중 숨긴다', () => {
+    vi.useFakeTimers()
+    document.body.innerHTML = '<div id="host"><div>게임 콘텐츠</div></div>'
+    const host = document.querySelector('#host')
+    const gate = createBodyQuizLoadingGate(host)
+    gate.showLoading()
+    expect(document.querySelector('#pz-loading .pz-loading-logo')).not.toBeNull()
+    expect(document.querySelectorAll('#pz-loading .pz-loading-dots span')).toHaveLength(3)
+    expect(gate.overlay.hidden).toBe(true)
+    gate.reveal()
+    vi.advanceTimersByTime(1000)
+    expect(document.getElementById('pz-loading')).toBeNull()
+    gate.destroy()
+  })
+
+  it('임시 spinner 대신 공식 Loading Screen handle을 즉시 acquire/release한다', () => {
+    document.body.innerHTML = '<div id="host"><button>진행</button></div>'
+    const release = vi.fn()
+    const loadingScreen = vi.fn(() => ({ release }))
+    const host = document.querySelector('#host')
+    const gate = createBodyQuizLoadingGate(host, { loadingScreen })
+    gate.showLoading()
+    expect(loadingScreen).toHaveBeenCalledWith(document.body, { immediate: true })
+    expect(host.querySelector('.bq-asset-gate__spinner')).toBeNull()
+    gate.reveal()
+    expect(release).toHaveBeenCalledOnce()
+    gate.destroy()
+  })
+
   it('intro 공개 뒤 tutorial 첫 화면을 백그라운드 preload한다', () => {
     document.body.innerHTML = '<div id="app"></div>'
     const preload = vi.fn(() => Promise.resolve([]))
@@ -89,7 +119,7 @@ describe('BODY QUIZ screen readiness interaction gate', () => {
       waitFor: vi.fn(() => Promise.resolve(readinessResult(true))),
       invalidate() {},
     }
-    bodyQuizIntro(document.querySelector('#app'), { id: 'body-quiz' }, { assetReadiness: readiness })
+    bodyQuizIntro(document.querySelector('#app'), { id: 'body-quiz' }, { assetReadiness: readiness, loadingScreen: noopLoadingScreen })
     expect(preload).toHaveBeenCalledWith(getBodyQuizTutorialAssets(QUESTIONS[0], 0))
   })
 
@@ -107,6 +137,7 @@ describe('BODY QUIZ screen readiness interaction gate', () => {
       mountEl: document.querySelector('#app'),
       question: QUESTIONS[0],
       assetReadiness: readiness,
+      loadingScreen: noopLoadingScreen,
     })
     const root = document.querySelector('#bqt-root')
     expect(root.dataset.bqReadiness).toBe('loading')
@@ -136,6 +167,7 @@ describe('BODY QUIZ screen readiness interaction gate', () => {
     bodyQuizPlay(document.querySelector('#app'), { id: 'body-quiz' }, {
       assetReadiness: readiness,
       tutorialPolicy: () => false,
+      loadingScreen: noopLoadingScreen,
     })
     const root = document.querySelector('#bq')
     expect(root.dataset.bqReadiness).toBe('loading')
@@ -169,6 +201,7 @@ describe('BODY QUIZ screen readiness interaction gate', () => {
       mountEl: document.querySelector('#app'),
       question: QUESTIONS[0],
       assetReadiness: readiness,
+      loadingScreen: noopLoadingScreen,
     })
     const root = document.querySelector('#bqt-root')
     root.querySelector('#bqt-next').click()
@@ -185,7 +218,7 @@ describe('BODY QUIZ screen readiness interaction gate', () => {
   it('failure/timeout은 broken content를 공개하지 않고 bounded retry 상태를 보인다', async () => {
     document.body.innerHTML = '<div id="host"><div id="critical">content</div><button>진행</button></div>'
     const host = document.querySelector('#host')
-    const gate = createBodyQuizLoadingGate(host)
+    const gate = createBodyQuizLoadingGate(host, { loadingScreen: noopLoadingScreen })
     const readiness = {
       waitFor: vi.fn(() => Promise.resolve(readinessResult(false, true))),
       invalidate: vi.fn(),
@@ -216,6 +249,7 @@ describe('BODY QUIZ screen readiness interaction gate', () => {
       question: QUESTIONS[0],
       assetReadiness: readiness,
       playAssets,
+      loadingScreen: noopLoadingScreen,
     })
     const calls = preload.mock.calls.map(([assets]) => assets)
     expect(calls).toContainEqual(getBodyQuizTutorialAssets(QUESTIONS[0], 1))

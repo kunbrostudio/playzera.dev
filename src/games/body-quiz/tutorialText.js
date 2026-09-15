@@ -15,6 +15,7 @@ const TEXT = {
   ko: {
     badge: 'BODY QUIZ',
     title: 'TUTORIAL',
+    moveLockBanner: 'MOVE LOCK!',
     moveUnlockBanner: 'MOVE UNLOCK!',
     correctBadge: '정답! +100',
     prev: '이전',
@@ -31,6 +32,7 @@ const TEXT = {
   en: {
     badge: 'BODY QUIZ',
     title: 'TUTORIAL',
+    moveLockBanner: 'MOVE LOCK!',
     moveUnlockBanner: 'MOVE UNLOCK!',
     correctBadge: 'Correct! +100',
     prev: 'Prev',

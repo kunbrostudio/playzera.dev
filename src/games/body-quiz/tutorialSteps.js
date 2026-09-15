@@ -41,11 +41,11 @@ const MOVE_IMG = '/assets/body-quiz/tutorial/tutorial_move.png'
 export const TUTORIAL_STEPS = [
   {
     id: 'read',
-    showExercise: false,
+    animateExercise: false,
     squatProgress: 0,
     showAnswers: true,
     highlightCorrectSide: false,
-    showMoveUnlockBanner: false,
+    moveLocked: true,
     boyImage: BOY_POINT,
     girlImage: GIRL_GUIDE,
     centerImage: THINK_IMG,
@@ -53,11 +53,11 @@ export const TUTORIAL_STEPS = [
   },
   {
     id: 'exercise',
-    showExercise: true,
-    squatProgress: 3,
+    animateExercise: true,
+    squatProgress: 5,
     showAnswers: true,
     highlightCorrectSide: false,
-    showMoveUnlockBanner: false,
+    moveLocked: true,
     boyImage: BOY_POINT,
     girlImage: GIRL_GUIDE,
     centerImage: null,
@@ -65,13 +65,11 @@ export const TUTORIAL_STEPS = [
   },
   {
     id: 'unlock',
-    // 운동 카운트 UI는 이 단계부터 존재감을 줄인다(기획 지시) — 지우지는
-    // 않고 'compact'로 축소해 "방금 다 채운 것"이라는 연결을 남긴다.
-    showExercise: 'compact',
+    animateExercise: false,
     squatProgress: 5,
     showAnswers: true,
     highlightCorrectSide: false,
-    showMoveUnlockBanner: true,
+    moveLocked: false,
     boyImage: BOY_POINT,
     girlImage: GIRL_GUIDE,
     centerImage: UNLOCK_IMG,
@@ -79,11 +77,11 @@ export const TUTORIAL_STEPS = [
   },
   {
     id: 'answer',
-    showExercise: false,
+    animateExercise: false,
     squatProgress: 5,
     showAnswers: true,
     highlightCorrectSide: true,
-    showMoveUnlockBanner: false,
+    moveLocked: false,
     boyImage: BOY_POINT,
     girlImage: GIRL_GUIDE,
     centerImage: MOVE_IMG,

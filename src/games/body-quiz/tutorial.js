@@ -9,18 +9,14 @@
 //
 // ── 실제 게임 상태 머신을 쓰지 않는다 ────────────────────────
 //
-// 이 오버레이가 보여주는 SQUAT 3/5·MOVE ENERGY 60% 같은 숫자는 **연출용
+// 이 오버레이가 보여주는 SQUAT·MOVE ENERGY 숫자는 **연출용
 // 스냅샷**이다(`tutorialSteps.js`). `BodyQuizRun` 인스턴스를 이 파일이
 // 직접 건드리는 일은 없다 — 그러면 튜토리얼이 실수로 진짜 판을 진행시킬
 // 위험이 아예 생기지 않는다. play.js는 GAME START/스킵(`onFinish`)을
 // 받은 뒤에야 `game.reset()`으로 진짜 판을 깨끗하게 시작한다.
 //
-// ── MOVE LOCK 문구는 여기 없다(2차 수정) ─────────────────────
-//
-// 처음에는 보드 안에도 "MOVE LOCK / 아직 움직일 수 없어요!" 배지를
-// 뒀는데, 이건 **실제 게임 화면(play.js)의 상태 표시**다. 튜토리얼은
-// 그 상태를 몸으로 시연하는 자리이지 게임 UI를 복제하는 자리가
-// 아니다(ken 지시) — 그래서 뺐다.
+// 실제 판과 동일한 Motion HUD 컴포넌트에 demo state만 전달한다. 이 파일이
+// BodyQuizRun을 직접 건드리지 않는 경계는 그대로 유지한다.
 //
 // ── 답안 사이 중앙 그림(centerImage/squatImages) ─────────────
 //
@@ -45,6 +41,11 @@ import {
   getBodyQuizTutorialAssets,
   openBodyQuizReadinessGate,
 } from './assetReadiness.js'
+import {
+  BODY_QUIZ_MOTION_HUD_CSS,
+  bodyQuizMotionHudMarkup,
+  createBodyQuizMotionHud,
+} from './motionHud.js'
 
 const STORAGE_KEY = 'playzera.bodyQuiz.tutorialCompleted'
 const TITLE_IMG = '/assets/body-quiz/tutorial/tutorial_title.png'
@@ -175,6 +176,7 @@ export function createBodyQuizTutorial({
   onHome,
   assetReadiness = bodyQuizAssetReadiness,
   playAssets = getBodyQuizPlayAssets(question),
+  loadingScreen,
 }) {
   const text = getText(locale)
   const target = question.exercise.targetReps
@@ -190,6 +192,7 @@ export function createBodyQuizTutorial({
   root.innerHTML = `
     <style>
       #bqt-root, #bqt-root * { box-sizing: border-box; }
+      ${BODY_QUIZ_MOTION_HUD_CSS}
 
       /* ── 전체 배경 — 밝은 놀이방. 어두운 덮개로 죽이지 않는다 ── */
       #bqt-root {
@@ -199,7 +202,7 @@ export function createBodyQuizTutorial({
         --bqt-header-height: clamp(44px, 6dvh, 58px);
         --bqt-header-border: 3px;
         --bqt-header-depth: 5px;
-        position: absolute; inset: 0; z-index: 50; overflow: auto;
+        position: absolute; inset: 0; z-index: 50; overflow: hidden;
         font-family: var(--font-main, 'Jua', sans-serif); color: #fff;
         touch-action: none; user-select: none;
         display: grid;
@@ -421,6 +424,7 @@ export function createBodyQuizTutorial({
       #bqt-board {
         position: relative; z-index: 3; align-self: flex-start;
         width: min(72vw, 1280px); max-width: 100%; min-width: 0;
+        height: clamp(430px, 68dvh, 700px); max-height: 100%; min-height: 0;
         background: linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(224,247,255,0.90) 100%);
         border-radius: clamp(24px, 2.4vw, 40px);
         border: 6px solid rgba(64,201,255,0.95);
@@ -432,13 +436,15 @@ export function createBodyQuizTutorial({
         backdrop-filter: blur(4px);
         color: #3a2560;
         padding: clamp(8px, 1.35dvh, 18px) clamp(14px, 2.2vw, 38px);
-        display: flex; flex-direction: column; justify-content: flex-start;
+        display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+        align-content: stretch; justify-items: stretch;
         gap: clamp(4px, 0.8dvh, 10px);
       }
 
       /* STEP 제목 패널 */
       #bqt-step-title-panel {
-        align-self: center; text-align: center; position: relative;
+        align-self: center; justify-self: center; width: fit-content; max-width: 100%;
+        text-align: center; position: relative;
         padding: 4px clamp(18px, 2.6vw, 36px);
         border-radius: 9999px;
         background: linear-gradient(180deg, #6b3fa0 0%, #4a2a80 100%);
@@ -454,6 +460,7 @@ export function createBodyQuizTutorial({
       /* 문제 배너 — 라벨과 질문을 같은 행에 둔다. 라벨은 왼쪽에 고정하고
          질문은 남은 폭의 가운데에 놓여 긴 문장도 한 줄을 우선한다. */
       #bqt-question-panel {
+        justify-self: center; width: fit-content; max-width: min(100%, 1040px);
         display: flex; align-items: center;
         padding: clamp(6px, 1.05dvh, 12px) clamp(12px, 2vw, 28px);
         border-radius: clamp(18px, 2.2vw, 30px);
@@ -462,7 +469,7 @@ export function createBodyQuizTutorial({
         box-shadow: 0 0 30px rgba(255,63,160,0.6), inset 0 0 24px rgba(120,60,200,0.4);
       }
       #bqt-question-body {
-        width: 100%; min-width: 0;
+        width: auto; min-width: 0;
         display: flex; flex-direction: row; align-items: center;
         gap: clamp(12px, 2vw, 30px);
       }
@@ -540,15 +547,15 @@ export function createBodyQuizTutorial({
       @keyframes bqtArrowBounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(8px); } }
 
       /* 중앙 설명 그림 — STEP1 think · STEP3 unlock · STEP4 move.
-         카드보다 크지 않게(무대의 주인공은 여전히 답안 두 장이다) 카드와
-         비슷한 눈높이로만 키운다. */
+         커진 panel 비율에 맞춰 카드보다 한 단계만 크게 두되 충돌하지 않는
+         dvh/vw 상한을 함께 쓴다. */
       #bqt-center-media {
         flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
-        width: clamp(104px, min(18vw, 24dvh), 270px);
+        width: clamp(118px, min(19.5vw, 28dvh), 300px);
       }
       #bqt-center-media[hidden] { display: none; }
       #bqt-center-img {
-        max-width: 100%; max-height: min(25dvh, 290px); object-fit: contain;
+        max-width: 100%; max-height: min(29dvh, 320px); object-fit: contain;
         filter: drop-shadow(0 10px 18px rgba(0,0,0,0.28));
       }
       /* STEP4에서만 — 정답 쪽으로 살짝씩 다가가는 듯한 움직임.
@@ -562,7 +569,7 @@ export function createBodyQuizTutorial({
          올라온다)을 더 잘 전달한다는 지적으로 바꿨다 — 파란 라인 장식은
          뺐다. */
       #bqt-squat-cycle {
-        flex: 0 0 auto; width: clamp(104px, min(18vw, 24dvh), 270px);
+        flex: 0 0 auto; width: clamp(118px, min(19.5vw, 28dvh), 300px);
         display: flex; align-items: center; justify-content: center;
       }
       #bqt-squat-cycle[hidden] { display: none; }
@@ -574,60 +581,29 @@ export function createBodyQuizTutorial({
       }
       #bqt-squat-stage img.on { opacity: 1; }
 
-      /* 운동 패널 — STEP2에서 크게, 보드 아래쪽으로 */
-      #bqt-exercise {
-        align-self: center; display: flex; flex-direction: column; align-items: center; gap: clamp(3px, 0.7dvh, 8px);
-        margin-top: clamp(2px, 0.6dvh, 7px);
-        padding: clamp(6px, 1dvh, 12px) clamp(18px, 3vw, 36px);
-        border-radius: clamp(18px, 2.2vw, 26px);
-        background: linear-gradient(180deg, #12245a 0%, #0a173f 100%);
-        border: 3px solid #40e0ff;
-        box-shadow: 0 0 26px rgba(64,224,255,0.55);
-        transition: transform 0.2s, opacity 0.2s;
-      }
-      #bqt-exercise.compact { opacity: 0.7; margin-top: 0; padding-block: clamp(4px, 0.7dvh, 8px); gap: 2px; }
-      #bqt-exercise[hidden] { display: none; }
-      /* 핵심만 남긴다(ken 지시) — 스쿼트 카운트 + 에너지바 딱 둘.
-         "EXERCISE" 아이콘 라벨은 뺐다. */
-      #bqt-squat { font-weight: 900; font-size: clamp(1.3rem, 2.8vw, 1.9rem); color: #fff; }
-      #bqt-energy-bar {
-        width: min(48vw, 420px); height: clamp(14px, 2dvh, 24px); border-radius: 999px;
-        background: rgba(0,0,0,0.4); overflow: hidden; border: 2px solid rgba(64,224,255,0.5);
-      }
-      #bqt-energy-bar i {
-        display: block; height: 100%; width: 0%;
-        background: linear-gradient(90deg, #4ee08a, #17c281);
-        box-shadow: 0 0 12px rgba(72,235,180,0.9);
-      }
-      #bqt-energy-label { font-size: clamp(0.85rem, 1.6vw, 1.05rem); font-weight: 800; color: #b7f5da; }
-      #bqt-exercise.compact #bqt-squat { font-size: clamp(1rem, 2vw, 1.35rem); }
-      #bqt-exercise.compact #bqt-energy-bar { width: min(34vw, 300px); height: clamp(12px, 1.6dvh, 18px); }
-      #bqt-exercise.compact #bqt-energy-label { font-size: clamp(0.72rem, 1.25vw, 0.9rem); }
+      /* 실제 play와 같은 Motion HUD. 보드 폭 안에서만 줄어든다. */
+      .bq-motion-hud--tutorial { width: min(100%, 560px); }
 
-      /* MOVE UNLOCK 대형 배너 */
+      /* HUD 바깥 상태 안내 — 네 STEP이 같은 한 줄을 예약하고 상태만 바꾼다. */
       #bqt-unlock-banner {
-        display: none; align-self: center; align-items: center; justify-content: center; gap: clamp(10px, 2vw, 22px);
+        align-self: center; justify-self: center; min-height: clamp(32px, 4.8dvh, 48px);
+        display: inline-flex; align-items: center; justify-content: center;
         position: relative; margin-top: clamp(2px, 0.6dvh, 7px);
+        padding: clamp(4px, 0.7dvh, 8px) clamp(22px, 3vw, 42px);
+        border: 3px solid rgba(255,255,255,0.96); border-radius: 9999px;
+        color: #fff; background: linear-gradient(180deg, #8c72df 0%, #593eaa 100%);
+        box-shadow: inset 0 2px 0 rgba(255,255,255,0.38), 0 4px 0 #3d2b83, 0 8px 18px rgba(50,30,102,0.26);
+        pointer-events: none;
       }
-      #bqt-unlock-banner.on { display: flex; }
-      #bqt-unlock-banner svg { width: clamp(1.6rem, 3vw, 2.4rem); height: clamp(1.6rem, 3vw, 2.4rem); }
-      #bqt-unlock-arrow-left svg  { stroke: #4fe0ff; filter: drop-shadow(0 0 10px rgba(79,224,255,0.9)); }
-      #bqt-unlock-arrow-right svg { stroke: #ff5db0; filter: drop-shadow(0 0 10px rgba(255,93,176,0.9)); }
+      #bqt-unlock-banner.unlocked {
+        color: #553300; background: linear-gradient(180deg, #fff5a8 0%, #ffd23e 58%, #f1a51b 100%);
+        box-shadow: inset 0 2px 0 rgba(255,255,255,0.72), 0 4px 0 #b87710, 0 8px 18px rgba(123,75,8,0.24), 0 0 20px rgba(255,210,62,0.42);
+      }
       #bqt-unlock-text {
-        font-size: clamp(1.4rem, 3.4vw, 2.3rem); font-weight: 900; letter-spacing: 0.04em;
-        background: linear-gradient(180deg, #fff6b0 0%, #ffb020 100%);
-        -webkit-background-clip: text; background-clip: text; color: transparent;
-        -webkit-text-stroke: clamp(1.5px, 0.22vw, 3px) #7a1e9e;
-        text-shadow: 0 0 24px rgba(255,150,220,0.8), 0 6px 18px rgba(0,0,0,0.3);
-        animation: bqtUnlockPulse 1s ease-in-out infinite;
+        font-size: clamp(1rem, 2vw, 1.45rem); font-weight: 900; line-height: 1;
+        letter-spacing: 0.055em; white-space: nowrap; text-shadow: 0 2px 0 rgba(39,24,87,0.42);
       }
-      @keyframes bqtUnlockPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-      .bqt-spark {
-        position: absolute; font-size: clamp(1rem, 2vw, 1.6rem); color: #ffe066;
-        text-shadow: 0 0 10px rgba(255,224,102,0.9);
-        animation: bqtSparkFloat 1.4s ease-in-out infinite;
-      }
-      @keyframes bqtSparkFloat { 0%,100% { transform: translateY(0) scale(1); opacity: 0.8; } 50% { transform: translateY(-10px) scale(1.3); opacity: 1; } }
+      #bqt-unlock-banner.unlocked #bqt-unlock-text { text-shadow: 0 2px 0 rgba(255,255,255,0.46); }
 
       /* ── 하단 — 가이드 바 하나 안에 이전·건너뛰기·다음이 다 들어간다 ── */
       #bqt-footer {
@@ -745,17 +721,13 @@ export function createBodyQuizTutorial({
         #bqt-stage { gap: clamp(6px, 2vw, 18px); padding: 0; }
         .bqt-answer { width: clamp(72px, min(15vw, 20dvh), 104px); gap: 2px; }
         .bqt-answer .bqt-label { padding: 1px 10px; font-size: clamp(0.68rem, 2.5dvh, 0.82rem); }
-        #bqt-center-media, #bqt-squat-cycle { width: clamp(72px, min(15vw, 20dvh), 104px); }
-        #bqt-center-img { max-height: 20dvh; }
+        #bqt-center-media, #bqt-squat-cycle { width: clamp(82px, min(17vw, 23dvh), 118px); }
+        #bqt-center-img { max-height: 23dvh; }
         .bqt-answer-arrow { font-size: 0.9rem; line-height: 0.8; }
         .bqt-correct-badge { top: -8px; right: -8px; border-width: 2px; padding: 2px 7px; font-size: 0.62rem; }
-        #bqt-exercise { margin-top: 0; gap: 1px; padding: 3px 14px; border-width: 2px; border-radius: 11px; }
-        #bqt-squat, #bqt-exercise.compact #bqt-squat { font-size: clamp(0.78rem, 3dvh, 0.95rem); }
-        #bqt-energy-bar, #bqt-exercise.compact #bqt-energy-bar { width: min(40vw, 280px); height: 10px; border-width: 1px; }
-        #bqt-energy-label, #bqt-exercise.compact #bqt-energy-label { font-size: clamp(0.58rem, 2dvh, 0.7rem); line-height: 1; }
-        #bqt-unlock-banner { margin-top: 0; gap: 7px; }
-        #bqt-unlock-banner svg { width: 1rem; height: 1rem; }
-        #bqt-unlock-text { font-size: clamp(0.9rem, 3.6dvh, 1.15rem); -webkit-text-stroke-width: 1px; }
+        #bqt-unlock-banner { min-height: 26px; margin-top: 0; padding: 2px 16px; border-width: 2px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 2px 0 #3d2b83, 0 4px 9px rgba(50,30,102,0.22); }
+        #bqt-unlock-banner.unlocked { box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), 0 2px 0 #b87710, 0 4px 9px rgba(123,75,8,0.2); }
+        #bqt-unlock-text { font-size: clamp(0.72rem, 3dvh, 0.9rem); }
         #bqt-guidebar { gap: 6px; border-width: 3px; padding: 4px 6px 4px 10px; box-shadow: 0 4px 0 rgba(20,80,120,0.15); }
         #bqt-guide-slot { width: 28px; height: 28px; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.18); }
         #bqt-guide { font-size: clamp(0.72rem, 2.6dvh, 0.86rem); line-height: 1.15; min-height: 1.15em; }
@@ -792,11 +764,10 @@ export function createBodyQuizTutorial({
         #bqt-question-panel { padding-block: 2px; }
         #bqt-question-tag { font-size: 0.54rem; }
         #bqt-prompt { font-size: 0.86rem; }
-        .bqt-answer, #bqt-center-media, #bqt-squat-cycle { width: 64px; }
+        .bqt-answer { width: 64px; }
+        #bqt-center-media, #bqt-squat-cycle { width: 72px; }
         .bqt-answer .bqt-label { font-size: 0.62rem; }
-        #bqt-exercise { padding-block: 2px; }
-        #bqt-energy-label { display: none; }
-        #bqt-unlock-text { font-size: 0.82rem; }
+        #bqt-unlock-text { font-size: 0.7rem; }
         #bqt-guidebar { padding-block: 3px; }
         #bqt-skip, #bqt-prev, #bqt-next { height: 34px; }
       }
@@ -854,18 +825,18 @@ export function createBodyQuizTutorial({
           </div>
         </div>
 
-        <div id="bqt-exercise">
-          <div id="bqt-squat"></div>
-          <div id="bqt-energy-bar"><i></i></div>
-          <div id="bqt-energy-label"></div>
-        </div>
+        ${bodyQuizMotionHudMarkup({
+          idPrefix: 'bqt',
+          className: 'bq-motion-hud--tutorial',
+          exercise: question.exercise.key,
+          currentCount: 0,
+          targetCount: target,
+          energyPercent: 0,
+          moveLocked: true,
+        })}
 
         <div id="bqt-unlock-banner">
-          <span id="bqt-unlock-arrow-left">${icon('left')}</span>
-          <span id="bqt-unlock-text">${text.moveUnlockBanner}</span>
-          <span id="bqt-unlock-arrow-right">${icon('right')}</span>
-          <span class="bqt-spark" style="left:-10%; top:-30%;">✦</span>
-          <span class="bqt-spark" style="right:-8%; top:10%; animation-delay:0.5s;">✦</span>
+          <span id="bqt-unlock-text" role="status">${text.moveLockBanner}</span>
         </div>
       </div>
 
@@ -901,17 +872,16 @@ export function createBodyQuizTutorial({
     squatCycle: $('#bqt-squat-cycle'),
     squatDown: $('#bqt-squat-down'),
     squatUp: $('#bqt-squat-up'),
-    exercise: $('#bqt-exercise'),
-    squat: $('#bqt-squat'),
-    energyBar: $('#bqt-energy-bar').firstElementChild,
-    energyLabel: $('#bqt-energy-label'),
+    motionHud: $('#bqt-motion-hud'),
     banner: $('#bqt-unlock-banner'),
+    bannerText: $('#bqt-unlock-text'),
     guide: $('#bqt-guide'),
     skip: $('#bqt-skip'),
     prev: $('#bqt-prev'),
     next: $('#bqt-next'),
   }
-  const readinessGate = createBodyQuizLoadingGate(root, { label: '튜토리얼을 준비하고 있어요' })
+  const motionHud = createBodyQuizMotionHud(els.motionHud)
+  const readinessGate = createBodyQuizLoadingGate(root, { loadingScreen })
 
   // 그림이 없으면 자리를 접는다 — 깨진 이미지 아이콘보다 빈 자리가 낫다.
   // asset이 바뀌어도 이 파일은 안 바뀐다.
@@ -971,32 +941,39 @@ export function createBodyQuizTutorial({
   // 최종 값(step.squatProgress)은 그대로다. 0에서 그 값까지 세는 동안
   // "지금 진짜로 움직이고 있다"는 느낌만 더한다.
   let exerciseAnimTimer = null
-  function animateExercise(count, pct) {
+  function animateExercise(count, pct, moveLocked) {
     if (exerciseAnimTimer) { clearInterval(exerciseAnimTimer); exerciseAnimTimer = null }
-    els.energyBar.style.transition = 'none'
-    els.energyBar.style.width = '0%'
-    els.squat.textContent = `SQUAT 0/${target}`
-    els.energyLabel.textContent = 'MOVE ENERGY 0%'
-    // 다음 프레임에 transition을 되살려야 0% → 목표% 사이가 실제로 애니메이션된다
-    requestAnimationFrame(() => {
-      els.energyBar.style.transition = ''
-      els.energyBar.style.width = `${pct}%`
+    motionHud.update({
+      exercise: question.exercise.key,
+      currentCount: 0,
+      targetCount: target,
+      energyPercent: 0,
+      moveLocked,
     })
     let n = 0
     exerciseAnimTimer = setInterval(() => {
       if (!root.isConnected) { clearInterval(exerciseAnimTimer); exerciseAnimTimer = null; return }
       n++
-      els.squat.textContent = `SQUAT ${n}/${target}`
-      els.energyLabel.textContent = `MOVE ENERGY ${Math.round((n / target) * 100)}%`
+      const energyPercent = n >= count ? pct : Math.round((n / target) * 100)
+      motionHud.update({
+        exercise: question.exercise.key,
+        currentCount: n,
+        targetCount: target,
+        energyPercent,
+        moveLocked,
+      })
       if (n >= count) { clearInterval(exerciseAnimTimer); exerciseAnimTimer = null }
     }, 220)
   }
-  function setExerciseStatic(count, pct) {
+  function setExerciseStatic(count, pct, moveLocked) {
     if (exerciseAnimTimer) { clearInterval(exerciseAnimTimer); exerciseAnimTimer = null }
-    els.energyBar.style.transition = ''
-    els.squat.textContent = `SQUAT ${count}/${target}`
-    els.energyBar.style.width = `${pct}%`
-    els.energyLabel.textContent = `MOVE ENERGY ${pct}%`
+    motionHud.update({
+      exercise: question.exercise.key,
+      currentCount: count,
+      targetCount: target,
+      energyPercent: pct,
+      moveLocked,
+    })
   }
 
   function render() {
@@ -1038,22 +1015,15 @@ export function createBodyQuizTutorial({
       }
     }
 
-    // 운동 패널
-    if (step.showExercise === false) {
-      els.exercise.hidden = true
-      els.exercise.classList.remove('compact')
-      if (exerciseAnimTimer) { clearInterval(exerciseAnimTimer); exerciseAnimTimer = null }
-    } else {
-      els.exercise.hidden = false
-      els.exercise.classList.toggle('compact', step.showExercise === 'compact')
-      const pct = Math.round((step.squatProgress / target) * 100)
-      // 처음 스쿼트 미션을 만나는 스텝(showExercise === true)에서만 0→목표
-      // 카운트업을 보여준다. 그 이후(축소 상태 등)는 이미 다 채워진 결과다.
-      if (step.showExercise === true) animateExercise(step.squatProgress, pct)
-      else setExerciseStatic(step.squatProgress, pct)
-    }
+    // 모든 STEP이 실제 play와 같은 HUD 공간을 쓴다. STEP2만 0→완료를 시연한다.
+    const pct = Math.round((step.squatProgress / target) * 100)
+    const moveLocked = step.moveLocked
+    if (step.animateExercise) animateExercise(step.squatProgress, pct, moveLocked)
+    else setExerciseStatic(step.squatProgress, pct, moveLocked)
 
-    els.banner.classList.toggle('on', !!step.showMoveUnlockBanner)
+    els.banner.classList.toggle('locked', moveLocked)
+    els.banner.classList.toggle('unlocked', !moveLocked)
+    els.bannerText.textContent = moveLocked ? text.moveLockBanner : text.moveUnlockBanner
 
     // 정답 강조 — 항상 question.correctSide를 따라간다(데이터 중복 없음)
     els.left.classList.remove('bqt-correct')

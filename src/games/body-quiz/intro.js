@@ -44,7 +44,7 @@ export function resolveStartRoute(query = {}) {
   return forceTutorial ? `${getPlayRoute(GAME_ID)}&tutorial=1` : getPlayRoute(GAME_ID)
 }
 
-export default function bodyQuizIntro(app, query = {}, { assetReadiness = bodyQuizAssetReadiness } = {}) {
+export default function bodyQuizIntro(app, query = {}, { assetReadiness = bodyQuizAssetReadiness, loadingScreen } = {}) {
   app.innerHTML = `
     <style>
       #bqi-root, #bqi-root * { box-sizing: border-box; }
@@ -130,7 +130,7 @@ export default function bodyQuizIntro(app, query = {}, { assetReadiness = bodyQu
 
   const playRoute = resolveStartRoute(query)
   const root = app.querySelector('#bqi-root')
-  const gate = createBodyQuizLoadingGate(root, { label: 'BODY QUIZ를 준비하고 있어요' })
+  const gate = createBodyQuizLoadingGate(root, { loadingScreen })
   const tutorialAssets = getBodyQuizTutorialAssets(QUESTIONS[0], 0)
 
   let launched = false
