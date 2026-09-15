@@ -20,6 +20,14 @@ import { navigate, onLeave } from '../../core/router.js'
 import { icon } from '../../core/icons.js'
 import { handSession } from '../../core/handSession.js'
 import { getPlayRoute } from '../registry.js'
+import { QUESTIONS } from './questions.js'
+import {
+  BODY_QUIZ_CRITICAL_ASSETS,
+  bodyQuizAssetReadiness,
+  createBodyQuizLoadingGate,
+  getBodyQuizTutorialAssets,
+  openBodyQuizReadinessGate,
+} from './assetReadiness.js'
 
 const GAME_ID = 'body-quiz'
 const HERO_IMG = '/assets/body-quiz/intro/thum_bodyquiz.png'
@@ -36,7 +44,7 @@ export function resolveStartRoute(query = {}) {
   return forceTutorial ? `${getPlayRoute(GAME_ID)}&tutorial=1` : getPlayRoute(GAME_ID)
 }
 
-export default function bodyQuizIntro(app, query = {}) {
+export default function bodyQuizIntro(app, query = {}, { assetReadiness = bodyQuizAssetReadiness } = {}) {
   app.innerHTML = `
     <style>
       #bqi-root, #bqi-root * { box-sizing: border-box; }
@@ -121,16 +129,72 @@ export default function bodyQuizIntro(app, query = {}) {
   handSession.setPointerActive(true)
 
   const playRoute = resolveStartRoute(query)
+  const root = app.querySelector('#bqi-root')
+  const gate = createBodyQuizLoadingGate(root, { label: 'BODY QUIZ를 준비하고 있어요' })
+  const tutorialAssets = getBodyQuizTutorialAssets(QUESTIONS[0], 0)
 
   let launched = false
+  let ready = false
+  let transitioning = false
+  let destroyed = false
+
+  function prepareIntro() {
+    return openBodyQuizReadinessGate({
+      gate,
+      readiness: assetReadiness,
+      assets: BODY_QUIZ_CRITICAL_ASSETS.intro,
+      isAlive: () => !destroyed,
+      onReady() {
+        ready = true
+        transitioning = false
+        // 다음에 가장 가능성이 높은 튜토리얼 첫 화면은 사용자 입력을
+        // 기다리는 동안 decode까지 백그라운드에서 끝낸다.
+        assetReadiness.preload(tutorialAssets)
+      },
+      onRetry: prepareIntro,
+    }).then(result => {
+      if (!result.ready) transitioning = false
+      return result
+    })
+  }
+
   function start() {
-    if (launched) return
-    launched = true
-    navigate(playRoute)
+    if (!ready || launched || transitioning) return
+    if (assetReadiness.areReady(tutorialAssets)) {
+      launched = true
+      navigate(playRoute)
+      return
+    }
+    transitioning = true
+    openBodyQuizReadinessGate({
+      gate,
+      readiness: assetReadiness,
+      assets: tutorialAssets,
+      transition: true,
+      minMs: 400,
+      message: '튜토리얼을 준비하고 있어요',
+      isAlive: () => !destroyed,
+      onReady() {
+        launched = true
+        navigate(playRoute)
+      },
+      onRetry: start,
+    }).then(result => { if (!result.ready) transitioning = false })
   }
 
   app.querySelector('#bqi-start').addEventListener('click', start)
   app.querySelector('#bqi-back').addEventListener('click', () => navigate('/'))
 
-  onLeave(() => { /* 전역 리스너·rAF·카메라를 새로 열지 않아 정리할 것이 없다 */ })
+  if (assetReadiness.areReady(BODY_QUIZ_CRITICAL_ASSETS.intro)) {
+    ready = true
+    gate.reveal()
+    assetReadiness.preload(tutorialAssets)
+  } else {
+    prepareIntro()
+  }
+
+  onLeave(() => {
+    destroyed = true
+    gate.destroy()
+  })
 }

@@ -25,6 +25,12 @@ import {
   bodyQuizSystemBarMarkup,
   bindBodyQuizSystemBar,
 } from './tutorial.js'
+import {
+  bodyQuizAssetReadiness,
+  createBodyQuizLoadingGate,
+  getBodyQuizPlayAssets,
+  openBodyQuizReadinessGate,
+} from './assetReadiness.js'
 
 const MOTION_ICON_PATHS = {
   squat: '<circle cx="12" cy="4" r="2"/><path d="m9.5 8.5 2.5-1.5 2.5 1.5 1.8 4.2"/><path d="m9.5 9-2.8 4.2 3.8 2.1-2.2 4.2"/><path d="m14.3 12.5 2.7 2.8 3.4.2"/><path d="m10.5 15.3 4 .2 2.2 4"/>',
@@ -92,7 +98,10 @@ export function createBodyQuizCameraSession({ videoEl, onLandmarks, onStatus, en
   return { start, destroy }
 }
 
-export default function bodyQuizPlay(app, query) {
+export default function bodyQuizPlay(app, query, {
+  assetReadiness = bodyQuizAssetReadiness,
+  tutorialPolicy = shouldShowTutorial,
+} = {}) {
   const gameId = query.id ?? 'body-quiz'
   const manifest = getManifest(gameId)
   if (!manifest) { navigate('/'); return }
@@ -114,6 +123,7 @@ export default function bodyQuizPlay(app, query) {
   let currentZone = 1
   let tutorialActive = false
   let systemPaused = false
+  let screenReady = false
   let destroyed = false
 
   ensureSysBarStyle(app.ownerDocument)
@@ -457,7 +467,7 @@ export default function bodyQuizPlay(app, query) {
   const zoneDetector = createZoneDetector({ lanes: 3, onZoneChange: zone => { currentZone = zone } })
 
   function handleLandmarks(landmarks) {
-    if (destroyed || tutorialActive || systemPaused) return
+    if (destroyed || !screenReady || tutorialActive || systemPaused) return
     const fired = moveDetector.update(landmarks, performance.now() / 1000)
     if (fired.includes(MOVE.SQUAT)) game.registerSquat()
     zoneDetector.update(landmarks)
@@ -609,7 +619,7 @@ export default function bodyQuizPlay(app, query) {
   }
 
   const onKey = event => {
-    if (tutorialActive || systemPaused) return
+    if (!screenReady || tutorialActive || systemPaused) return
     if (event.code === 'KeyS') { event.preventDefault(); game.registerSquat() }
     else if (event.code === 'ArrowLeft') { event.preventDefault(); game.selectAnswer('left') }
     else if (event.code === 'ArrowRight') { event.preventDefault(); game.selectAnswer('right') }
@@ -623,25 +633,49 @@ export default function bodyQuizPlay(app, query) {
   else setCameraStatus('error')
 
   let tutorialHandle = null
-  if (shouldShowTutorial(query)) {
+  let playReadinessGate = null
+  const playAssets = getBodyQuizPlayAssets(question)
+
+  function activatePlay() {
+    if (destroyed) return
+    screenReady = true
+    renderQuestionData()
+    mountSystemBar()
+    startGameLoop()
+  }
+
+  if (tutorialPolicy(query)) {
     tutorialActive = true
     tutorialHandle = createBodyQuizTutorial({
       // 튜토리얼은 승인된 고정 레이아웃을 유지한다. 실제 session의 답 위치
       // randomization은 뒤의 play scene에만 적용한다.
       mountEl: root, question: QUESTIONS[0], onIntro: () => navigate(backTo), onHome: () => navigate('/'),
+      assetReadiness,
+      playAssets,
       onFinish() {
         tutorialActive = false
         tutorialHandle = null
         markTutorialCompleted()
-        renderQuestionData()
-        mountSystemBar()
-        startGameLoop()
+        activatePlay()
       },
     })
   } else {
-    renderQuestionData()
-    mountSystemBar()
-    startGameLoop()
+    playReadinessGate = createBodyQuizLoadingGate(root, { label: '게임을 준비하고 있어요' })
+    if (assetReadiness.areReady(playAssets)) {
+      playReadinessGate.reveal()
+      activatePlay()
+    } else {
+      const preparePlay = () => openBodyQuizReadinessGate({
+        gate: playReadinessGate,
+        readiness: assetReadiness,
+        assets: playAssets,
+        message: '게임을 준비하고 있어요',
+        isAlive: () => !destroyed,
+        onReady: activatePlay,
+        onRetry: preparePlay,
+      })
+      preparePlay()
+    }
   }
 
   onLeave(() => {
@@ -649,6 +683,7 @@ export default function bodyQuizPlay(app, query) {
     if (raf) cancelAnimationFrame(raf)
     window.removeEventListener('keydown', onKey)
     tutorialHandle?.destroy()
+    playReadinessGate?.destroy()
     systemBinding?.destroy()
     zoneDetector.destroy()
     cameraSession.destroy()

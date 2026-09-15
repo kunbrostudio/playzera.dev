@@ -18,6 +18,12 @@ import { QUESTIONS } from '../src/games/body-quiz/questions.js'
 
 const question = QUESTIONS[0]
 const mountedHandles = new Set()
+const immediateReadiness = {
+  areReady: () => true,
+  preload: () => Promise.resolve([]),
+  waitFor: () => Promise.resolve({ ready: true, timedOut: false, results: [], failed: [] }),
+  invalidate() {},
+}
 
 afterEach(() => {
   for (const handle of mountedHandles) handle.destroy()
@@ -32,6 +38,7 @@ function mount(options = {}) {
     mountEl: app,
     question,
     onFinish: () => { finished = true },
+    assetReadiness: immediateReadiness,
     ...options,
   })
   mountedHandles.add(handle)

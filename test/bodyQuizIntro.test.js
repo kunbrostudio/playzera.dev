@@ -9,10 +9,17 @@ import { describe, it, expect } from 'vitest'
 import bodyQuizIntro, { resolveStartRoute } from '../src/games/body-quiz/intro.js'
 import { getPlayRoute } from '../src/games/registry.js'
 
+const immediateReadiness = {
+  areReady: () => true,
+  preload: () => Promise.resolve([]),
+  waitFor: () => Promise.resolve({ ready: true, timedOut: false, results: [], failed: [] }),
+  invalidate() {},
+}
+
 function mount(query = { id: 'body-quiz' }) {
   document.body.innerHTML = '<div id="app"></div>'
   const app = document.querySelector('#app')
-  bodyQuizIntro(app, query)
+  bodyQuizIntro(app, query, { assetReadiness: immediateReadiness })
   return app
 }
 

@@ -10059,3 +10059,38 @@ BODY QUIZ 범위 밖이라 그대로 두었다.
 않으며, 중앙 전신 영역과 머무르기 오입력을 동시에 보호한다.
 
 확인: BODY QUIZ 관련 테스트 94건, 전체 1145건 통과. 프로덕션 빌드 통과.
+
+## STEP 79 — BODY QUIZ 화면별 Asset Readiness Gate (2026-09-15)
+
+BODY QUIZ의 cold cache 진입에서 큰 PNG가 내려오는 순서대로 배경·카드·캐릭터가
+하나씩 나타나는 중간 화면이 노출됐다. mount 완료는 이미지가 렌더 가능한 시점이
+아니므로, BODY QUIZ 안에만 `assetReadiness.js`를 두고 intro/tutorial/play의
+critical image를 화면 단위로 분리했다. 전역 로더나 Play Zera Core는 아직
+바꾸지 않는다. 이 구현으로 critical asset이 load된 뒤 가능한 브라우저에서는
+`HTMLImageElement.decode()`까지 끝나야 실제 콘텐츠를 공개한다. decode 자체가
+지원되지 않거나 load 이후 reject되는 브라우저는 완료된 onload를 fallback으로
+인정한다. URL별 Promise cache로 화면 사이 중복 다운로드도 피한다.
+
+intro는 `thum_bodyquiz.png`, tutorial은 `bg_room.png`·title·좌우 설명 캐릭터·
+현재 STEP 중앙 그림·현재 질문의 답 카드, play는 첫 문제의 답 카드만 critical로
+기다린다. 카메라·header/HUD SVG와 아직 저장소에 없는 선택형 guide asset은 이
+목록에 넣지 않았다. 첫 화면은 최소 500ms, 실제 전환 중 새 asset이 필요할 때는
+400ms의 안정된 loading gate를 쓰며 최대 9초를 넘기지 않는다. 실패/timeout은
+깨진 화면을 공개하지 않고 bounded error/retry 상태에 머문다. gate는 시각 덮개뿐
+아니라 버튼을 disabled로 만들고, play의 keyboard/landmark/RAF 시작도 ready 뒤로
+미뤄 loading 뒤에서 게임이 진행되지 않게 했다.
+
+intro 공개 뒤 tutorial 첫 화면, tutorial 공개 뒤 다음 STEP과 play 첫 화면을
+백그라운드 preload/decode한다. 아직 준비되지 않은 채 Next/Skip/Game Start를
+누르면 현재 화면을 바꾸지 않고 transition gate에서 target readiness를 기다린다.
+따라서 initial route뿐 아니라 intro→tutorial, tutorial STEP 전환, tutorial→play도
+부분 렌더를 노출하지 않는다.
+
+현재 가장 큰 병목 후보는 tutorial의 `bg_room.png`(약 11MB)다. intro hero는 약
+2.9MB, 두 answer PNG는 합계 약 4.4MB이고 tutorial 인물/STEP PNG도 장당 약
+1.0~1.5MB다. 이번 단계에서는 에셋을 교체하지 않고 readiness 제어를 우선했으며,
+실기기 저속 네트워크에서 9초 retry UX와 실제 decode 시간을 추가 확인해야 한다.
+
+확인: BODY QUIZ 관련 테스트 103건, 전체 1155건 통과. 프로덕션 빌드 통과.
+기존 runner placeholder·remote BGM export·dynamic import/chunk 경고는 BODY QUIZ
+readiness 변경과 무관해 그대로 남겼다.

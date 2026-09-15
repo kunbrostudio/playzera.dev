@@ -38,6 +38,13 @@ import * as sound from '../../core/sound.js'
 import { sysBarMarkup, ensureSysBarStyle, bindSysBar } from '../runner/ui/systemBar.js'
 import { TUTORIAL_STEPS } from './tutorialSteps.js'
 import { getText, DEFAULT_LOCALE } from './tutorialText.js'
+import {
+  bodyQuizAssetReadiness,
+  createBodyQuizLoadingGate,
+  getBodyQuizPlayAssets,
+  getBodyQuizTutorialAssets,
+  openBodyQuizReadinessGate,
+} from './assetReadiness.js'
 
 const STORAGE_KEY = 'playzera.bodyQuiz.tutorialCompleted'
 const TITLE_IMG = '/assets/body-quiz/tutorial/tutorial_title.png'
@@ -159,7 +166,16 @@ export function shouldShowTutorial(query = {}, { dev = import.meta.env?.DEV } = 
  * @param {() => void} [opts.onHome]   나가기 확인의 "Home으로"
  * @returns {{ destroy: () => void, getStepIndex: () => number }}
  */
-export function createBodyQuizTutorial({ mountEl, question, locale = DEFAULT_LOCALE, onFinish, onIntro, onHome }) {
+export function createBodyQuizTutorial({
+  mountEl,
+  question,
+  locale = DEFAULT_LOCALE,
+  onFinish,
+  onIntro,
+  onHome,
+  assetReadiness = bodyQuizAssetReadiness,
+  playAssets = getBodyQuizPlayAssets(question),
+}) {
   const text = getText(locale)
   const target = question.exercise.targetReps
   const goIntro = onIntro ?? (() => navigate('/intro?id=body-quiz'))
@@ -895,6 +911,7 @@ export function createBodyQuizTutorial({ mountEl, question, locale = DEFAULT_LOC
     prev: $('#bqt-prev'),
     next: $('#bqt-next'),
   }
+  const readinessGate = createBodyQuizLoadingGate(root, { label: '튜토리얼을 준비하고 있어요' })
 
   // 그림이 없으면 자리를 접는다 — 깨진 이미지 아이콘보다 빈 자리가 낫다.
   // asset이 바뀌어도 이 파일은 안 바뀐다.
@@ -911,6 +928,9 @@ export function createBodyQuizTutorial({ mountEl, question, locale = DEFAULT_LOC
   })
 
   let index = 0
+  let screenReady = false
+  let transitioning = false
+  let destroyed = false
 
   // ── 하단 대화 — 타이핑 효과 ─────────────────────────────────
   // 글자를 한 글자씩 캐럿 앞에 밀어 넣는다. 스텝을 넘기면 이전 타이핑을
@@ -1044,27 +1064,99 @@ export function createBodyQuizTutorial({ mountEl, question, locale = DEFAULT_LOC
     els.next.innerHTML = step.isLast ? `${text.start} ${icon('right')}` : `${text.next} ${icon('right')}`
   }
 
+  function prefetchLikelyNext() {
+    const nextIndex = index + 1
+    if (nextIndex < TUTORIAL_STEPS.length) {
+      assetReadiness.preload(getBodyQuizTutorialAssets(question, nextIndex))
+    }
+    // 튜토리얼을 보는 동안 실제 play 첫 문제도 decode해 마지막 전환을 숨긴다.
+    assetReadiness.preload(playAssets)
+  }
+
+  function loadStep(nextIndex, { initial = false } = {}) {
+    const assets = getBodyQuizTutorialAssets(question, nextIndex)
+    if (!initial && assetReadiness.areReady(assets)) {
+      index = nextIndex
+      render()
+      prefetchLikelyNext()
+      return
+    }
+
+    transitioning = true
+    screenReady = false
+    const attempt = () => openBodyQuizReadinessGate({
+      gate: readinessGate,
+      readiness: assetReadiness,
+      assets,
+      transition: !initial,
+      minMs: initial ? 500 : 400,
+      message: initial ? '튜토리얼을 준비하고 있어요' : '다음 단계를 준비하고 있어요',
+      isAlive: () => !destroyed,
+      onReady() {
+        index = nextIndex
+        screenReady = true
+        transitioning = false
+        render()
+        prefetchLikelyNext()
+      },
+      onRetry() {
+        transitioning = true
+        attempt()
+      },
+    }).then(result => {
+      if (!result.ready) transitioning = false
+      return result
+    })
+    return attempt()
+  }
+
   function goNext() {
+    if (!screenReady || transitioning) return
     const step = TUTORIAL_STEPS[index]
     if (step.isLast) { finish(); return }
-    index = Math.min(TUTORIAL_STEPS.length - 1, index + 1)
-    render()
+    loadStep(Math.min(TUTORIAL_STEPS.length - 1, index + 1))
   }
 
   function goPrev() {
-    if (index === 0) return
-    index -= 1
-    render()
+    if (!screenReady || transitioning || index === 0) return
+    loadStep(index - 1)
   }
 
   // 스킵 = "이제 진짜 게임으로" — GAME START와 결과가 같다(ken 지시:
   // "스킵 시 즉시 실제 게임 시작"). 몇 번째 스텝에 있든 상관없다.
   let finished = false
   function finish() {
-    if (finished) return
-    finished = true
-    destroy()
-    onFinish?.()
+    if (!screenReady || finished || transitioning) return
+    const complete = () => {
+      if (finished || destroyed) return
+      finished = true
+      destroy()
+      onFinish?.()
+    }
+    if (assetReadiness.areReady(playAssets)) {
+      complete()
+      return
+    }
+    transitioning = true
+    screenReady = false
+    const attempt = () => openBodyQuizReadinessGate({
+      gate: readinessGate,
+      readiness: assetReadiness,
+      assets: playAssets,
+      transition: true,
+      minMs: 400,
+      message: '게임을 준비하고 있어요',
+      isAlive: () => !destroyed,
+      onReady: complete,
+      onRetry() {
+        transitioning = true
+        attempt()
+      },
+    }).then(result => {
+      if (!result.ready) transitioning = false
+      return result
+    })
+    return attempt()
   }
 
   els.next.addEventListener('click', goNext)
@@ -1072,10 +1164,21 @@ export function createBodyQuizTutorial({ mountEl, question, locale = DEFAULT_LOC
   els.skip.addEventListener('click', finish)
   els.intro.addEventListener('click', goIntro)
 
-  render()
+  const initialAssets = getBodyQuizTutorialAssets(question, 0)
+  if (assetReadiness.areReady(initialAssets)) {
+    screenReady = true
+    readinessGate.reveal()
+    render()
+    prefetchLikelyNext()
+  } else {
+    loadStep(0, { initial: true })
+  }
 
   function destroy() {
+    if (destroyed) return
+    destroyed = true
     sysBarBinding.destroy()
+    readinessGate.destroy()
     if (guideTypeTimer) clearInterval(guideTypeTimer)
     if (squatCycleTimer) clearInterval(squatCycleTimer)
     if (exerciseAnimTimer) clearInterval(exerciseAnimTimer)

@@ -21,6 +21,13 @@ import {
   resetTutorialCompleted,
 } from '../src/games/body-quiz/tutorial.js'
 
+const immediateReadiness = {
+  areReady: () => true,
+  preload: () => Promise.resolve([]),
+  waitFor: () => Promise.resolve({ ready: true, timedOut: false, results: [], failed: [] }),
+  invalidate() {},
+}
+
 // squat 반영은 rAF 루프(loop())가 다음 프레임에 그린다 — keydown 직후
 // DOM을 바로 읽으면 아직 이전 프레임이다. 프레임 한 번을 기다려 준다.
 function tick() {
@@ -40,7 +47,7 @@ async function press(code) {
 function mountPlay(query = { id: 'body-quiz' }) {
   document.body.innerHTML = '<div id="app"></div>'
   const app = document.querySelector('#app')
-  bodyQuizPlay(app, query)
+  bodyQuizPlay(app, query, { assetReadiness: immediateReadiness })
   return app
 }
 
