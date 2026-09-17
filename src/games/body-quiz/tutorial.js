@@ -29,7 +29,6 @@
 
 import { icon } from '../../core/icons.js'
 import { navigate } from '../../core/router.js'
-import * as bgm from '../../core/bgm.js'
 import * as sound from '../../core/sound.js'
 import { sysBarMarkup, ensureSysBarStyle, bindSysBar } from '../runner/ui/systemBar.js'
 import { TUTORIAL_STEPS } from './tutorialSteps.js'
@@ -46,6 +45,7 @@ import {
   bodyQuizMotionHudMarkup,
   createBodyQuizMotionHud,
 } from './motionHud.js'
+import { playBodyQuizButtonSfx } from './audio.js'
 
 const STORAGE_KEY = 'playzera.bodyQuiz.tutorialCompleted'
 const TITLE_IMG = '/assets/body-quiz/tutorial/tutorial_title.png'
@@ -63,12 +63,14 @@ export function bodyQuizSystemBarMarkup() {
   return sysBarMarkup({
     home: false,
     exit: true,
-    bgmMuted: bgm.isMuted(),
+    // BODY QUIZ 전용 음악이 준비될 때까지 BGM은 의도적으로 비활성이다.
+    bgmMuted: true,
     sfxMuted: sound.isMuted(),
   })
     .replace('id="pz-menu" class="pz-sys-btn"', 'id="pz-menu" class="pz-sys-btn bqt-header-action bqt-header-action--menu"')
     .replace(/<img src="[^"]+" alt="메뉴">/, `<span id="bqt-menu-icon">${icon('menu')}</span>`)
-    .replace(/<img src="[^"]+" alt="배경음악">/, `<span id="bqt-music-icon">${icon(bgm.isMuted() ? 'musicOff' : 'music')}</span>`)
+    .replace('id="pz-music"', 'id="pz-music" disabled aria-disabled="true" title="BODY QUIZ에서는 배경음악을 사용하지 않아요"')
+    .replace(/<img src="[^"]+" alt="배경음악">/, `<span id="bqt-music-icon">${icon('musicOff')}</span>`)
     .replace(/<img src="[^"]+" alt="효과음">/, `<span id="bqt-sfx-icon">${icon(sound.isMuted() ? 'soundOff' : 'sound')}</span>`)
     .replace(/<img src="[^"]+" alt="전체화면">/, `<span id="bqt-full-icon">${FULLSCREEN_ICON}</span>`)
     .replace('id="pz-exit" class="pz-sys-btn ', 'id="pz-exit" class="pz-sys-btn bqt-header-action bqt-header-action--exit ')
@@ -96,7 +98,8 @@ export function bindBodyQuizSystemBar(root, { onQuit, onHome, onPause } = {}) {
     },
   }
   const binding = bindSysBar(sysBarRoot, {
-    onToggleMusic: bgm.toggleMute,
+    // disabled 버튼의 방어적 no-op. 공용 BGM 설정은 다른 게임에 그대로 남는다.
+    onToggleMusic: () => true,
     onToggleSfx: sound.toggle,
     onQuit,
     onHome,
@@ -106,6 +109,15 @@ export function bindBodyQuizSystemBar(root, { onQuit, onHome, onPause } = {}) {
   // dim 클릭은 가장 안전한 "계속하기"와 같다. 박스 안 클릭은 닫지 않는다.
   $('#pz-confirm').addEventListener('click', event => {
     if (event.target === event.currentTarget) $('#pz-resume').click()
+  }, { signal: abort.signal })
+
+  // 공통 systemBar는 의도적으로 소리를 소유하지 않는다. BODY QUIZ 루트에서
+  // 한 번만 위임해 튜토리얼/시스템/확인창 버튼을 모두 같은 중복 방지 정책으로 낸다.
+  root.addEventListener('click', event => {
+    const button = event.target.closest('button')
+    if (!button || !root.contains(button) || button.disabled) return
+    const primaryIds = new Set(['bqt-next', 'bqt-skip', 'pz-quit', 'pz-quit-home'])
+    playBodyQuizButtonSfx(primaryIds.has(button.id) ? 'primary' : 'default')
   }, { signal: abort.signal })
 
   return {
@@ -351,6 +363,7 @@ export function createBodyQuizTutorial({
       #bqt-root .pz-menu-item .pz-ico { width: 52%; height: 52%; stroke-width: 2.25; }
       #bqt-root .pz-menu-item:hover { filter: brightness(1.05); transform: scale(1.06); }
       #bqt-root .pz-menu-item:active { transform: translateY(2px) scale(0.94); box-shadow: none; }
+      #bqt-root .pz-menu-item:disabled { opacity: .42; cursor: not-allowed; filter: grayscale(.35); transform: none; }
 
       #bqt-topbar #pz-confirm {
         position: fixed; inset: 0; display: flex;

@@ -10203,3 +10203,111 @@ energy는 label과 bar만 포함한 유일한 grow/shrink 블록이다. bar는 `
 최소 폭과 `flex:0 0 auto`를 유지하므로 서로의 영역을 침범하지 않는다.
 700px 이하 landscape에서도 label을 없애지 않고 bar 최소 폭과 gap만 소폭 줄인다.
 tutorial/play의 마크업과 갱신 API는 계속 한 구현을 공유한다.
+
+## STEP 82 — BODY QUIZ 실기기 QA 입력·선택 피드백 준비 (2026-09-16)
+
+Branch Deploy 실측에서 스쿼트가 쉽게 올라가지 않는 문제가 확인됐다. 기존 공용
+`MoveDetector`는 골반 하강 하나만 보고, 앉은 프레임도 3초 rolling baseline에 계속
+넣어 느린 동작에서 기준선이 아래로 따라갈 수 있었다. 공용 detector/tuning은 다른
+게임도 쓰므로 건드리지 않고 BODY QUIZ 전용 `motionInput.js`에 설정값과 명시적인
+`standing → descending → squat → ascending` 상태 머신을 뒀다. 서 있는 프레임만
+기준선에 넣고, 작은 골반 하강은 무릎 각도와 함께 확인한다. 무릎 confidence가
+흔들리는 경우에도 공용 detector의 기존 큰 하강 기준(키의 14%)은 fallback으로
+유지한다. 추적 단절 중 끝난 동작은 세지 않고, 완전히 선 상태로 돌아왔을 때만 한
+번 카운트한다. 이 문턱은 합성 프레임 테스트를 통과했을 뿐 아이·거리·조명별
+실측값은 아니므로, 실기기 결과 없이 추가 완화하지 않는다.
+
+좌우 선택은 골반 중심과 전신 높이로 정규화한 3-zone/hysteresis를 BODY QUIZ 입력
+계층에서 명시하고, invalid frame을 이전 zone의 새 입력으로 재사용하지 않게 했다.
+MOVE ENERGY 100% 전에는 기존대로 선택이 막히며, 선택 zone을 벗어나거나 추적이
+0.25초 넘게 끊기면 진행 시간을 버린다. 유지 시간은 QA 시작값 3초이고 화면에는
+3→2→1을 표시한다. 다음 문제는 중앙 zone 복귀를 실제로 확인한 뒤에만 새 좌우
+선택을 받는다.
+
+답 카드는 기존 크기·안쪽 tilt를 유지하면서 가벼운 비동기 floating과 sparkle,
+선택 glow를 추가했다. 확정 뒤 정답은 Y축 360도 회전·금빛 particle·CORRECT·기존
+round-clear sound, 오답은 짧은 shake·부드러운 particle·기존 hit sound를 쓴다.
+판정은 상태 머신에서 먼저 끝나며 효과 중 중복 입력은 받지 않는다. 다음 문제는
+`animationend` 뒤 진행하고, 이벤트가 누락돼도 1.4초 timeout으로 멈추지 않는다.
+기존 정책대로 오답도 피드백 뒤 다음 문제로 넘어간다.
+
+현재 실제 answer asset은 코끼리·호랑이 두 장뿐이라 같은 두 이미지를 쓰는 명확한
+추가 문제 1개만 활성화했다. 20~30개 목표 중 24개 후보와 필요한 신규 PNG 24장은
+`docs/10_body_quiz_문제에셋목록.md`에 분리했다. 없는 파일을 등록해 readiness gate나
+첫 화면을 깨뜨리지 않는다. 세션 최대 10문제, 문제 순서/좌우 위치 randomize와
+원본 불변 규칙은 유지된다.
+
+확인: BODY QUIZ 관련 테스트 130건, 전체 1188건 통과. 프로덕션 빌드와
+`git diff --check` 통과. 빌드의 remote BGM export·dynamic import·500kB chunk 경고는
+기존 범위다. 이 세션에서는 연결 가능한 브라우저/카메라가 없어 5개 viewport와 실제
+아이 동작을 통과로 판정하지 않았다. 1920×1080·1366×768·932×430·844×390·667×375
+레이아웃, 스쿼트 문턱, zone 거리, 추적 단절 grace, 3초 hold는 Branch Deploy
+실기기 QA가 남아 있다.
+
+## STEP 83 — BODY QUIZ 문제·사운드 확장 (2026-09-16)
+
+문제 목표는 신규 20개지만 BODY QUIZ answer asset은 여전히 코끼리·호랑이 두 장뿐이다.
+없는 경로를 활성 사전에 넣으면 asset readiness가 retry 화면에 머물거나 다음 문제에서
+깨진 카드가 노출되므로, 두 이미지로 답이 명확한 신규 동물 문제 4개만 먼저 등록했다.
+현재 활성 문제는 6개다. 음식·탈것·생활 습관·자연의 나머지 16문제와 필요한 PNG
+16장은 `docs/10_body_quiz_문제에셋목록.md`에 분리했다. 데이터에는 `promptKey`와
+answer `labelKey`, 한국어/영어 copy 사전을 함께 두되, 현재 UI가 쓰는 `prompt`와
+`label` 계약도 유지했다.
+
+세션 최대치는 기존처럼 `BODY_QUIZ_SESSION_LIMIT = 10`이며 문제 수와 독립적이다.
+문제 사전을 복제해 shuffle한 뒤 중복 없이 자르고, 정답 위치는 세션 전체에 대해
+짝수면 LEFT/RIGHT 동수, 홀수면 최대 한 문제 차이가 되도록 먼저 만든 side 배열을
+다시 섞어 적용한다. 원본 질문과 정답 데이터는 바꾸지 않는다. 현재 활성 데이터가
+6개이므로 실제 세션은 6문제이며, 에셋이 추가되면 코드 변경 없이 최대 10문제가 된다.
+
+오디오는 공용 `core/bgm.js`와 `core/sound.js`를 수정하지 않고 BODY QUIZ 로컬
+`audio.js`가 이벤트 중복만 조정한다. 전용 BGM 파일이 없고 공통곡도 실제 테스트에서
+Jurassic Run 쪽 인상으로 들렸기 때문에, 다른 게임 음악을 억지로 빌리지 않고 BODY
+QUIZ BGM은 명시적으로 비활성화했다. BODY QUIZ 진입 시 game route 사이에 남을 수
+있는 이전 곡만 `bgm.stop()`으로 끊고, 시스템 메뉴의 BGM 버튼은 off/disabled 상태로
+보여 준다. 공용 BGM 모듈과 다른 게임의 설정은 바꾸지 않는다. SFX는 공용 WebAudio
+합성음을 그대로 써서 BGM 유무와 무관하게 동작한다.
+
+효과음은 게임 시작, 스쿼트 rep, 마지막 rep의 MOVE UNLOCK, zone 진입, 2·1 선택
+카운트다운, 정답/오답, 세션 완료에 연결했다. 마지막 rep는 성공음과 unlock음을 한
+번으로 합치고, 같은 rep·zone·countdown·result 상태의 반복 프레임은 다시 울리지
+않는다. 다음 문제 전환음은 직전 정오답음과 가까워 소리가 과밀해지므로 생략했다.
+전용 SFX asset은 없고 공용 WebAudio 합성음을 쓰기 때문에 별도 다운로드/readiness가
+필요 없다.
+
+확인: BODY QUIZ 관련 테스트 142건, 전체 1201건 통과. 프로덕션 빌드와
+`git diff --check` 통과. 빌드의 remote BGM export·dynamic import·500kB chunk 경고는
+기존 범위다. 자동 테스트는 음소거 연결·중복 방지·늦은 BGM 시작 취소까지 확인했지만,
+실제 모바일 autoplay 복구, 공통곡의 체감 볼륨, 카메라 동작과 효과음 타이밍은 Branch
+Deploy 실기기에서 들어봐야 한다.
+
+## STEP 84 — BODY QUIZ 리액션·버튼 사운드 마감 (2026-09-17)
+
+실기기 피드백에서 선택이 인식됐는지와 정오답 결과가 약하게 느껴져 play 카드의
+기존 크기·tilt·판정 규칙은 유지하고 연출 계층만 강화했다. 평상시에는 좌우 카드가
+서로 다른 위상으로 작게 float/sway하고, 카드색을 따른 aura pulse와 여덟 개 CSS
+twinkle이 간헐적으로 돈다. 선택 zone에서는 해당 aura와 glow가 밝아지고, 3초 hold는
+숫자와 실제 `holdElapsed / holdSec`를 쓰는 conic progress ring으로 동시에 보인다.
+zone 이탈 시 기존 상태 머신이 hold를 취소하면서 ring과 강조도 즉시 사라진다.
+
+정답은 Y축 360도 회전 뒤 punch scale, 금빛 particle, 바깥으로 퍼지는 ring,
+`CORRECT!` pop을 순서감 있게 한 묶음으로 재생한다. 오답은 더 짧은 shake·분홍 fail
+pulse·soft scatter로 무섭지 않게 구분한다. 판정과 다음 문제 전이는 기존
+`resultFx.js`의 단일 animationend listener와 1.4초 fallback timer가 소유하고,
+cancel/destroy에서 listener와 timer를 정리하므로 프레임 반복으로 중복 판정하지 않는다.
+`prefers-reduced-motion`에서는 새 aura·particle·countdown animation도 즉시 정지한다.
+
+공통 systemBar 자체는 소리를 소유하지 않는다는 기존 경계를 지켰다. BODY QUIZ의
+`bindBodyQuizSystemBar` 루트에 click delegation을 한 번만 두어 튜토리얼 이전/다음/
+스킵/인트로, 햄버거, 나가기, 확인창 버튼을 같은 90ms debounce로 처리한다. 인트로
+시작/허브 이동과 play 카메라 재시도도 같은 helper를 쓴다. 일반 버튼은 짧은 beep,
+CTA는 success 계열이며 공용 SFX mute 상태를 그대로 따른다. 다른 게임에는 listener나
+사운드 정책 변경이 없다.
+
+확인: BODY QUIZ 9개 테스트 파일 143건, 전체 69개 파일 1202건 통과.
+프로덕션 빌드와 `git diff --check` 통과. 빌드의 `remote/session.js` BGM export,
+기존 dynamic import, 500kB chunk 경고는 이번 BODY QUIZ 변경 전부터 있던 범위다.
+로컬 5176 포트에는 기존 Node 프로세스가 있어 중복 서버를 띄우지 않았으나, 현재
+자동화 런타임에는 연결 가능한 브라우저가 없어 실제 애니메이션·스피커 음량·모바일
+autoplay는 통과로 판정하지 않았다. Branch Deploy에서 정답/오답 연출 강도, 3초 ring
+가독성, SFX mute 및 다른 게임에서 넘어올 때 음악이 즉시 꺼지는지 확인해야 한다.

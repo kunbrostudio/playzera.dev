@@ -2,9 +2,8 @@
 //
 // ── 왜 액션이 이렇게 갈라져 있나 ──────────────────────────────
 //
-// 지금은 키보드로 스쿼트·좌우를 흉내 낸다. 다음 단계에서는 `MoveDetector`의
-// squat과 (아직 없는) 3-zone 좌우 감지기가 그 입력을 대신한다. 그때 이 파일의
-// 규칙을 다시 쓰지 않으려고, 입력 수단을 모르는 액션 둘만 밖에 연다 —
+// 키보드와 실제 pose/3-zone 감지기는 모두 이 상태 머신에 완성된 입력만 전달한다.
+// 입력 장치가 달라져도 규칙을 다시 쓰지 않도록, 입력 수단을 모르는 액션만 밖에 연다 —
 // `registerSquat()` · `selectAnswer(side)`. 둘 다 "무엇이 이걸 불렀나"를
 // 모른다. 다음 단계는 이 파일이 아니라 play.js의 입력 배선만 바뀐다.
 //
@@ -33,9 +32,14 @@ export const PHASE = {
   ANSWER_RESULT: 'answer_result',
 }
 
-// 좌우 확정까지 같은 쪽을 유지해야 하는 시간(초). 실기기 미검증 — 3-zone
-// 감지기가 붙은 뒤 아이가 실제로 움직여 보고 다시 맞출 값이다.
-export const HOLD_SEC = 0.6
+// 좌우 확정까지 같은 쪽을 유지해야 하는 시간(초). 실기기 QA의 시작값이며,
+// 다음 라운드에서 1~1.5초로 조정할 때 이 값만 바꾼다.
+export const HOLD_SEC = 3
+
+/** 3초 유지 시간을 UI의 3 → 2 → 1 정수 표시로 바꾼다. */
+export function getAnswerHoldCountdown(holdSec, holdElapsed) {
+  return Math.max(1, Math.ceil(Math.max(0, holdSec - holdElapsed)))
+}
 
 export class BodyQuizRun {
   /**
@@ -43,11 +47,13 @@ export class BodyQuizRun {
    * @param {object} [opts]
    * @param {number} [opts.targetSquats]  question.exercise.targetReps을 덮어쓸 때만(테스트용)
    * @param {number} [opts.holdSec]       HOLD_SEC을 덮어쓸 때만(테스트용)
+   * @param {boolean} [opts.requireNeutral] 다음 문제 시작 시 중앙 복귀를 먼저 요구
    */
   constructor(question, opts = {}) {
     this.question = question
     this.targetSquats = opts.targetSquats ?? question.exercise.targetReps
     this.holdSec = opts.holdSec ?? HOLD_SEC
+    this.requireNeutral = opts.requireNeutral ?? false
     this.reset()
   }
 
@@ -59,6 +65,7 @@ export class BodyQuizRun {
     this.holdElapsed = 0
     this.correct = null        // true | false | null
     this.activeSec = 0
+    this.neutralConfirmed = !this.requireNeutral
   }
 
   /** 아직 좌우를 못 고르는 상태인가 — 화면의 MOVE LOCK 표시가 이걸 쓴다. */
@@ -67,6 +74,10 @@ export class BodyQuizRun {
   }
 
   get done() { return this.phase === PHASE.ANSWER_RESULT }
+  get needsNeutral() { return !this.neutralConfirmed }
+
+  /** 다음 문제에서 중앙 zone을 실제로 확인하기 전 연속 선택을 막는다. */
+  confirmNeutral() { this.neutralConfirmed = true }
 
   /**
    * 스쿼트 1회 완성. 감지기든 키보드든 "1회가 끝났다"고만 알려주면 된다 —
@@ -88,6 +99,7 @@ export class BodyQuizRun {
    * 매번 `locked`를 검사할 필요가 없다.
    */
   selectAnswer(side) {
+    if (this.needsNeutral) return
     if (this.phase !== PHASE.MOVE_UNLOCKED && this.phase !== PHASE.ANSWER_HOLD) return
     if (this.selectedSide !== side) {
       // 고르던 쪽을 바꾸면 유지 시간을 처음부터 다시 잰다 — 반쯤 넘어갔다가
@@ -114,10 +126,14 @@ export class BodyQuizRun {
    * 시간은 밖에서 받는다 — 안에서 `performance.now()`를 읽으면 합성
    * 프레임으로 테스트할 수 없다(프로젝트 공통 규칙).
    */
-  update(dt) {
+  update(dt, { selectionActive = true } = {}) {
     if (this.phase !== PHASE.QUESTION_READY && !this.done) this.activeSec += dt
 
     if (this.phase !== PHASE.ANSWER_HOLD) return
+    if (!selectionActive) {
+      this.clearSelection()
+      return
+    }
     this.holdElapsed += dt
     if (this.holdElapsed >= this.holdSec) {
       this.correct = this.selectedSide === this.question.correctSide

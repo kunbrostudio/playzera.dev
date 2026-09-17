@@ -1,16 +1,14 @@
 // BODY QUIZ 실제 플레이 — 카메라가 무대이고 UI는 그 위에 얹힌다.
-// 게임 규칙은 BodyQuizRun, 몸 동작은 기존 MoveDetector/zoneDetector가 맡는다.
+// 게임 규칙은 BodyQuizRun, 몸 동작은 BODY QUIZ 전용 motionInput이 맡는다.
 
 import { navigate, onLeave } from '../../core/router.js'
 import { icon } from '../../core/icons.js'
 import { handSession } from '../../core/handSession.js'
 import { poseEngineCore } from '../../core/pose/poseEngine.js'
-import { MoveDetector, MOVE } from '../../core/pose/detectors/moves.js'
-import { createZoneDetector } from '../../core/pose/detectors/zoneDetector.js'
 import { getManifest, getBackTo } from '../registry.js'
 import { ensureSysBarStyle } from '../runner/ui/systemBar.js'
 import { QUESTIONS } from './questions.js'
-import { BodyQuizRun, PHASE } from './game.js'
+import { BodyQuizRun, PHASE, getAnswerHoldCountdown } from './game.js'
 import { BODY_QUIZ_GUIDE_CHARACTERS, getBodyQuizGuideCue } from './guide.js'
 import {
   createBodyQuizSession,
@@ -36,6 +34,18 @@ import {
   bodyQuizMotionHudMarkup,
   createBodyQuizMotionHud,
 } from './motionHud.js'
+import {
+  BODY_QUIZ_INPUT_TUNING,
+  BodyQuizSquatDetector,
+  createBodyQuizZoneDetector,
+} from './motionInput.js'
+import {
+  BODY_QUIZ_RESULT_FX_TIMEOUT_MS,
+  createBodyQuizResultFx,
+} from './resultFx.js'
+import { createBodyQuizAudio, playBodyQuizButtonSfx } from './audio.js'
+
+export { BODY_QUIZ_RESULT_FX_TIMEOUT_MS } from './resultFx.js'
 
 // 기존 import 계약은 유지하되 구현 정본은 motionHud.js 한 곳에 둔다.
 export { bodyQuizMotionIcon } from './motionHud.js'
@@ -97,6 +107,8 @@ export default function bodyQuizPlay(app, query, {
   assetReadiness = bodyQuizAssetReadiness,
   tutorialPolicy = shouldShowTutorial,
   loadingScreen,
+  sessionRandom = Math.random,
+  audioController = createBodyQuizAudio(),
 } = {}) {
   const gameId = query.id ?? 'body-quiz'
   const manifest = getManifest(gameId)
@@ -107,20 +119,26 @@ export default function bodyQuizPlay(app, query, {
   handSession.setPointerActive(false)
 
   const backTo = getBackTo(gameId)
-  const session = createBodyQuizSession(QUESTIONS)
+  const session = createBodyQuizSession(QUESTIONS, { random: sessionRandom })
   if (!session.questions.length) { navigate(backTo); return }
   let questionIndex = 0
   let question = session.questions[questionIndex]
   let game = new BodyQuizRun(question)
-  let moveDetector = new MoveDetector()
+  let squatDetector = new BodyQuizSquatDetector({ frameAspect: poseEngineCore.frameAspect })
   let questionTiming = null
   let timingCommitted = false
-  let resultShownSec = 0
   let currentZone = 1
   let tutorialActive = false
   let systemPaused = false
   let screenReady = false
   let destroyed = false
+  let hasPoseFrame = false
+  let lastTrackableAt = null
+  let resultFxStarted = false
+  let resultFxHandle = null
+
+  // BGM 준비는 image readiness와 별개다. 늦거나 실패해도 게임은 즉시 진행한다.
+  void audioController.prepare(gameId)
 
   ensureSysBarStyle(app.ownerDocument)
 
@@ -228,7 +246,8 @@ export default function bodyQuizPlay(app, query, {
         --bq-card-scale: 1; --bq-card-opacity: 1; --bq-card-glow: rgba(104,218,255,.55);
         position: relative; top: clamp(-22px, -2dvh, -8px);
         width: min(100%, clamp(118px, min(21.5vw, 36dvh), 330px));
-        display: flex; flex-direction: column; align-items: center; gap: clamp(4px, .8dvh, 9px);
+        display: flex; flex-direction: column; align-items: center;
+        isolation: isolate;
         opacity: var(--bq-card-opacity);
         filter: drop-shadow(0 0 13px var(--bq-card-glow)) drop-shadow(0 12px 22px rgba(0,0,0,.48));
         transition: transform .18s ease, filter .18s ease, opacity .18s ease;
@@ -244,6 +263,28 @@ export default function bodyQuizPlay(app, query, {
       }
       .bq-answer::before { top: 10%; left: -2%; }
       .bq-answer::after { right: 1%; bottom: 22%; animation-delay: 1.45s; }
+      .bq-answer-visual {
+        --bq-sway-start: -.55deg; --bq-sway-end: .55deg;
+        position: relative; z-index: 1; width: 100%; display: flex; flex-direction: column; align-items: center;
+        gap: clamp(4px, .8dvh, 9px); animation: bqCardFloat 3.4s ease-in-out infinite;
+      }
+      #bq-right .bq-answer-visual { --bq-sway-start: .5deg; --bq-sway-end: -.5deg; animation-delay: -1.65s; }
+      @keyframes bqCardFloat {
+        0%, 100% { transform: translateY(0) rotateZ(var(--bq-sway-start)); }
+        50% { transform: translateY(clamp(-7px, -1dvh, -3px)) rotateZ(var(--bq-sway-end)); }
+      }
+      .bq-card-aura {
+        position: absolute; z-index: 0; inset: 5% 3% 16%; border: 2px solid var(--bq-card-glow);
+        border-radius: 46%; pointer-events: none; opacity: .38;
+        background: radial-gradient(circle, var(--bq-card-glow), transparent 68%);
+        box-shadow: 0 0 18px 4px var(--bq-card-glow), inset 0 0 22px var(--bq-card-glow);
+        animation: bqAuraPulse 2.8s ease-in-out infinite;
+      }
+      #bq-right .bq-card-aura { animation-delay: -1.35s; }
+      @keyframes bqAuraPulse {
+        0%, 100% { opacity: .28; transform: scale(.94); }
+        50% { opacity: .58; transform: scale(1.04); }
+      }
       @keyframes bqCardSparkle {
         0%, 32%, 100% { opacity: .14; transform: scale(.42) rotate(0deg); }
         46% { opacity: .92; transform: scale(1.15) rotate(45deg); }
@@ -251,15 +292,87 @@ export default function bodyQuizPlay(app, query, {
       }
       .bq-answer img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; }
       .bq-label { min-width: 54%; padding: 4px 16px; border: 3px solid rgba(255,255,255,.95); border-radius: 9999px; text-align: center; color: #42277d; background: rgba(255,255,255,.94); box-shadow: 0 4px 0 rgba(71,47,126,.42); font-size: clamp(1rem, 2vw, 1.45rem); font-weight: 900; }
-      .bq-answer.zone-active { --bq-card-scale: 1.07; filter: drop-shadow(0 0 18px #ffe066) drop-shadow(0 14px 24px rgba(0,0,0,.48)); }
+      .bq-answer.zone-active { --bq-card-scale: 1.07; filter: drop-shadow(0 0 22px #ffe066) drop-shadow(0 14px 24px rgba(0,0,0,.48)); }
+      .bq-answer.zone-active .bq-card-aura { border-color: #fff6a6; animation: bqSelectedAura .72s ease-in-out infinite; box-shadow: 0 0 25px 8px #ffd447, inset 0 0 25px #fff3a0; }
+      @keyframes bqSelectedAura { 0%,100% { opacity: .58; transform: scale(.98); } 50% { opacity: .96; transform: scale(1.08); } }
       .bq-answer.zone-muted { --bq-card-scale: .96; --bq-card-opacity: .66; }
+      #bq.move-unlocked .bq-answer:not(.zone-muted):not(.correct):not(.wrong) { filter: drop-shadow(0 0 19px var(--bq-card-glow)) drop-shadow(0 13px 23px rgba(0,0,0,.48)); }
       .bq-answer.correct { --bq-card-scale: 1.08; filter: drop-shadow(0 0 24px #65f08a) drop-shadow(0 0 46px #ffd23e); }
       .bq-answer.wrong { --bq-card-scale: 1.03; filter: drop-shadow(0 0 24px #ff6c82); }
+      .bq-answer.correct { animation: bqCorrectFlip 1.05s cubic-bezier(.2,.72,.25,1); }
+      .bq-answer.correct .bq-card-aura { animation: bqCorrectRing 1.05s ease-out both; border-color: #fff5a0; }
+      .bq-answer.wrong .bq-answer-visual { animation: bqWrongShake .58s ease-out; }
+      .bq-answer.wrong .bq-card-aura { animation: bqFailPulse .58s ease-out both; border-color: #ff9aae; }
+      @keyframes bqCorrectFlip {
+        0% { transform: perspective(1100px) rotateY(var(--bq-card-tilt)) scale(1.08); }
+        42% { transform: perspective(1100px) rotateY(calc(var(--bq-card-tilt) + 180deg)) scale(1.08); }
+        68% { transform: perspective(1100px) rotateY(calc(var(--bq-card-tilt) + 360deg)) scale(1.19); }
+        84% { transform: perspective(1100px) rotateY(calc(var(--bq-card-tilt) + 360deg)) scale(.99); }
+        100% { transform: perspective(1100px) rotateY(calc(var(--bq-card-tilt) + 360deg)) scale(1.08); }
+      }
+      @keyframes bqCorrectRing { 0% { opacity: .3; transform: scale(.72); } 48% { opacity: 1; } 100% { opacity: 0; transform: scale(1.38); } }
+      @keyframes bqFailPulse { 0%,100% { opacity: .25; transform: scale(1); } 35% { opacity: .9; transform: scale(1.08); } 65% { opacity: .45; transform: scale(.94); } }
+      @keyframes bqWrongShake {
+        0%, 100% { transform: translateX(0); }
+        20% { transform: translateX(-7px) rotate(-1.5deg); }
+        40% { transform: translateX(6px) rotate(1.2deg); }
+        60% { transform: translateX(-4px) rotate(-.8deg); }
+        80% { transform: translateX(3px) rotate(.5deg); }
+      }
+      .bq-card-particles { position: absolute; z-index: 5; inset: 40% 50%; pointer-events: none; }
+      .bq-card-particles i {
+        --bq-particle-angle: 0deg; --bq-particle-distance: 58px;
+        position: absolute; width: 8px; height: 8px; border-radius: 2px;
+        background: #ffe066; box-shadow: 0 0 9px #fff, 0 0 16px #ffbd36;
+        opacity: 0; transform: rotate(var(--bq-particle-angle)) translateX(0) rotate(45deg);
+        animation: bqAmbientTwinkle 3.6s ease-in-out infinite;
+      }
+      .bq-card-particles i:nth-child(2) { --bq-particle-angle: 45deg; --bq-particle-distance: 72px; animation-delay: -.45s; }
+      .bq-card-particles i:nth-child(3) { --bq-particle-angle: 90deg; --bq-particle-distance: 54px; animation-delay: -.9s; }
+      .bq-card-particles i:nth-child(4) { --bq-particle-angle: 135deg; --bq-particle-distance: 68px; animation-delay: -1.35s; }
+      .bq-card-particles i:nth-child(5) { --bq-particle-angle: 180deg; --bq-particle-distance: 62px; animation-delay: -1.8s; }
+      .bq-card-particles i:nth-child(6) { --bq-particle-angle: 225deg; --bq-particle-distance: 74px; animation-delay: -2.25s; }
+      .bq-card-particles i:nth-child(7) { --bq-particle-angle: 270deg; --bq-particle-distance: 58px; animation-delay: -2.7s; }
+      .bq-card-particles i:nth-child(8) { --bq-particle-angle: 315deg; --bq-particle-distance: 70px; animation-delay: -3.15s; }
+      @keyframes bqAmbientTwinkle {
+        0%, 70%, 100% { opacity: 0; transform: rotate(var(--bq-particle-angle)) translateX(18px) rotate(45deg) scale(.25); }
+        82% { opacity: .9; transform: rotate(var(--bq-particle-angle)) translateX(29px) rotate(90deg) scale(.72); }
+        92% { opacity: .12; transform: rotate(var(--bq-particle-angle)) translateX(34px) rotate(135deg) scale(.38); }
+      }
+      .bq-answer.correct .bq-card-particles i { animation: bqGoldBurst .78s ease-out both; }
+      .bq-answer.wrong .bq-card-particles i { background: #ff91a6; box-shadow: 0 0 8px #fff, 0 0 13px #ff5e7a; animation: bqSoftScatter .45s ease-out both; }
+      @keyframes bqGoldBurst {
+        0% { opacity: 0; transform: rotate(var(--bq-particle-angle)) translateX(0) rotate(45deg) scale(.3); }
+        25% { opacity: 1; }
+        100% { opacity: 0; transform: rotate(var(--bq-particle-angle)) translateX(var(--bq-particle-distance)) rotate(135deg) scale(1); }
+      }
+      @keyframes bqSoftScatter {
+        0% { opacity: .85; transform: rotate(var(--bq-particle-angle)) translateX(0) scale(.55); }
+        100% { opacity: 0; transform: rotate(var(--bq-particle-angle)) translateX(30px) scale(.25); }
+      }
+      .bq-select-countdown {
+        --bq-countdown-progress: 0deg;
+        position: absolute; z-index: 6; left: 50%; top: 42%; transform: translate(-50%, -50%);
+        width: clamp(46px, 6vw, 78px); aspect-ratio: 1; display: inline-flex;
+        align-items: center; justify-content: center; border: 3px solid #fff; border-radius: 50%;
+        color: #fff; background: radial-gradient(circle, #ffad32 0 58%, transparent 60%), conic-gradient(#fff var(--bq-countdown-progress), rgba(255,255,255,.22) 0);
+        box-shadow: 0 4px 0 #a95813, 0 0 26px rgba(255,215,64,.9);
+        font-size: clamp(1.5rem, 4vw, 2.8rem); font-weight: 900; text-shadow: 0 2px 0 #9b5310;
+        animation: bqCountdownPulse .72s ease-in-out infinite;
+      }
+      .bq-select-countdown::after { content: ''; position: absolute; inset: -9px; border: 3px solid rgba(255,238,126,.82); border-radius: inherit; animation: bqCountdownRing .9s ease-out infinite; }
+      .bq-select-countdown[hidden] { display: none; }
+      @keyframes bqCountdownPulse { 0%,100% { transform: translate(-50%,-50%) scale(.96); } 50% { transform: translate(-50%,-50%) scale(1.06); } }
+      @keyframes bqCountdownRing { from { opacity: .9; transform: scale(.84); } to { opacity: 0; transform: scale(1.22); } }
       #bq-center-guide { align-self: end; justify-self: stretch; position: relative; height: clamp(20px, 5dvh, 52px); opacity: .48; }
       #bq-center-guide::after { content: ''; position: absolute; left: 20%; right: 20%; bottom: 8%; height: 35%; border-radius: 50%; border: 2px solid rgba(117,225,255,.74); background: radial-gradient(ellipse, rgba(89,211,255,.22), transparent 70%); box-shadow: 0 0 18px rgba(83,213,255,.34); }
       #bq-feedback { position: absolute; z-index: 4; left: 50%; bottom: 5%; transform: translateX(-50%); min-height: 1.4em; white-space: nowrap; text-align: center; font-size: clamp(1.2rem, 3vw, 2.15rem); font-weight: 900; text-shadow: 0 3px 0 rgba(24,11,57,.72), 0 0 18px currentColor; }
       #bq-feedback.correct { color: #ffe066; }
       #bq-feedback.wrong { color: #ff9cad; }
+      #bq-feedback.correct { animation: bqFeedbackSuccess 1s cubic-bezier(.2,.75,.25,1); }
+      #bq-feedback.wrong { animation: bqFeedbackWrong .55s ease-out; }
+      @keyframes bqFeedbackSuccess { 0% { opacity: 0; transform: translateX(-50%) scale(.55); } 45% { opacity: 1; transform: translateX(-50%) scale(1.22); } 70% { transform: translateX(-50%) scale(.96); } 100% { transform: translateX(-50%) scale(1); } }
+      @keyframes bqFeedbackWrong { 0% { opacity: 0; transform: translateX(-50%) translateY(6px); } 35% { opacity: 1; transform: translateX(-50%) translateY(0); } 100% { opacity: 1; } }
 
       #bq-dev-hint { position: absolute; left: 8px; bottom: 4px; font-size: .68rem; color: rgba(255,255,255,.58); }
 
@@ -302,6 +415,7 @@ export default function bodyQuizPlay(app, query, {
       #bq .pz-menu-item .pz-ico { width: 52%; height: 52%; stroke-width: 2.25; }
       #bq .pz-menu-item:hover { filter: brightness(1.05); transform: scale(1.06); }
       #bq .pz-menu-item:active { transform: translateY(2px) scale(.94); box-shadow: none; }
+      #bq .pz-menu-item:disabled { opacity: .42; cursor: not-allowed; filter: grayscale(.35); transform: none; }
       #bq #pz-confirm { position: fixed; inset: 0; display: flex; background: rgba(38,25,73,.46); backdrop-filter: blur(4px); opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .16s, visibility 0s; }
       #bq #pz-confirm.hidden { display: flex; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .13s, visibility 0s linear .13s; }
       #bq .pz-confirm-box { width: min(88vw, 520px); max-width: none; padding: clamp(20px, 3.5dvh, 34px) clamp(22px, 4vw, 44px); border: 4px solid #cbb8f5; outline: 4px solid rgba(255,255,255,.95); border-radius: clamp(24px, 2.4vw, 34px); background: linear-gradient(180deg, #fff, #f1e9ff); color: #35236f; box-shadow: 0 8px 0 #a98fdc, 0 20px 52px rgba(35,19,77,.36); }
@@ -358,6 +472,8 @@ export default function bodyQuizPlay(app, query, {
 
       @media (prefers-reduced-motion: reduce) {
         .bq-answer::before, .bq-answer::after { animation: none; opacity: .4; }
+        .bq-answer, .bq-answer-visual, .bq-card-aura, .bq-card-particles i,
+        .bq-select-countdown, .bq-select-countdown::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
         .bq-guide img, .bq-guide-bubble { animation: none !important; }
         #bq *, #bq *::before, #bq *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
       }
@@ -384,11 +500,21 @@ export default function bodyQuizPlay(app, query, {
         </section>
 
         <main id="bq-stage">
-          <article class="bq-answer" id="bq-left" data-side="left"><img src="${question.left.image}" alt="${question.left.label}"><div class="bq-label">${question.left.label}</div></article>
+          <article class="bq-answer" id="bq-left" data-side="left">
+            <div class="bq-card-aura" aria-hidden="true"></div>
+            <div class="bq-answer-visual"><img src="${question.left.image}" alt="${question.left.label}"><div class="bq-label">${question.left.label}</div></div>
+            <div class="bq-card-particles" aria-hidden="true">${'<i></i>'.repeat(8)}</div>
+            <span class="bq-select-countdown" role="status" hidden></span>
+          </article>
           <div id="bq-center-guide" aria-hidden="true"></div>
-          <article class="bq-answer" id="bq-right" data-side="right"><img src="${question.right.image}" alt="${question.right.label}"><div class="bq-label">${question.right.label}</div></article>
+          <article class="bq-answer" id="bq-right" data-side="right">
+            <div class="bq-card-aura" aria-hidden="true"></div>
+            <div class="bq-answer-visual"><img src="${question.right.image}" alt="${question.right.label}"><div class="bq-label">${question.right.label}</div></div>
+            <div class="bq-card-particles" aria-hidden="true">${'<i></i>'.repeat(8)}</div>
+            <span class="bq-select-countdown" role="status" hidden></span>
+          </article>
           <div id="bq-feedback" aria-live="polite"></div>
-          ${import.meta.env.DEV ? '<div id="bq-dev-hint">S: 스쿼트 · ←/→: 답 선택 · R: 다시하기</div>' : ''}
+          ${import.meta.env.DEV ? '<div id="bq-dev-hint">S: 스쿼트 · ←/→: 답 선택 · ↓: 중앙 · R: 다시하기</div>' : ''}
         </main>
 
         ${bodyQuizMotionHudMarkup({
@@ -432,17 +558,48 @@ export default function bodyQuizPlay(app, query, {
     image.addEventListener('error', () => { guide.dataset.asset = 'missing' }, { once: true })
   }
 
-  const zoneDetector = createZoneDetector({ lanes: 3, onZoneChange: zone => { currentZone = zone } })
+  const zoneDetector = createBodyQuizZoneDetector()
 
   function handleLandmarks(landmarks) {
     if (destroyed || !screenReady || tutorialActive || systemPaused) return
-    const fired = moveDetector.update(landmarks, performance.now() / 1000)
-    if (fired.includes(MOVE.SQUAT)) game.registerSquat()
-    zoneDetector.update(landmarks)
-    currentZone = zoneDetector.getCurrentZone()
-    if (currentZone === 0) game.selectAnswer('left')
-    else if (currentZone === 2) game.selectAnswer('right')
-    else game.clearSelection()
+    const now = performance.now() / 1000
+    hasPoseFrame = true
+    const squat = squatDetector.update(landmarks, now)
+    const zone = zoneDetector.update(landmarks)
+    if (!squat.tracking || !zone.tracking) {
+      // 한두 프레임 confidence가 흔들리는 것은 허용하되, loop에서 grace를
+      // 넘긴 추적 손실로 확인되면 선택 시간을 전부 취소한다.
+      return
+    }
+    lastTrackableAt = now
+    if (squat.completed) registerSquat()
+    currentZone = zone.zone
+    if (currentZone === 0) selectAnswer('left')
+    else if (currentZone === 2) selectAnswer('right')
+    else {
+      game.confirmNeutral()
+      clearAnswerSelection()
+    }
+  }
+
+  function registerSquat() {
+    const before = game.squatCount
+    game.registerSquat()
+    if (game.squatCount > before) audioController.squat(game.squatCount, game.targetSquats)
+  }
+
+  function selectAnswer(side) {
+    const before = game.selectedSide
+    game.selectAnswer(side)
+    if (game.phase === PHASE.ANSWER_HOLD && game.selectedSide !== before) {
+      audioController.enterSelection(side)
+    }
+  }
+
+  function clearAnswerSelection() {
+    const wasHolding = game.phase === PHASE.ANSWER_HOLD
+    game.clearSelection()
+    if (wasHolding && game.phase !== PHASE.ANSWER_HOLD) audioController.cancelSelection()
   }
 
   function setCameraStatus(status, error) {
@@ -482,12 +639,13 @@ export default function bodyQuizPlay(app, query, {
   function startQuestionClock(now = performance.now()) {
     questionTiming = createBodyQuizQuestionTiming(question.id, now)
     timingCommitted = false
-    resultShownSec = 0
   }
 
   function resetCurrentQuestion() {
+    clearResultEffect()
+    audioController.nextQuestion()
     game = new BodyQuizRun(question)
-    moveDetector = new MoveDetector()
+    squatDetector = new BodyQuizSquatDetector({ frameAspect: poseEngineCore.frameAspect })
     currentZone = 1
     zoneDetector.destroy()
     startQuestionClock()
@@ -496,10 +654,12 @@ export default function bodyQuizPlay(app, query, {
 
   function advanceQuestion() {
     if (questionIndex >= session.questions.length - 1) return false
+    clearResultEffect()
+    audioController.nextQuestion()
     questionIndex += 1
     question = session.questions[questionIndex]
-    game = new BodyQuizRun(question)
-    moveDetector = new MoveDetector()
+    game = new BodyQuizRun(question, { requireNeutral: true })
+    squatDetector = new BodyQuizSquatDetector({ frameAspect: poseEngineCore.frameAspect })
     currentZone = 1
     zoneDetector.destroy()
     startQuestionClock()
@@ -507,9 +667,36 @@ export default function bodyQuizPlay(app, query, {
     return true
   }
 
+  function clearResultEffect() {
+    resultFxHandle?.cancel()
+    resultFxHandle = null
+    resultFxStarted = false
+    for (const card of [els.left, els.right]) card.classList.remove('correct', 'wrong')
+  }
+
+  function startResultEffect() {
+    if (resultFxStarted || !game.done) return
+    resultFxStarted = true
+    const picked = game.selectedSide === 'left' ? els.left : els.right
+    resultFxHandle = createBodyQuizResultFx({
+      card: picked,
+      correct: game.correct,
+      timeoutMs: BODY_QUIZ_RESULT_FX_TIMEOUT_MS,
+      onSound: correct => audioController.result(correct),
+      onComplete() {
+        resultFxHandle = null
+        if (!destroyed && !advanceQuestion()) {
+          resultFxStarted = true
+          audioController.complete()
+        }
+      },
+    })
+  }
+
   function paint() {
     const locked = game.locked
     root.dataset.phase = game.phase
+    root.classList.toggle('move-unlocked', !locked && !game.done && !game.needsNeutral)
     motionHud.update({
       exercise: question.exercise.key,
       currentCount: game.squatCount,
@@ -522,17 +709,29 @@ export default function bodyQuizPlay(app, query, {
     for (const [side, el] of [['left', els.left], ['right', els.right]]) {
       el.classList.toggle('zone-active', selected === side)
       el.classList.toggle('zone-muted', !!selected && selected !== side)
-      el.classList.remove('correct', 'wrong')
+      el.classList.toggle('correct', game.done && game.selectedSide === side && game.correct)
+      el.classList.toggle('wrong', game.done && game.selectedSide === side && !game.correct)
+      const countdown = el.querySelector('.bq-select-countdown')
+      countdown.hidden = selected !== side
+      const holdProgress = selected === side && game.holdSec > 0
+        ? Math.min(1, Math.max(0, game.holdElapsed / game.holdSec))
+        : 0
+      countdown.style.setProperty('--bq-countdown-progress', `${Math.round(holdProgress * 360)}deg`)
+      countdown.textContent = selected === side
+        ? String(getAnswerHoldCountdown(game.holdSec, game.holdElapsed))
+        : ''
     }
     if (game.phase === PHASE.ANSWER_HOLD) {
-      const pct = Math.min(100, Math.round((game.holdElapsed / game.holdSec) * 100))
-      els.feedback.textContent = `${game.selectedSide === 'left' ? question.left.label : question.right.label} 선택 중… ${pct}%`
+      els.feedback.textContent = `${game.selectedSide === 'left' ? question.left.label : question.right.label} 쪽에서 잠깐 기다려요!`
       els.feedback.className = ''
     } else if (game.phase === PHASE.ANSWER_RESULT) {
       const picked = game.selectedSide === 'left' ? els.left : els.right
       picked.classList.add(game.correct ? 'correct' : 'wrong')
       els.feedback.textContent = game.correct ? 'CORRECT! +1' : '괜찮아요, 다시 도전해요!'
       els.feedback.className = game.correct ? 'correct' : 'wrong'
+    } else if (!locked && game.needsNeutral) {
+      els.feedback.textContent = '가운데로 돌아오면 다음 선택이 시작돼요'
+      els.feedback.className = ''
     } else {
       els.feedback.textContent = ''
       els.feedback.className = ''
@@ -564,7 +763,14 @@ export default function bodyQuizPlay(app, query, {
     const dt = lastT === null ? 0 : Math.min(.1, now - lastT)
     lastT = now
     if (!tutorialActive && !systemPaused) {
-      game.update(dt)
+      const selectionActive = !hasPoseFrame
+        || (lastTrackableAt != null && now - lastTrackableAt <= BODY_QUIZ_INPUT_TUNING.selectionTrackingGraceSec)
+      const wasHolding = game.phase === PHASE.ANSWER_HOLD
+      game.update(dt, { selectionActive })
+      if (wasHolding && game.phase === PHASE.MOVE_UNLOCKED) audioController.cancelSelection()
+      if (game.phase === PHASE.ANSWER_HOLD) {
+        audioController.selectionCountdown(getAnswerHoldCountdown(game.holdSec, game.holdElapsed))
+      }
       if (questionTiming && !game.locked) markBodyQuizExerciseCompleted(questionTiming, performance.now())
       if (questionTiming && game.done) {
         markBodyQuizAnswerSelected(questionTiming, performance.now())
@@ -572,8 +778,7 @@ export default function bodyQuizPlay(app, query, {
           session.timings.push({ ...questionTiming })
           timingCommitted = true
         }
-        resultShownSec += dt
-        if (resultShownSec >= 1.2) advanceQuestion()
+        startResultEffect()
       }
     }
     paint()
@@ -594,13 +799,18 @@ export default function bodyQuizPlay(app, query, {
 
   const onKey = event => {
     if (!screenReady || tutorialActive || systemPaused) return
-    if (event.code === 'KeyS') { event.preventDefault(); game.registerSquat() }
-    else if (event.code === 'ArrowLeft') { event.preventDefault(); game.selectAnswer('left') }
-    else if (event.code === 'ArrowRight') { event.preventDefault(); game.selectAnswer('right') }
+    audioController.activate()
+    if (event.code === 'KeyS') { event.preventDefault(); registerSquat() }
+    else if (event.code === 'ArrowLeft') { event.preventDefault(); selectAnswer('left') }
+    else if (event.code === 'ArrowRight') { event.preventDefault(); selectAnswer('right') }
+    else if (event.code === 'ArrowDown') { event.preventDefault(); game.confirmNeutral(); clearAnswerSelection() }
     else if (event.code === 'KeyR') { event.preventDefault(); resetCurrentQuestion() }
   }
   window.addEventListener('keydown', onKey)
-  els.retry.addEventListener('click', () => cameraSession.start())
+  els.retry.addEventListener('click', () => {
+    playBodyQuizButtonSfx()
+    cameraSession.start()
+  })
 
   // 진입 즉시 카메라를 준비하되 tutorial 동안 detector 입력은 차단한다.
   if (navigator.mediaDevices?.getUserMedia) cameraSession.start()
@@ -613,6 +823,7 @@ export default function bodyQuizPlay(app, query, {
   function activatePlay() {
     if (destroyed) return
     screenReady = true
+    void audioController.start(gameId)
     renderQuestionData()
     mountSystemBar()
     startGameLoop()
@@ -628,6 +839,7 @@ export default function bodyQuizPlay(app, query, {
       playAssets,
       loadingScreen,
       onFinish() {
+        audioController.activate()
         tutorialActive = false
         tutorialHandle = null
         markTutorialCompleted()
@@ -660,6 +872,8 @@ export default function bodyQuizPlay(app, query, {
     tutorialHandle?.destroy()
     playReadinessGate?.destroy()
     systemBinding?.destroy()
+    clearResultEffect()
+    audioController.destroy()
     zoneDetector.destroy()
     cameraSession.destroy()
   })

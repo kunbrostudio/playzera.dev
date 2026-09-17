@@ -4,16 +4,22 @@
 // keydown을 쏴 본다(storyDialogue.test.js와 같은 방식).
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import bodyQuizPlay, { bodyQuizMotionIcon, createBodyQuizCameraSession } from '../src/games/body-quiz/play.js'
+import bodyQuizPlay, {
+  BODY_QUIZ_RESULT_FX_TIMEOUT_MS,
+  bodyQuizMotionIcon,
+  createBodyQuizCameraSession,
+} from '../src/games/body-quiz/play.js'
 import { BodyQuizRun } from '../src/games/body-quiz/game.js'
 import { QUESTIONS } from '../src/games/body-quiz/questions.js'
 import { handSession } from '../src/core/handSession.js'
 import { BODY_QUIZ_GUIDE_CHARACTERS, getBodyQuizGuideCue } from '../src/games/body-quiz/guide.js'
 import {
+  BODY_QUIZ_SESSION_LIMIT,
   createBodyQuizSession,
   createBodyQuizQuestionTiming,
   markBodyQuizExerciseCompleted,
   markBodyQuizAnswerSelected,
+  randomizeBodyQuizAnswerSides,
 } from '../src/games/body-quiz/session.js'
 import {
   markTutorialCompleted,
@@ -28,6 +34,11 @@ const immediateReadiness = {
   invalidate() {},
 }
 const noopLoadingScreen = () => ({ release() {} })
+const noopAudioController = {
+  prepare: () => Promise.resolve(), activate() {}, start: () => Promise.resolve(),
+  squat() {}, enterSelection() {}, selectionCountdown() {}, cancelSelection() {},
+  result() {}, nextQuestion() {}, complete() {}, destroy() {},
+}
 
 // squat 반영은 rAF 루프(loop())가 다음 프레임에 그린다 — keydown 직후
 // DOM을 바로 읽으면 아직 이전 프레임이다. 프레임 한 번을 기다려 준다.
@@ -45,15 +56,21 @@ async function press(code) {
   await tick()
 }
 
-function mountPlay(query = { id: 'body-quiz' }) {
+function mountPlay(query = { id: 'body-quiz' }, options = {}) {
   document.body.innerHTML = '<div id="app"></div>'
   const app = document.querySelector('#app')
-  bodyQuizPlay(app, query, { assetReadiness: immediateReadiness, loadingScreen: noopLoadingScreen })
+  bodyQuizPlay(app, query, {
+    assetReadiness: immediateReadiness,
+    loadingScreen: noopLoadingScreen,
+    sessionRandom: () => 0.99,
+    audioController: noopAudioController,
+    ...options,
+  })
   return app
 }
 
-function enterPlay(query = { id: 'body-quiz' }) {
-  const app = mountPlay(query)
+function enterPlay(query = { id: 'body-quiz' }, options = {}) {
+  const app = mountPlay(query, options)
   app.querySelector('#bqt-skip')?.click()
   return app
 }
@@ -109,7 +126,7 @@ describe('실제 플레이 scene — 카메라·데이터·상태 UI', () => {
 
   it('헤더 진행도는 실제 세션 index/total을 표시하고 인트로 중복 버튼은 없다', () => {
     const app = enterPlay()
-    expect(app.querySelector('#bq-progress strong').textContent).toBe('1 / 1')
+    expect(app.querySelector('#bq-progress strong').textContent).toBe('1 / 6')
     expect(app.querySelector('#bq').dataset.questionIndex).toBe('0')
     expect(app.querySelector('#bq-intro')).toBeNull()
   })
@@ -203,10 +220,53 @@ describe('실제 플레이 scene — 카메라·데이터·상태 UI', () => {
     await press('ArrowLeft')
     expect(app.querySelector('#bq-left').classList.contains('zone-active')).toBe(true)
     expect(app.querySelector('#bq-right').classList.contains('zone-muted')).toBe(true)
+    expect(app.querySelector('#bq-left .bq-select-countdown').textContent).toBe('3')
+    expect(app.querySelector('#bq-left .bq-select-countdown').hidden).toBe(false)
 
     await press('ArrowRight')
     expect(app.querySelector('#bq-right').classList.contains('zone-active')).toBe(true)
     expect(app.querySelector('#bq-left').classList.contains('zone-muted')).toBe(true)
+    expect(app.querySelector('#bq-left .bq-select-countdown').hidden).toBe(true)
+    expect(app.querySelector('#bq-right .bq-select-countdown').textContent).toBe('3')
+  })
+
+  it('실제 play 상태 전이를 BODY QUIZ audio coordinator에 한 번씩 전달한다', async () => {
+    const audioController = {
+      prepare: vi.fn(() => Promise.resolve()), activate: vi.fn(), start: vi.fn(() => Promise.resolve()),
+      squat: vi.fn(), enterSelection: vi.fn(), selectionCountdown: vi.fn(), cancelSelection: vi.fn(),
+      result: vi.fn(), nextQuestion: vi.fn(), complete: vi.fn(), destroy: vi.fn(),
+    }
+    enterPlay({ id: 'body-quiz' }, { audioController })
+    expect(audioController.prepare).toHaveBeenCalledWith('body-quiz')
+    expect(audioController.start).toHaveBeenCalledWith('body-quiz')
+
+    for (let i = 0; i < 5; i++) await press('KeyS')
+    expect(audioController.squat).toHaveBeenCalledTimes(5)
+    expect(audioController.squat).toHaveBeenLastCalledWith(5, 5)
+
+    await press('ArrowLeft')
+    expect(audioController.enterSelection).toHaveBeenCalledOnce()
+    expect(audioController.selectionCountdown).toHaveBeenCalledWith(3)
+  })
+
+  it('답 카드는 float/sparkle과 correct flip/wrong shake/particle 효과 구조를 갖는다', () => {
+    const app = enterPlay()
+    const css = app.querySelector('style').textContent
+    expect(app.querySelectorAll('.bq-answer-visual')).toHaveLength(2)
+    expect(app.querySelectorAll('.bq-card-aura')).toHaveLength(2)
+    expect(app.querySelectorAll('.bq-card-particles i')).toHaveLength(16)
+    expect(app.querySelectorAll('.bq-select-countdown')).toHaveLength(2)
+    expect(css).toContain('@keyframes bqCardFloat')
+    expect(css).toContain('@keyframes bqAmbientTwinkle')
+    expect(css).toContain('@keyframes bqSelectedAura')
+    expect(css).toContain('@keyframes bqCountdownRing')
+    expect(css).toContain('@keyframes bqCorrectFlip')
+    expect(css).toContain('@keyframes bqCorrectRing')
+    expect(css).toContain('calc(var(--bq-card-tilt) + 360deg)')
+    expect(css).toContain('@keyframes bqWrongShake')
+    expect(css).toContain('@keyframes bqGoldBurst')
+    expect(css).toContain('@keyframes bqSoftScatter')
+    expect(BODY_QUIZ_RESULT_FX_TIMEOUT_MS).toBeGreaterThan(900)
   })
 
   it('플레이 헤더도 공통 시스템 메뉴와 종료 확인창을 사용한다', () => {
@@ -215,6 +275,7 @@ describe('실제 플레이 scene — 카메라·데이터·상태 UI', () => {
     const confirm = app.querySelector('#pz-confirm')
     expect(app.querySelector('#pz-menu img')).toBeNull()
     expect(app.querySelector('#pz-exit img')).toBeNull()
+    expect(app.querySelector('#pz-music').disabled).toBe(true)
 
     app.querySelector('#pz-menu').click()
     expect(panel.classList.contains('hidden')).toBe(false)
@@ -243,8 +304,23 @@ describe('실제 플레이 scene — 세션 문제 선택과 분석 시간', () 
     expect(JSON.stringify(sample)).toBe(before)
   })
 
+  it('10문제 session의 정답 위치는 LEFT/RIGHT에 5개씩 배치한다', () => {
+    const session = createBodyQuizSession(sample, { random: () => 0.37 })
+    const left = session.questions.filter(question => question.correctSide === 'left').length
+    const right = session.questions.filter(question => question.correctSide === 'right').length
+    expect(session.questions).toHaveLength(BODY_QUIZ_SESSION_LIMIT)
+    expect({ left, right }).toEqual({ left: 5, right: 5 })
+  })
+
+  it('홀수 문제 session도 LEFT/RIGHT 정답 수가 1개보다 더 벌어지지 않는다', () => {
+    const session = createBodyQuizSession(sample, { limit: 5, random: () => 0.8 })
+    const left = session.questions.filter(question => question.correctSide === 'left').length
+    const right = session.questions.filter(question => question.correctSide === 'right').length
+    expect(Math.abs(left - right)).toBe(1)
+  })
+
   it('LEFT/RIGHT를 바꿔도 correctSide가 정답 데이터와 함께 이동한다', () => {
-    const [question] = createBodyQuizSession([QUESTIONS[0]], { random: () => 0.1 }).questions
+    const question = randomizeBodyQuizAnswerSides(QUESTIONS[0], () => 0.1)
     expect(question.left.id).toBe('tiger')
     expect(question.correctSide).toBe('right')
 

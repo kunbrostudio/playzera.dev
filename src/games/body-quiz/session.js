@@ -35,6 +35,27 @@ export function randomizeBodyQuizAnswerSides(question, random = Math.random) {
   }
 }
 
+/** 원본을 바꾸지 않고 정답을 요청한 쪽에 놓는다. */
+export function placeBodyQuizCorrectSide(question, side) {
+  const swap = question.correctSide !== side
+  return {
+    ...question,
+    left: { ...(swap ? question.right : question.left) },
+    right: { ...(swap ? question.left : question.right) },
+    exercise: { ...question.exercise },
+    correctSide: side,
+  }
+}
+
+/** 한 세션의 LEFT/RIGHT 정답 수 차이를 최대 1로 제한하고 순서는 섞는다. */
+export function createBalancedAnswerSides(count, random = Math.random) {
+  const leftCount = Math.floor(count / 2) + (count % 2 && random() < 0.5 ? 1 : 0)
+  const sides = Array.from({ length: count }, (_, index) => (
+    index < leftCount ? SIDE.LEFT : SIDE.RIGHT
+  ))
+  return shuffleBodyQuizQuestions(sides, random)
+}
+
 /**
  * 한 판에 쓸 문제 목록. 현재 데이터가 10개보다 적으면 있는 만큼만 쓰고,
  * 늘어나면 최대 10개를 고른다. 다음에는 이 함수 안의 selection 단계만
@@ -46,8 +67,11 @@ export function createBodyQuizSession(
 ) {
   const count = Math.min(Math.max(0, limit), questions.length)
   const selected = shuffleBodyQuizQuestions(questions, random).slice(0, count)
+  const answerSides = createBalancedAnswerSides(count, random)
   return {
-    questions: selected.map(question => randomizeBodyQuizAnswerSides(question, random)),
+    questions: selected.map((question, index) => (
+      placeBodyQuizCorrectSide(question, answerSides[index])
+    )),
     timings: [],
   }
 }

@@ -22,6 +22,11 @@ function readinessResult(ready = true, timedOut = false) {
   return { ready, timedOut, results: [], failed: ready ? [] : [{ src: '/missing.png', ok: false }] }
 }
 const noopLoadingScreen = () => ({ release() {} })
+const noopAudioController = {
+  prepare: () => Promise.resolve(), activate() {}, start: () => Promise.resolve(),
+  squat() {}, enterSelection() {}, selectionCountdown() {}, cancelSelection() {},
+  result() {}, nextQuestion() {}, complete() {}, destroy() {},
+}
 
 afterEach(() => {
   vi.useRealTimers()
@@ -168,6 +173,7 @@ describe('BODY QUIZ screen readiness interaction gate', () => {
       assetReadiness: readiness,
       tutorialPolicy: () => false,
       loadingScreen: noopLoadingScreen,
+      audioController: noopAudioController,
     })
     const root = document.querySelector('#bq')
     expect(root.dataset.bqReadiness).toBe('loading')

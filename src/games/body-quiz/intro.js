@@ -21,6 +21,7 @@ import { icon } from '../../core/icons.js'
 import { handSession } from '../../core/handSession.js'
 import { getPlayRoute } from '../registry.js'
 import { QUESTIONS } from './questions.js'
+import { playBodyQuizButtonSfx, silenceBodyQuizBgm } from './audio.js'
 import {
   BODY_QUIZ_CRITICAL_ASSETS,
   bodyQuizAssetReadiness,
@@ -45,6 +46,9 @@ export function resolveStartRoute(query = {}) {
 }
 
 export default function bodyQuizIntro(app, query = {}, { assetReadiness = bodyQuizAssetReadiness, loadingScreen } = {}) {
+  // game route 사이에서는 router가 BGM을 정리하지 않으므로 BODY QUIZ 첫 화면이
+  // 이전 게임의 음악을 명시적으로 끊는다. BODY QUIZ 자체 BGM은 현재 비활성이다.
+  silenceBodyQuizBgm()
   app.innerHTML = `
     <style>
       #bqi-root, #bqi-root * { box-sizing: border-box; }
@@ -160,6 +164,7 @@ export default function bodyQuizIntro(app, query = {}, { assetReadiness = bodyQu
 
   function start() {
     if (!ready || launched || transitioning) return
+    playBodyQuizButtonSfx('primary')
     if (assetReadiness.areReady(tutorialAssets)) {
       launched = true
       navigate(playRoute)
@@ -183,7 +188,10 @@ export default function bodyQuizIntro(app, query = {}, { assetReadiness = bodyQu
   }
 
   app.querySelector('#bqi-start').addEventListener('click', start)
-  app.querySelector('#bqi-back').addEventListener('click', () => navigate('/'))
+  app.querySelector('#bqi-back').addEventListener('click', () => {
+    playBodyQuizButtonSfx()
+    navigate('/')
+  })
 
   if (assetReadiness.areReady(BODY_QUIZ_CRITICAL_ASSETS.intro)) {
     ready = true

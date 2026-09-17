@@ -6,14 +6,45 @@
 // 상태를 흔든다.
 
 import { describe, it, expect } from 'vitest'
-import { BodyQuizRun, PHASE } from '../src/games/body-quiz/game.js'
-import { QUESTIONS } from '../src/games/body-quiz/questions.js'
+import fs from 'node:fs'
+import {
+  BodyQuizRun,
+  HOLD_SEC,
+  PHASE,
+  getAnswerHoldCountdown,
+} from '../src/games/body-quiz/game.js'
+import {
+  BODY_QUIZ_LOCALES,
+  QUESTIONS,
+  localizeBodyQuizQuestion,
+} from '../src/games/body-quiz/questions.js'
 import { getExercise } from '../src/progress/exercises.js'
 import { GAME_REGISTRY, getBackTo, getPlayRoute } from '../src/games/registry.js'
 
 const question = QUESTIONS[0]
 
 describe('바디 퀴즈 — 초기 상태는 MOVE LOCK', () => {
+  it('활성 문제는 실제 에셋이 있는 고유 id 데이터만 등록한다', () => {
+    expect(QUESTIONS).toHaveLength(6)
+    expect(new Set(QUESTIONS.map(item => item.id)).size).toBe(QUESTIONS.length)
+    expect(QUESTIONS.every(item => item.category === 'animal')).toBe(true)
+    expect(QUESTIONS.flatMap(item => [item.left.image, item.right.image]).every(path => (
+      path === '/assets/body-quiz/answers/animal_elephant.png'
+      || path === '/assets/body-quiz/answers/animal_tiger.png'
+    ))).toBe(true)
+    for (const path of new Set(QUESTIONS.flatMap(item => [item.left.image, item.right.image]))) {
+      expect(fs.existsSync(`public${path}`), path).toBe(true)
+    }
+    expect(QUESTIONS.every(item => item.promptKey && item.left.labelKey && item.right.labelKey)).toBe(true)
+  })
+
+  it('질문 copy는 locale key로 한국어/영어를 바꿀 수 있다', () => {
+    const english = localizeBodyQuizQuestion(QUESTIONS[0], 'en')
+    expect(english.prompt).toBe(BODY_QUIZ_LOCALES.en.prompts['animal-nose'])
+    expect(english.left.label).toBe('Elephant')
+    expect(english.right.label).toBe('Tiger')
+  })
+
   it('문제가 뜨자마자 잠겨 있다', () => {
     const g = new BodyQuizRun(question)
     expect(g.phase).toBe(PHASE.QUESTION_READY)
@@ -77,6 +108,25 @@ describe('좌우 선택 — 유지해야 확정된다(ANSWER_HOLD)', () => {
     expect(g.correct).toBeNull()
   })
 
+  it('실기기 QA 기본 카운트다운은 3초이고 완료 전에는 확정하지 않는다', () => {
+    const g = new BodyQuizRun(question, { targetSquats: 1 })
+    expect(HOLD_SEC).toBe(3)
+    g.registerSquat()
+    g.selectAnswer('left')
+    g.update(2.99)
+    expect(g.phase).toBe(PHASE.ANSWER_HOLD)
+    g.update(0.01)
+    expect(g.phase).toBe(PHASE.ANSWER_RESULT)
+  })
+
+  it('화면 카운트다운은 hold 진행에 따라 3 → 2 → 1로 표시된다', () => {
+    expect(getAnswerHoldCountdown(3, 0)).toBe(3)
+    expect(getAnswerHoldCountdown(3, 0.99)).toBe(3)
+    expect(getAnswerHoldCountdown(3, 1)).toBe(2)
+    expect(getAnswerHoldCountdown(3, 2)).toBe(1)
+    expect(getAnswerHoldCountdown(3, 2.99)).toBe(1)
+  })
+
   it('holdSec을 다 채워야 ANSWER_RESULT로 확정된다', () => {
     const g = unlocked()
     g.selectAnswer('left')
@@ -129,6 +179,29 @@ describe('좌우 선택 — 유지해야 확정된다(ANSWER_HOLD)', () => {
     g.selectAnswer('right')
     expect(g.phase).toBe(PHASE.ANSWER_RESULT)
     expect(g.correct).toBe(true)
+  })
+
+  it('다음 문제는 중앙 복귀를 확인하기 전 LEFT/RIGHT를 받지 않는다', () => {
+    const g = new BodyQuizRun(question, { targetSquats: 1, holdSec: 1, requireNeutral: true })
+    g.registerSquat()
+    g.selectAnswer('left')
+    expect(g.selectedSide).toBeNull()
+    expect(g.needsNeutral).toBe(true)
+
+    g.confirmNeutral()
+    g.selectAnswer('left')
+    expect(g.selectedSide).toBe('left')
+    expect(g.needsNeutral).toBe(false)
+  })
+
+  it('추적이 끊기면 진행 중인 선택 시간을 버린다', () => {
+    const g = unlocked()
+    g.selectAnswer('left')
+    g.update(0.8)
+    g.update(0.1, { selectionActive: false })
+    expect(g.phase).toBe(PHASE.MOVE_UNLOCKED)
+    expect(g.selectedSide).toBeNull()
+    expect(g.holdElapsed).toBe(0)
   })
 })
 
